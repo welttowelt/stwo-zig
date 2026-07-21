@@ -40,6 +40,7 @@ GATES_POLICY = {
 def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
     riscv = {
         "enabled": riscv_enabled,
+        "promotion_eligible": riscv_enabled,
         "board": "riscv",
         "build_step": "true",
         "binary": "bin/missing-riscv-bench",
@@ -78,6 +79,7 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
             "groups": {
                 "native": {
                     "enabled": True,
+                    "promotion_eligible": True,
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": native_binary,

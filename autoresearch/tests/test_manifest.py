@@ -47,30 +47,43 @@ class ManifestTest(unittest.TestCase):
         self.assertIn("riscv", by_id)
         native, riscv = by_id["native"], by_id["riscv"]
         self.assertTrue(native.enabled)
+        self.assertTrue(native.promotion_eligible)
         self.assertEqual(native.board, "core_cpu")
         self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
         self.assertEqual(native.report_schema, "native_proof_v6")
         self.assertEqual(len(native.workloads), 3)
         self.assertFalse(riscv.enabled)
+        self.assertFalse(riscv.promotion_eligible)
         self.assertEqual(riscv.board, "riscv")
-        self.assertEqual(riscv.disabled_reason, "stark-v adapter pending release gate")
+        self.assertEqual(
+            riscv.disabled_reason,
+            "RF-01 adapter release and BA-03 autoresearch activation pending",
+        )
         self.assertEqual(riscv.binary, "zig-out/bin/stwo-zig")
         self.assertEqual(riscv.build_step, "zig build stwo-zig -Doptimize=ReleaseFast")
-        self.assertEqual({w.workload_id for w in riscv.workloads},
-                         {"riscv_fib_small", "riscv_alu"})
+        self.assertEqual(len(riscv.workloads), 20)
+        self.assertEqual(
+            {name: sum(w.workload_class == name for w in riscv.workloads)
+             for name in ("small", "wide", "deep")},
+            {"small": 6, "wide": 7, "deep": 7},
+        )
+        self.assertIn("riscv_branch_fib", {w.workload_id for w in riscv.workloads})
+        self.assertIn("riscv_keccak_128b", {w.workload_id for w in riscv.workloads})
+        self.assertIn("riscv_sha2_2048b", {w.workload_id for w in riscv.workloads})
         self.assertTrue(all(w.args.startswith("bench --elf ") for w in riscv.workloads))
         self.assertTrue(all("--backend cpu" in w.args for w in riscv.workloads))
+        self.assertTrue(all("{admission}" in w.args for w in riscv.workloads))
 
     def test_disabled_group_workloads_excluded_by_default(self):
         default_ids = {w.workload_id for w in self.m.workloads(board="core_cpu")}
-        self.assertNotIn("riscv_fib_small", default_ids)
-        self.assertNotIn("riscv_alu", default_ids)
+        self.assertNotIn("riscv_branch_fib", default_ids)
+        self.assertNotIn("riscv_alu_test", default_ids)
         all_ids = {
             w.workload_id
             for w in self.m.workloads(include_disabled=True, board="riscv")
         }
-        self.assertIn("riscv_fib_small", all_ids)
-        self.assertIn("riscv_alu", all_ids)
+        self.assertIn("riscv_branch_fib", all_ids)
+        self.assertIn("riscv_alu_test", all_ids)
         # every default workload comes from an enabled group
         enabled = {g.group_id for g in self.m.groups() if g.enabled}
         self.assertTrue(all(
@@ -115,6 +128,7 @@ class RegistryValidationTest(unittest.TestCase):
                 "groups": {
                     "native": {
                         "enabled": True,
+                        "promotion_eligible": True,
                         "board": "core_cpu",
                         "build_step": "true",
                         "binary": "bin/bench",
@@ -143,6 +157,7 @@ class RegistryValidationTest(unittest.TestCase):
         raw = self._base_raw()
         raw["workload_registry"]["groups"]["riscv"] = {
             "enabled": False,
+            "promotion_eligible": False,
             "board": "riscv",
             "build_step": "true",
             "binary": "bin/riscv",
@@ -177,6 +192,7 @@ class RegistryValidationTest(unittest.TestCase):
         raw = self._base_raw()
         raw["workload_registry"]["groups"]["other"] = {
             "enabled": True,
+            "promotion_eligible": True,
             "board": "core_cpu",
             "build_step": "true",
             "binary": "bin/other",
@@ -186,6 +202,87 @@ class RegistryValidationTest(unittest.TestCase):
         with self.assertRaises(manifest_mod.ManifestError) as ctx:
             manifest_mod._validate(raw)
         self.assertIn("cross-group workload pooling", str(ctx.exception))
+
+    def test_promotion_eligibility_is_typed_and_disabled_groups_fail_closed(self):
+        for enabled, eligible in ((True, "true"), (False, True)):
+            with self.subTest(enabled=enabled, eligible=eligible):
+                raw = self._base_raw()
+                group = raw["workload_registry"]["groups"]["native"]
+                group["enabled"] = enabled
+                group["promotion_eligible"] = eligible
+                if not enabled:
+                    group["disabled_reason"] = "staged"
+                with self.assertRaises(manifest_mod.ManifestError):
+                    manifest_mod._validate(raw)
+
+    def test_group_gates_policy_merges_bounded_measurement_overrides(self):
+        raw = self._base_raw()
+        raw["gates_policy"] = {
+            "warmups": 10,
+            "samples_per_round": 3,
+            "min_rounds": 7,
+            "max_rounds": 15,
+            "theta_floor": 0.01,
+            "wall_clock_cap_seconds": {"small": 240, "wide": 600, "deep": 600},
+        }
+        raw["workload_registry"]["groups"]["native"]["gates_policy"] = {
+            "warmups": 1,
+            "samples_per_round": 1,
+            "min_rounds": 3,
+            "max_rounds": 5,
+            "wall_clock_cap_seconds": {"wide": 120},
+        }
+        manifest_mod._validate(raw)
+        manifest = manifest_mod.Manifest(REPO_ROOT, raw)
+        policy = manifest.gates_for_group("native")
+        self.assertEqual(
+            (policy["warmups"], policy["samples_per_round"],
+             policy["min_rounds"], policy["max_rounds"]),
+            (1, 1, 3, 5),
+        )
+        self.assertEqual(policy["wall_clock_cap_seconds"], {
+            "small": 240, "wide": 120, "deep": 600,
+        })
+        self.assertEqual(policy["theta_floor"], 0.01)
+
+    def test_group_gates_policy_rejects_unknown_or_unbounded_values(self):
+        cases = [
+            {"theta_floor": 0.5},
+            {"samples_per_round": 0},
+            {"warmups": -1},
+            {"max_rounds": 51},
+            {"wall_clock_cap_seconds": {"wide": 7201}},
+            {"wall_clock_cap_seconds": {"unknown": 10}},
+        ]
+        for override in cases:
+            with self.subTest(override=override):
+                raw = self._base_raw()
+                raw["workload_registry"]["groups"]["native"]["gates_policy"] = override
+                with self.assertRaises(manifest_mod.ManifestError):
+                    manifest_mod._validate(raw)
+
+    def test_group_gates_policy_rejects_inverted_round_bounds(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["native"]["gates_policy"] = {
+            "min_rounds": 5,
+            "max_rounds": 3,
+        }
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "min_rounds"):
+            manifest_mod._validate(raw)
+
+    def test_seeded_holdout_pool_rejects_unknown_or_wrong_class_ids(self):
+        raw = self._base_raw()
+        native = raw["workload_registry"]["groups"]["native"]
+        native["workloads"]["other"] = {
+            "class": "wide", "args": "--other", "native_unit": "rows",
+        }
+        for pools in ({"small": ["missing"]}, {"small": ["other"]}):
+            with self.subTest(pools=pools):
+                native["holdout_generator"] = {
+                    "strategy": "seeded_workload_pool_v1", "pools": pools,
+                }
+                with self.assertRaises(manifest_mod.ManifestError):
+                    manifest_mod._validate(raw)
 
 
 if __name__ == "__main__":

@@ -105,6 +105,7 @@
     "groups": {
       "native": {
         "enabled": true,
+        "promotion_eligible": true,
         "board": "core_cpu",
         "build_step": "zig build native-proof-bench-cpu -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/native-proof-bench-cpu",
@@ -129,26 +130,184 @@
       },
       "riscv": {
         "enabled": false,
-        "disabled_reason": "stark-v adapter pending release gate",
+        "promotion_eligible": false,
+        "disabled_reason": "RF-01 adapter release and BA-03 autoresearch activation pending",
         "board": "riscv",
         "build_step": "zig build stwo-zig -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/stwo-zig",
         "report_schema": "riscv_proof_v1",
+        "correctness_oracle": {
+          "authority": "stark-v",
+          "repository": "https://github.com/ClementWalter/stark-v",
+          "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+          "binary": "target/release/stark-v-bench",
+          "build_command": "cargo build --locked --release -p bench-cli --features parallel",
+          "required_features": [
+            "parallel"
+          ],
+          "final_validator": true
+        },
+        "gates_policy": {
+          "warmups": 1,
+          "samples_per_round": 1,
+          "min_rounds": 3,
+          "max_rounds": 5,
+          "wall_clock_cap_seconds": {
+            "small": 240,
+            "wide": 360,
+            "deep": 600
+          }
+        },
+        "mechanism_telemetry": {
+          "fail_closed": true,
+          "required_fields": [
+            "total_steps",
+            "n_components",
+            "mean_execution_seconds",
+            "mean_witness_seconds",
+            "mean_proving_seconds",
+            "mean_verification_seconds",
+            "statement_sha256",
+            "transcript_state_blake2s"
+          ]
+        },
+        "holdout_generator": {
+          "strategy": "seeded_workload_pool_v1",
+          "pools": {
+            "small": [
+              "riscv_alu_test",
+              "riscv_branch_fib",
+              "riscv_declared_region",
+              "riscv_jal_jalr",
+              "riscv_mem_ls",
+              "riscv_shift_logic"
+            ],
+            "wide": [
+              "riscv_memcpy_loop",
+              "riscv_sieve_primes",
+              "riscv_bubble_sort",
+              "riscv_collatz",
+              "riscv_keccak_128b",
+              "riscv_sha2_128b",
+              "riscv_sha2_256b"
+            ],
+            "deep": [
+              "riscv_xorshift_prng",
+              "riscv_fib_iter",
+              "riscv_gcd_euclid",
+              "riscv_multi_shard_addi",
+              "riscv_sha2_512b",
+              "riscv_sha2_1024b",
+              "riscv_sha2_2048b"
+            ]
+          }
+        },
         "workloads": {
-          "riscv_fib_small": {
+          "riscv_alu_test": {
             "class": "small",
-            "args": "bench --elf vectors/riscv_elfs/branch_fib.elf --backend cpu --protocol functional --warmups {warmups} --samples {samples}",
+            "args": "bench --elf vectors/riscv_elfs/alu_test.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
             "native_unit": "executed instructions"
           },
-          "riscv_alu": {
+          "riscv_branch_fib": {
             "class": "small",
-            "args": "bench --elf vectors/riscv_elfs/alu_test.elf --backend cpu --protocol functional --warmups {warmups} --samples {samples}",
+            "args": "bench --elf vectors/riscv_elfs/branch_fib.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_declared_region": {
+            "class": "small",
+            "args": "bench --elf vectors/riscv_elfs/declared_region.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_jal_jalr": {
+            "class": "small",
+            "args": "bench --elf vectors/riscv_elfs/jal_jalr.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_mem_ls": {
+            "class": "small",
+            "args": "bench --elf vectors/riscv_elfs/mem_ls.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_shift_logic": {
+            "class": "small",
+            "args": "bench --elf vectors/riscv_elfs/shift_logic.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_memcpy_loop": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/memcpy_loop.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sieve_primes": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/sieve_primes.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_bubble_sort": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/bubble_sort.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_collatz": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/collatz.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_keccak_128b": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/crypto/keccak_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_128.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sha2_128b": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/crypto/sha2_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_128.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sha2_256b": {
+            "class": "wide",
+            "args": "bench --elf vectors/riscv_elfs/crypto/sha2_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_256.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_xorshift_prng": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/xorshift_prng.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_fib_iter": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/fib_iter.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_gcd_euclid": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/gcd_euclid.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_multi_shard_addi": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/multi_shard_addi.elf --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sha2_512b": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/crypto/sha2_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_512.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sha2_1024b": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/crypto/sha2_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_1024.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
+            "native_unit": "executed instructions"
+          },
+          "riscv_sha2_2048b": {
+            "class": "deep",
+            "args": "bench --elf vectors/riscv_elfs/crypto/sha2_input.elf --input vectors/riscv_elfs/crypto/inputs/msg_2048.bin --backend cpu --protocol functional {admission} --warmups {warmups} --samples {samples}",
             "native_unit": "executed instructions"
           }
         }
       },
       "metal": {
         "enabled": true,
+        "promotion_eligible": true,
         "board": "core_metal",
         "build_step": "zig build native-proof-bench-metal -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/native-proof-bench-metal",
@@ -173,8 +332,12 @@
       }
     },
     "guards": {
-      "note": "The full native AIR portfolio as mandatory regression guards (judge review, PR 20 era): one declared objective workload is SCORED, but every selected guard's paired upper confidence bound must stay below its regression budget. Guards use the objective group's binary; args are data.",
+      "note": "The full native AIR portfolio plus the small wide-Fibonacci latency canary as mandatory regression guards: one declared objective workload is scored, but every selected guard's paired upper confidence bound must stay below its regression budget. Guards use the objective group's binary; args are data.",
       "workloads": {
+        "guard_wf_10x8": {
+          "args": "--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --warmups {warmups} --samples {samples} --protocol functional",
+          "native_unit": "trace_rows"
+        },
         "guard_wf_14x32": {
           "args": "--example wide_fibonacci --log-n-rows 14 --sequence-len 32 --warmups {warmups} --samples {samples} --protocol functional",
           "native_unit": "trace_rows"
@@ -262,6 +425,7 @@
               "guard_blake_12x16",
               "guard_poseidon_10",
               "guard_poseidon_13",
+              "guard_wf_10x8",
               "guard_wf_14x32",
               "guard_plonk_14"
             ]

@@ -57,6 +57,7 @@ class Workload:
 class WorkloadGroup:
     group_id: str
     enabled: bool
+    promotion_eligible: bool
     disabled_reason: str | None
     board: str
     build_step: str
@@ -114,6 +115,7 @@ class Manifest:
             out.append(WorkloadGroup(
                 group_id=gid,
                 enabled=bool(spec["enabled"]),
+                promotion_eligible=spec["promotion_eligible"],
                 disabled_reason=spec.get("disabled_reason"),
                 board=spec["board"],
                 build_step=spec["build_step"],
@@ -252,11 +254,22 @@ def _validate(raw: dict) -> None:
         raise ManifestError("workload_registry.groups is empty")
     seen_boards: set[str] = set()
     for gid, spec in registry["groups"].items():
-        for key in ("enabled", "board", "build_step", "binary", "report_schema", "workloads"):
+        for key in (
+            "enabled", "promotion_eligible", "board", "build_step", "binary",
+            "report_schema", "workloads",
+        ):
             if key not in spec:
                 raise ManifestError(f"workload group {gid} missing required key: {key}")
         if not isinstance(spec["enabled"], bool):
             raise ManifestError(f"workload group {gid}: 'enabled' must be a boolean")
+        if not isinstance(spec["promotion_eligible"], bool):
+            raise ManifestError(
+                f"workload group {gid}: 'promotion_eligible' must be a boolean"
+            )
+        if not spec["enabled"] and spec["promotion_eligible"]:
+            raise ManifestError(
+                f"workload group {gid}: a disabled group cannot be promotion eligible"
+            )
         if not spec["enabled"] and not str(spec.get("disabled_reason") or "").strip():
             raise ManifestError(
                 f"workload group {gid} is disabled without a disabled_reason; "

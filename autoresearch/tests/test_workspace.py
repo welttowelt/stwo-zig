@@ -22,6 +22,7 @@ MANIFEST_RAW = {
         "groups": {
             "native": {
                 "enabled": True,
+                "promotion_eligible": True,
                 "board": "core_cpu",
                 "build_step": "true",
                 "binary": "true",
