@@ -16,6 +16,7 @@ from typing import Any
 
 import scripts.riscv_benchmark_matrix_contract as contract
 import scripts.riscv_benchmark_matrix_model as model
+from scripts import riscv_cli_admission
 from scripts.riscv_benchmark_matrix_runtime import (
     DEFAULT_CANDIDATE_CLI,
     DEFAULT_TRACE_CLI,
@@ -128,11 +129,12 @@ def _validate_candidate_benchmark(
     workload: model.Workload,
     candidate: dict[str, Any],
     proof_path: str | None,
+    admission: riscv_cli_admission.Admission,
 ) -> None:
     staged_contracts.validate_benchmark_report(
         payload,
-        expected_status="not_release_gated",
-        experimental=True,
+        expected_status=admission.release_status,
+        experimental=admission.experimental,
         warmups=0,
         samples=1,
         proof_path=proof_path,
@@ -160,6 +162,7 @@ def _run_candidate_proof_sample(
     warmup: bool,
     order_position: int,
     retain_artifact: bool,
+    admission: riscv_cli_admission.Admission,
 ) -> tuple[dict[str, Any], dict[str, Any], Path | None, dict[str, Any]]:
     safe = _safe_id(workload.row_id)
     report_rel = f"candidate-reports/{safe}.{iteration}.bench.json"
@@ -169,7 +172,7 @@ def _run_candidate_proof_sample(
     proof_path = store.root / proof_rel if retain_artifact else None
     argv = [
         str(candidate_cli), "bench", "--elf", str(ROOT / workload.elf_rel),
-        "--backend", "cpu", "--protocol", "functional", "--experimental",
+        "--backend", "cpu", "--protocol", "functional", *admission.arguments,
         "--warmups", "0", "--samples", "1", "--report-out", str(report_path),
         *_input_args(workload),
     ]
@@ -183,6 +186,7 @@ def _run_candidate_proof_sample(
     report = contract.strict_json_file(report_path, f"{workload.row_id} benchmark report")
     _validate_candidate_benchmark(
         report, workload, candidate, str(proof_path) if proof_path is not None else None,
+        admission,
     )
     report_identity = file_identity(report_path, path_label=report_rel)
     phases = {
@@ -249,6 +253,7 @@ def _artifact_public_data(
     proof_path: Path,
     workload: model.Workload,
     candidate: dict[str, Any],
+    admission: riscv_cli_admission.Admission,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = contract.strict_json_file(proof_path, f"{workload.row_id} proof artifact")
     provenance = payload.get("provenance")
@@ -261,6 +266,7 @@ def _artifact_public_data(
         proof_path.read_text(encoding="utf-8"),
         candidate=candidate["commit"],
         candidate_dirty=candidate["dirty"],
+        release_status=admission.release_status,
         witness_layout_sha256=witness,
         elf_sha256=workload.elf_sha256,
         input_sha256=workload.input_sha256,
@@ -277,6 +283,7 @@ def _verify_artifact(
     candidate: dict[str, Any],
     workload: model.Workload,
     store: EvidenceStore,
+    admission: riscv_cli_admission.Admission,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     safe = _safe_id(workload.row_id)
     statement = benchmark_report["statement_sha256"]
@@ -296,7 +303,7 @@ def _verify_artifact(
         raise MatrixRunError(f"{workload.row_id}: artifact proof bytes are invalid") from error
     staged_contracts.validate_verify_receipt(
         receipt,
-        expected_status="not_release_gated",
+        expected_status=admission.release_status,
         policy="functional",
         statement_sha256=statement,
         proof_bytes=proof_bytes,
@@ -320,6 +327,7 @@ def run_proof_timing(
     store: EvidenceStore,
     warmups: int,
     samples: int,
+    admission: riscv_cli_admission.Admission,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     candidate_samples: list[dict[str, Any]] = []
     rust_samples: list[dict[str, Any]] = []
@@ -336,7 +344,7 @@ def run_proof_timing(
             if lane == "candidate":
                 sample, report, proof, report_identity = _run_candidate_proof_sample(
                     candidate_cli, workload, candidate, store, iteration,
-                    iteration < warmups, position, retain,
+                    iteration < warmups, position, retain, admission,
                 )
                 candidate_samples.append(sample)
                 reports.append(report)
@@ -377,12 +385,14 @@ def run_proof_timing(
     final_report = reports[-1]
     if artifact_identity["sha256"] != final_report["artifact_sha256"]:
         raise MatrixRunError(f"{workload.row_id}: retained artifact digest differs from report")
-    public, proof_payload = _artifact_public_data(final_proof, workload, candidate)
+    public, proof_payload = _artifact_public_data(
+        final_proof, workload, candidate, admission,
+    )
     if public != oracle_public:
         semantic_parity(oracle_public, public)
     _receipt, receipt_identity = _verify_artifact(
         candidate_cli, final_proof, proof_payload, final_report, candidate,
-        workload, store,
+        workload, store, admission,
     )
     witness = proof_payload["provenance"]["witness_layout_sha256"]
     proof = {
@@ -537,6 +547,7 @@ def run_expected_rejection(
     candidate_cli: Path,
     workload: model.Workload,
     store: EvidenceStore,
+    admission: riscv_cli_admission.Admission,
 ) -> dict[str, Any]:
     safe = _safe_id(workload.row_id)
     with tempfile.TemporaryDirectory(prefix=f"{safe}.", dir=store.root) as directory:
@@ -545,7 +556,7 @@ def run_expected_rejection(
         report_path = temporary / "report.json"
         argv = [
             str(candidate_cli), "prove", "--elf", str(ROOT / workload.elf_rel),
-            "--backend", "cpu", "--protocol", "functional", "--experimental",
+            "--backend", "cpu", "--protocol", "functional", *admission.arguments,
             "--output", str(proof_path), "--report-out", str(report_path),
             *_input_args(workload),
         ]
@@ -608,6 +619,7 @@ def run_row(
     store: EvidenceStore,
     warmups: int,
     samples: int,
+    admission: riscv_cli_admission.Admission,
 ) -> dict[str, Any]:
     row = _empty_row(workload)
     try:
@@ -617,6 +629,7 @@ def run_row(
             timing, proof, candidate_summary = run_proof_timing(
                 index, workload, candidate_cli, timing_binary, candidate,
                 oracle_public, store, warmups, samples,
+                admission,
             )
             row["timing"] = timing
             row["proof"] = proof
@@ -627,7 +640,9 @@ def run_row(
             )
             row["timing"] = timing
             if workload.row_class == "expected_rejection":
-                row["rejection"] = run_expected_rejection(candidate_cli, workload, store)
+                row["rejection"] = run_expected_rejection(
+                    candidate_cli, workload, store, admission,
+                )
         row["candidate_semantics"] = candidate_summary
         candidate_public_digest = candidate_summary["public_data_sha256"]
         oracle_digest = canonical_digest(oracle_public)
@@ -701,6 +716,7 @@ def produce(
         raise MatrixRunError("matrix selection is empty")
     candidate_cli = candidate_cli.resolve(strict=True)
     trace_cli = trace_cli.resolve(strict=True)
+    admission = riscv_cli_admission.resolve(candidate_cli, cwd=ROOT)
     candidate = candidate_identity(candidate_cli, trace_cli, allow_dirty=allow_dirty)
     store = EvidenceStore(artifact_dir)
     cp11, timing_binary, oracle = prepare_oracle(stark_v_source, cache_dir, store)
@@ -719,6 +735,7 @@ def produce(
             store=store,
             warmups=warmups,
             samples=samples,
+            admission=admission,
         )
         rows.append(row)
         print(f"  {row['status']}{': ' + row['error'] if row['error'] else ''}", flush=True)

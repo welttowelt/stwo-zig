@@ -30,6 +30,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import riscv_cli_admission
 from riscv_release_gate_lib.contract import receipt_errors
 from riscv_release_oracle_lib.witness import (
     compare_ordered_accesses,
@@ -220,7 +221,9 @@ def compare_execution(oracle_exe: Path, receipt: dict) -> None:
     # executed paths; the exhaustive decode matrix remains its own boundary.
 
 
-def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
+def compare_public_values(
+    oracle_exe: Path, receipt: dict,
+) -> riscv_cli_admission.Admission:
     """Compare Rust public data to the exact production or diagnostic boundary.
 
     Supported vectors must publish a real proof artifact and are compared from
@@ -235,6 +238,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
     )
     cli = ROOT / "zig-out" / "bin" / "stwo-zig"
     trace_dump = ROOT / "zig-out" / "bin" / "riscv-trace-dump"
+    cli_admission = riscv_cli_admission.resolve(cli, cwd=ROOT)
     record_implementation_executable(receipt, "stwo-zig", cli, oracle_exe)
     vectors = load_trace_vectors(ROOT, PINNED, receipt)
     expected_admission = trace_admission.for_programs(
@@ -278,7 +282,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
                             "cpu",
                             "--protocol",
                             "functional",
-                            "--experimental",
+                            *cli_admission.arguments,
                             "--output",
                             str(proof_path),
                         ],
@@ -287,6 +291,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
                     zig = parse_proof_artifact_public_data(
                         proof_path.read_text(encoding="utf-8"),
                         candidate=receipt["candidate_commit"],
+                        release_status=cli_admission.release_status,
                         witness_layout_sha256=witness_digest,
                         elf_sha256=vector["elf_sha256"],
                         input_sha256=input_digest,
@@ -341,7 +346,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
                         "cpu",
                         "--protocol",
                         "functional",
-                        "--experimental",
+                        *cli_admission.arguments,
                         "--output",
                         str(proof_path),
                         "--report-out",
@@ -401,6 +406,7 @@ def compare_public_values(oracle_exe: Path, receipt: dict) -> None:
         "fields": list(PUBLIC_DATA_FIELDS),
         "corpus": cases,
     }
+    return cli_admission
 
 
 DECODE_WORDS_NOTE = "systematic opcode/funct/register/immediate sweep, deterministic"
@@ -638,12 +644,15 @@ def build_and_compare(args) -> int:
     compare_execution(oracle_exe, receipt)
     compare_per_family_witness_rows(oracle_exe, receipt, ROOT, PINNED)
     compare_ordered_accesses(oracle_exe, receipt, ROOT, PINNED)
-    compare_public_values(oracle_exe, receipt)
+    cli_admission = compare_public_values(oracle_exe, receipt)
     compare_decode(oracle_exe, receipt)
     compare_program_tuples(oracle_exe, receipt)
     compare_memory_roots(oracle_exe, receipt)
     compare_poseidon2(oracle_exe, receipt)
-    compare_relation_boundaries(oracle_exe, receipt, ROOT, PINNED)
+    compare_relation_boundaries(
+        oracle_exe, receipt, ROOT, PINNED,
+        admission_arguments=cli_admission.arguments,
+    )
     compare_shared_transcript_prefix(oracle_exe, receipt)
     finalize_case_result_digests(receipt)
     require_clean_candidate(ROOT, args.candidate)

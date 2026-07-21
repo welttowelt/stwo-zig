@@ -22,6 +22,11 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts import riscv_cli_admission  # noqa: E402
+
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT_BYTES = 1 << 20
 COMMAND_TIMEOUT_SECONDS = 120
@@ -136,11 +141,15 @@ def run_command(argv: list[str]) -> tuple[subprocess.CompletedProcess[bytes], in
 
 def validate_prove_report(
     report: dict[str, Any], workload: Workload, commit: str, allow_dirty: bool,
+    admission: riscv_cli_admission.Admission,
 ) -> tuple[str, str]:
     if report.get("schema") != "riscv_prove_v1":
         raise SmokeError(f"{workload.name}: unexpected prove-report schema")
-    if report.get("release_status") != "not_release_gated" or report.get("experimental") is not True:
-        raise SmokeError(f"{workload.name}: PR smoke did not use candidate admission")
+    if (
+        report.get("release_status") != admission.release_status
+        or report.get("experimental") is not admission.experimental
+    ):
+        raise SmokeError(f"{workload.name}: PR smoke admission differs from CLI registry")
     if report.get("verified_in_process") is not True:
         raise SmokeError(f"{workload.name}: prover did not complete its in-process verification")
     if report.get("total_steps") != workload.expected_steps:
@@ -170,13 +179,14 @@ def validate_prove_report(
 def validate_verify_receipt(
     receipt: dict[str, Any], report: dict[str, Any], statement: str, transcript: str,
     workload: Workload, commit: str, allow_dirty: bool,
+    admission: riscv_cli_admission.Admission,
 ) -> None:
     expected = {
         "schema": "riscv_verify_v1",
         "status": "verified",
         "artifact_kind": "stwo_riscv_proof",
         "artifact_schema_version": 3,
-        "release_status": "not_release_gated",
+        "release_status": admission.release_status,
         "security_policy": "functional",
         "statement_sha256": statement,
         "transcript_state_blake2s": transcript,
@@ -204,6 +214,7 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 def run_workload(
     cli: Path, workload: Workload, artifact_dir: Path, commit: str, allow_dirty: bool,
+    admission: riscv_cli_admission.Admission,
 ) -> dict[str, Any]:
     elf = ROOT / workload.elf
     input_path = ROOT / workload.input_path if workload.input_path else None
@@ -217,13 +228,15 @@ def run_workload(
     prove_command = [
         str(cli), "prove", "--elf", str(elf), "--backend", "cpu",
         "--protocol", "functional", "--output", str(proof_path),
-        "--report-out", str(prove_report_path), "--experimental",
+        "--report-out", str(prove_report_path), *admission.arguments,
     ]
     if input_path is not None:
         prove_command.extend(["--input", str(input_path)])
     prove_result, prove_duration_ns = run_command(prove_command)
     report = strict_json_file(prove_report_path, f"{workload.name} prove report")
-    statement, transcript = validate_prove_report(report, workload, commit, allow_dirty)
+    statement, transcript = validate_prove_report(
+        report, workload, commit, allow_dirty, admission,
+    )
     if not proof_path.is_file() or proof_path.stat().st_size == 0:
         raise SmokeError(f"{workload.name}: prover did not retain a proof artifact")
 
@@ -236,6 +249,7 @@ def run_workload(
     receipt = strict_json_bytes(verify_result.stdout, f"{workload.name} verify receipt")
     validate_verify_receipt(
         receipt, report, statement, transcript, workload, commit, allow_dirty,
+        admission,
     )
     return {
         "name": workload.name,
@@ -276,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         cli = args.cli.resolve(strict=True)
         if not cli.is_file():
             raise SmokeError("CLI is not a regular file")
+        admission = riscv_cli_admission.resolve(cli, cwd=ROOT)
         artifact_dir = args.artifact_dir.resolve()
         artifact_dir.mkdir(parents=True, exist_ok=False)
         commit_result, _ = run_command(["git", "rev-parse", "HEAD"])
@@ -288,7 +303,9 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic_ns()
         for index, workload in enumerate(selected, 1):
             print(f"riscv proof smoke [{index}/{len(selected)}]: {workload.name}", flush=True)
-            rows.append(run_workload(cli, workload, artifact_dir, commit, args.allow_dirty))
+            rows.append(run_workload(
+                cli, workload, artifact_dir, commit, args.allow_dirty, admission,
+            ))
         report = {
             "schema": "riscv_pr_proof_smoke_v1",
             "status": "PASS",
@@ -296,6 +313,8 @@ def main(argv: list[str] | None = None) -> int:
             "cli": str(cli),
             "cli_sha256": sha256_file(cli),
             "protocol": "functional",
+            "release_status": admission.release_status,
+            "experimental": admission.experimental,
             "oracle_boundary": (
                 "independent Zig artifact verification plus separately gated pinned "
                 "Stark-V trace vectors; exhaustive live Stark-V comparison remains release-only"
@@ -304,7 +323,12 @@ def main(argv: list[str] | None = None) -> int:
             "workloads": rows,
         }
         atomic_json(args.report_out.resolve(), report)
-    except (OSError, SmokeError, subprocess.SubprocessError) as error:
+    except (
+        OSError,
+        SmokeError,
+        riscv_cli_admission.AdmissionError,
+        subprocess.SubprocessError,
+    ) as error:
         print(f"riscv proof smoke: FAIL: {error}", file=sys.stderr)
         return 1
     print(f"riscv proof smoke: PASS ({len(rows)} independently verified proofs)")

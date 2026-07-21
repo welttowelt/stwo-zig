@@ -47,6 +47,7 @@ from scripts.riscv_stark_v_benchmark import (  # noqa: E402
     collect_host_environment,
     parse_phase_seconds,
 )
+from scripts import riscv_cli_admission  # noqa: E402
 SCHEMA = "riscv_crypto_benchmark_v1"
 CRYPTO_DIR = ROOT / "vectors/riscv_elfs/crypto"
 PROVENANCE = CRYPTO_DIR / "provenance.json"
@@ -66,9 +67,15 @@ def cycles_from_log(log: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def zig_prove(elf: Path, input_path: Path | None, warmups: int, samples: int) -> dict:
+def zig_prove(
+    elf: Path,
+    input_path: Path | None,
+    warmups: int,
+    samples: int,
+    admission: riscv_cli_admission.Admission,
+) -> dict:
     cmd = [str(ZIG_BENCH), "bench", "--elf", str(elf), "--backend", "cpu",
-           "--protocol", "functional", "--experimental",
+           "--protocol", "functional", *admission.arguments,
            "--warmups", str(warmups), "--samples", str(samples)]
     if input_path:
         cmd += ["--input", str(input_path)]
@@ -79,6 +86,11 @@ def zig_prove(elf: Path, input_path: Path | None, warmups: int, samples: int) ->
     if not lines:
         return {"error": "no report JSON"}
     report = json.loads(lines[-1])
+    if (
+        report.get("release_status") != admission.release_status
+        or report.get("experimental") is not admission.experimental
+    ):
+        return {"error": "benchmark admission differs from CLI registry"}
     if report.get("verified_samples") != samples:
         return {"error": f"verified_samples={report.get('verified_samples')}"}
     return {
@@ -203,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
     for binary in (ZIG_BENCH, ZIG_TRACE):
         if not binary.exists():
             raise SystemExit(f"missing {binary}; build the Zig products first")
+    try:
+        admission = riscv_cli_admission.resolve(ZIG_BENCH, cwd=ROOT)
+    except riscv_cli_admission.AdmissionError as error:
+        raise SystemExit(f"invalid Zig applications registry: {error}") from error
 
     rows, failures = [], 0
     for guest, spec in provenance["guests"].items():
@@ -212,7 +228,9 @@ def main(argv: list[str] | None = None) -> int:
             row = {"guest": guest, "size": label, "class": "proof" if proof else "execution",
                    "metal": METAL_CELL}
             if proof:
-                zig = zig_prove(elf, input_path, args.warmups, args.samples)
+                zig = zig_prove(
+                    elf, input_path, args.warmups, args.samples, admission,
+                )
                 rust = rust_prove(rust_binary, elf, input_path, args.warmups, args.samples)
             else:
                 zig = zig_execute(elf, input_path, args.samples)
@@ -242,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "schema": SCHEMA,
         "stark_v_commit": PINNED_COMMIT,
+        "zig_release_status": admission.release_status,
+        "zig_experimental": admission.experimental,
         "pcs_profile": "functional == pinned PcsConfig::default()",
         "metal_note": "RISC-V adapter is CPU-only (no RISC-V Metal prover on either "
                       "lane); native CPU-vs-Metal lives in the native proof matrix",

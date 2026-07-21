@@ -298,6 +298,7 @@ class ProducerProvenanceTest(unittest.TestCase):
     def test_proof_artifact_public_data_requires_strict_nested_binding(self) -> None:
         kwargs = {
             "candidate": "a" * 40,
+            "release_status": "not_release_gated",
             "witness_layout_sha256": "d" * 64,
             "elf_sha256": "e" * 64,
             "input_sha256": hashlib.sha256(b"").hexdigest(),
@@ -383,6 +384,13 @@ class ProducerProvenanceTest(unittest.TestCase):
         with mock.patch.object(ORACLE, "_run", side_effect=run), \
                 mock.patch.object(ORACLE, "load_trace_vectors", return_value=manifest), \
                 mock.patch.object(ORACLE, "record_implementation_executable") as record, \
+                mock.patch.object(
+                    ORACLE.riscv_cli_admission,
+                    "resolve",
+                    return_value=ORACLE.riscv_cli_admission.Admission(
+                        "candidate", "not_release_gated", True,
+                    ),
+                ), \
                 mock.patch.object(ORACLE.subprocess, "run", side_effect=process):
             ORACLE.compare_public_values(oracle, receipt)
 

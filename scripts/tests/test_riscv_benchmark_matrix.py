@@ -150,10 +150,11 @@ class DirtyBindingTests(unittest.TestCase):
         self.assertEqual(public_data(), parsed)
 
     def test_release_callers_still_default_to_clean_artifacts(self) -> None:
+        kwargs = {**self.kwargs(), "release_status": "not_release_gated"}
         with self.assertRaisesRegex(ValueError, "implementation_dirty differs"):
-            parse_proof_artifact_public_data(proof_artifact(dirty=True), **self.kwargs())
+            parse_proof_artifact_public_data(proof_artifact(dirty=True), **kwargs)
         parsed = parse_proof_artifact_public_data(
-            proof_artifact(dirty=True), candidate_dirty=True, **self.kwargs(),
+            proof_artifact(dirty=True), candidate_dirty=True, **kwargs,
         )
         self.assertEqual(public_data(), parsed)
 
@@ -196,12 +197,20 @@ class CorrectnessBoundaryTests(unittest.TestCase):
             with mock.patch.object(controller, "run_capture", return_value=good):
                 rejection = controller.run_expected_rejection(
                     Path("candidate"), workload, store,
+                    controller.riscv_cli_admission.Admission(
+                        "candidate", "not_release_gated", True,
+                    ),
                 )
             self.assertEqual("pass", rejection["status"])
             bad = controller.Capture(**{**good.__dict__, "stderr": b"wrong\n"})
             with mock.patch.object(controller, "run_capture", return_value=bad):
                 with self.assertRaisesRegex(controller.MatrixRunError, "exact typed"):
-                    controller.run_expected_rejection(Path("candidate"), workload, store)
+                    controller.run_expected_rejection(
+                        Path("candidate"), workload, store,
+                        controller.riscv_cli_admission.Admission(
+                            "candidate", "not_release_gated", True,
+                        ),
+                    )
 
 
 class ContractTests(unittest.TestCase):

@@ -579,7 +579,9 @@ def _run_exact_json(command: list[str], *, cwd: Path, label: str) -> str:
     return completed.stdout
 
 
-def _production_rejection(root: Path, elf: Path) -> dict[str, object]:
+def _production_rejection(
+    root: Path, elf: Path, admission_arguments: tuple[str, ...],
+) -> dict[str, object]:
     cli = root / "zig-out" / "bin" / "stwo-zig"
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "proof.json"
@@ -587,7 +589,8 @@ def _production_rejection(root: Path, elf: Path) -> dict[str, object]:
         completed = subprocess.run(
             [
                 str(cli), "prove", "--elf", str(elf), "--backend", "cpu",
-                "--protocol", "functional", "--experimental", "--output", str(output),
+                "--protocol", "functional", *admission_arguments,
+                "--output", str(output),
                 "--report-out", str(report),
             ],
             cwd=root,
@@ -617,11 +620,11 @@ def _production_rejection(root: Path, elf: Path) -> dict[str, object]:
 
 
 def _compare_limitation(
-    oracle_exe: Path,
-    root: Path,
+    oracle_exe: Path, root: Path,
     receipt: dict,
     pinned: str,
     vector: dict,
+    admission_arguments: tuple[str, ...],
 ) -> tuple[dict[str, object], str, str]:
     elf = root / vector["elf"]
     rust_raw = _run_exact_json(
@@ -658,7 +661,7 @@ def _compare_limitation(
     if rust_core != zig_core:
         difference = _first_difference(rust_core, zig_core)
         raise EvidenceError(f"normalized Rust/Zig limitation core differs: {difference}")
-    production = _production_rejection(root, elf)
+    production = _production_rejection(root, elf, admission_arguments)
     return ({
         "normalized_core": zig_core,
         "normalized_core_sha256": hashlib.sha256(
@@ -699,6 +702,7 @@ def compare_relation_boundaries(
     receipt: dict,
     root: Path,
     pinned: str,
+    *, admission_arguments: tuple[str, ...],
 ) -> None:
     zig_exe = root / "zig-out" / "bin" / "riscv-trace-dump"
     vectors = load_trace_vectors(root, pinned, receipt)
@@ -717,7 +721,8 @@ def compare_relation_boundaries(
             zig_raw = ""
             try:
                 limitation, rust_raw, zig_raw = _compare_limitation(
-                    oracle_exe, root, receipt, pinned, vector
+                    oracle_exe, root, receipt, pinned, vector,
+                    admission_arguments,
                 )
             except (EvidenceError, KeyError, OSError) as error:
                 limitation_error = str(error)

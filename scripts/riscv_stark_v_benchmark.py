@@ -4,8 +4,9 @@
 Both lanes prove the committed release ELF corpus under the same PCS profile
 (the Zig `functional` protocol equals the pinned oracle's `PcsConfig::default()`:
 pow_bits 10, blowup 1, 3 queries, last layer 0). The Zig lane runs the staged
-CLI with --experimental and every row carries its release status verbatim, so
-staged numbers can never impersonate promoted evidence. The Rust lane is the
+CLI under the admission phase published by that exact binary's `applications`
+registry. Every row carries its release status verbatim, so staged numbers can
+never impersonate promoted evidence. The Rust lane is the
 pinned Stark-V `bench-cli`; its phase timings come from the tracing timestamps
 it emits (the metrics JSON has no clocks). Rows fail closed: a lane error, a
 cycle-count mismatch, or an unverified proof marks the row failed and the run
@@ -37,6 +38,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts import riscv_cli_admission  # noqa: E402
+
 SCHEMA = "riscv_starkv_benchmark_v1"
 PINNED_COMMIT = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
 DEFAULT_REPORT = ROOT / "vectors/reports/latest_riscv_starkv_benchmark_report.json"
@@ -179,13 +185,18 @@ def validate_stark_v(source: Path) -> Path:
     return binary
 
 
-def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
+def run_zig_lane(
+    elf: str,
+    warmups: int,
+    samples: int,
+    admission: riscv_cli_admission.Admission,
+) -> dict[str, object]:
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     wall_start = dt.datetime.now()
     result = subprocess.run(
         [
             str(ZIG_BINARY), "bench", "--elf", elf, "--backend", "cpu",
-            "--protocol", "functional", "--experimental",
+            "--protocol", "functional", *admission.arguments,
             "--warmups", str(warmups), "--samples", str(samples),
         ],
         capture_output=True, text=True, timeout=1800,
@@ -198,6 +209,11 @@ def run_zig_lane(elf: str, warmups: int, samples: int) -> dict[str, object]:
     if not report_lines:
         return {"error": "no report JSON on stdout"}
     report = json.loads(report_lines[-1])
+    if (
+        report.get("release_status") != admission.release_status
+        or report.get("experimental") is not admission.experimental
+    ):
+        return {"error": "benchmark admission differs from CLI registry"}
     if report.get("verified_samples") != samples:
         return {"error": f"verified_samples={report.get('verified_samples')} != {samples}"}
     cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
@@ -264,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not ZIG_BINARY.exists():
         raise SystemExit("stwo-zig is not built; run: zig build stwo-zig -Doptimize=ReleaseFast")
+    try:
+        admission = riscv_cli_admission.resolve(ZIG_BINARY, cwd=ROOT)
+    except riscv_cli_admission.AdmissionError as error:
+        raise SystemExit(f"invalid Zig applications registry: {error}") from error
     rust_binary = validate_stark_v(args.stark_v_source.resolve())
     pinned, corpus = load_corpus()
     multicore = (os.cpu_count() or 1) > 1
@@ -281,7 +301,9 @@ def main(argv: list[str] | None = None) -> int:
             })
             print(f"{vector['name']:20s} skip   {admission.get('known_limitation', admission.get('status'))}", flush=True)
             continue
-        zig = run_zig_lane(vector["elf"], args.warmups, args.samples)
+        zig = run_zig_lane(
+            vector["elf"], args.warmups, args.samples, admission,
+        )
         rust = run_rust_lane(rust_binary, vector["elf"], args.warmups, args.samples)
         row: dict[str, object] = {"name": vector["name"], "elf_sha256": vector["elf_sha256"]}
         problems = []
@@ -320,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "schema": SCHEMA,
         "stark_v_commit": pinned,
-        "zig_release_status": "staged_experimental_not_release_gated",
+        "zig_release_status": admission.release_status,
+        "zig_experimental": admission.experimental,
         "pcs_profile": "functional == pinned PcsConfig::default() (pow 10, blowup 1, 3 queries)",
         "threading": {
             "host_cpu_count": os.cpu_count(),

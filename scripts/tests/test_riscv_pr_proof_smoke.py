@@ -10,6 +10,9 @@ STATEMENT = "2" * 64
 TRANSCRIPT = "3" * 64
 EXECUTABLE = "4" * 64
 PROOF = "5" * 64
+ADMISSION = smoke.riscv_cli_admission.Admission(
+    "candidate", "not_release_gated", True,
+)
 
 
 def prove_report(workload: smoke.Workload) -> dict[str, object]:
@@ -62,10 +65,11 @@ class RiscVPrProofSmokeTests(unittest.TestCase):
         workload = smoke.WORKLOADS[0]
         report = prove_report(workload)
         statement, transcript = smoke.validate_prove_report(
-            report, workload, COMMIT, False,
+            report, workload, COMMIT, False, ADMISSION,
         )
         smoke.validate_verify_receipt(
             verify_receipt(), report, statement, transcript, workload, COMMIT, False,
+            ADMISSION,
         )
 
     def test_step_drift_is_rejected(self) -> None:
@@ -73,7 +77,7 @@ class RiscVPrProofSmokeTests(unittest.TestCase):
         report = prove_report(workload)
         report["total_steps"] = workload.expected_steps + 1
         with self.assertRaisesRegex(smoke.SmokeError, "step count drifted"):
-            smoke.validate_prove_report(report, workload, COMMIT, False)
+            smoke.validate_prove_report(report, workload, COMMIT, False, ADMISSION)
 
     def test_independent_receipt_must_bind_the_same_transcript(self) -> None:
         workload = smoke.WORKLOADS[0]
@@ -83,7 +87,25 @@ class RiscVPrProofSmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(smoke.SmokeError, "transcript_state_blake2s"):
             smoke.validate_verify_receipt(
                 receipt, report, STATEMENT, TRANSCRIPT, workload, COMMIT, False,
+                ADMISSION,
             )
+
+    def test_promoted_reports_are_validated_against_the_registry_phase(self) -> None:
+        workload = smoke.WORKLOADS[0]
+        admission = smoke.riscv_cli_admission.Admission(
+            "promoted", "release_gated", False,
+        )
+        report = prove_report(workload)
+        report.update(release_status="release_gated", experimental=False)
+        receipt = verify_receipt()
+        receipt["release_status"] = "release_gated"
+        statement, transcript = smoke.validate_prove_report(
+            report, workload, COMMIT, False, admission,
+        )
+        smoke.validate_verify_receipt(
+            receipt, report, statement, transcript, workload, COMMIT, False,
+            admission,
+        )
 
     def test_duplicate_json_fields_are_rejected(self) -> None:
         with self.assertRaisesRegex(smoke.SmokeError, "repeats JSON field"):

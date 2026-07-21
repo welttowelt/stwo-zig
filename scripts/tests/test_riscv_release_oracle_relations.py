@@ -295,7 +295,8 @@ class RelationEvidenceTest(unittest.TestCase):
             return_value=(tuple_case, sum_case),
         ):
             relations.compare_relation_boundaries(
-                Path("rust"), receipt, ROOT, "b" * 40
+                Path("rust"), receipt, ROOT, "b" * 40,
+                admission_arguments=("--experimental",),
             )
         self.assertEqual("fail", receipt["boundaries"]["relation_tuples"]["status"])
         self.assertEqual(
