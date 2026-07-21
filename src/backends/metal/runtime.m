@@ -652,6 +652,39 @@ static StwoZigMetalRuntime *create_runtime_from_library(
     }
 }
 
+static void bind_qm31_coordinate_kernel(
+    id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> source,
+    id<MTLBuffer> coordinates, uint32_t value_count, id<MTLBuffer> leaves,
+    id<MTLBuffer> leaf_seed, uint32_t prefix_bytes, uint32_t write_leaf
+) {
+    [encoder setBuffer:source offset:0u atIndex:0];
+    [encoder setBuffer:coordinates offset:0u atIndex:1];
+    [encoder setBytes:&value_count length:sizeof(value_count) atIndex:2];
+    [encoder setBuffer:leaves offset:0u atIndex:3];
+    [encoder setBuffer:leaf_seed offset:0u atIndex:4];
+    [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
+    [encoder setBytes:&write_leaf length:sizeof(write_leaf) atIndex:6];
+}
+
+static void bind_fri_line_kernel(
+    id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> source,
+    NSUInteger inverse_offset, id<MTLBuffer> inverse, id<MTLBuffer> alpha,
+    NSUInteger alpha_offset, id<MTLBuffer> destination, uint32_t destination_count,
+    id<MTLBuffer> coordinates, id<MTLBuffer> leaves, id<MTLBuffer> leaf_seed,
+    uint32_t prefix_bytes, uint32_t prepare_next
+) {
+    [encoder setBuffer:source offset:0u atIndex:0];
+    [encoder setBuffer:inverse offset:inverse_offset atIndex:1];
+    [encoder setBuffer:alpha offset:alpha_offset atIndex:2];
+    [encoder setBuffer:destination offset:0u atIndex:3];
+    [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+    [encoder setBuffer:coordinates offset:0u atIndex:5];
+    [encoder setBuffer:leaves offset:0u atIndex:6];
+    [encoder setBuffer:leaf_seed offset:0u atIndex:7];
+    [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:8];
+    [encoder setBytes:&prepare_next length:sizeof(prepare_next) atIndex:9];
+}
+
 #import "runtime/initialization.m"
 
 // One translation unit keeps plan types and encoder helpers private to the stable C ABI.

@@ -73,8 +73,10 @@ bool stwo_zig_metal_qm31_to_coordinates(
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.qm31ToCoordinates];
-        [encoder setBuffer:source_buffer offset:0 atIndex:0]; [encoder setBuffer:destination_buffer offset:0 atIndex:1];
-        [encoder setBytes:&value_count length:sizeof(value_count) atIndex:2];
+        bind_qm31_coordinate_kernel(
+            encoder, source_buffer, destination_buffer, value_count,
+            destination_buffer, source_buffer, 0u, 0u
+        );
         NSUInteger width = MIN(runtime.qm31ToCoordinates.maxTotalThreadsPerThreadgroup, runtime.qm31ToCoordinates.threadExecutionWidth * 8u);
         [encoder dispatchThreads:MTLSizeMake(value_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding]; [command commit]; [command waitUntilCompleted];
@@ -187,6 +189,12 @@ bool stwo_zig_metal_fri_fold_line(
         [encoder setBuffer:source_buffer offset:0 atIndex:0]; [encoder setBuffer:inverse_buffer offset:0 atIndex:1];
         [encoder setBytes:alpha length:4u * sizeof(uint32_t) atIndex:2]; [encoder setBuffer:destination_buffer offset:0 atIndex:3];
         [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+        uint32_t disabled = 0u;
+        [encoder setBuffer:destination_buffer offset:0 atIndex:5];
+        [encoder setBuffer:destination_buffer offset:0 atIndex:6];
+        [encoder setBuffer:inverse_buffer offset:0 atIndex:7];
+        [encoder setBytes:&disabled length:sizeof(disabled) atIndex:8];
+        [encoder setBytes:&disabled length:sizeof(disabled) atIndex:9];
         NSUInteger width = MIN(runtime.friFoldLine.maxTotalThreadsPerThreadgroup, runtime.friFoldLine.threadExecutionWidth * 8u);
         [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding]; [command commit]; [command waitUntilCompleted];

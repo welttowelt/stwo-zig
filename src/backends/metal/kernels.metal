@@ -259,34 +259,6 @@ kernel void stwo_zig_fri_fold_circle(
     destination[index] = qm_add(sum, qm_mul(alpha, difference));
 }
 
-kernel void stwo_zig_fri_fold_line(
-    device const Qm31Value *source [[buffer(0)]],
-    device const uint *inverse_x [[buffer(1)]],
-    constant Qm31Value &alpha [[buffer(2)]],
-    device Qm31Value *destination [[buffer(3)]],
-    constant uint &destination_count [[buffer(4)]],
-    uint index [[thread_position_in_grid]]
-) {
-    if (index >= destination_count) return;
-    Qm31Value f0 = source[index << 1u];
-    Qm31Value f1 = source[(index << 1u) + 1u];
-    destination[index] = qm_add(qm_add(f0, f1), qm_mul(alpha, qm_mul_m31(qm_sub(f0, f1), inverse_x[index])));
-}
-
-kernel void stwo_zig_qm31_to_coordinates(
-    device const Qm31Value *source [[buffer(0)]],
-    device uint *destination [[buffer(1)]],
-    constant uint &value_count [[buffer(2)]],
-    uint index [[thread_position_in_grid]]
-) {
-    if (index >= value_count) return;
-    Qm31Value value = source[index];
-    destination[index] = value.a;
-    destination[value_count + index] = value.b;
-    destination[2u * value_count + index] = value.c;
-    destination[3u * value_count + index] = value.d;
-}
-
 kernel void stwo_zig_quotient_rows(
     device const uint *flat_views [[buffer(0)]],
     device const QuotientView *views [[buffer(1)]],

@@ -51,6 +51,14 @@ bool stwo_zig_metal_fri_fold_prepared(
         [encoder setBuffer:arena offset:plan.alphaByteOffset atIndex:2];
         [encoder setBuffer:arena offset:plan.destinationByteOffset atIndex:3];
         [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+        if (!plan.circle) {
+            uint32_t disabled = 0u;
+            [encoder setBuffer:arena offset:plan.destinationByteOffset atIndex:5];
+            [encoder setBuffer:arena offset:plan.destinationByteOffset atIndex:6];
+            [encoder setBuffer:arena offset:plan.inverseByteOffset atIndex:7];
+            [encoder setBytes:&disabled length:sizeof(disabled) atIndex:8];
+            [encoder setBytes:&disabled length:sizeof(disabled) atIndex:9];
+        }
         NSUInteger width = MIN(pipeline.maxTotalThreadsPerThreadgroup, pipeline.threadExecutionWidth * 8u);
         [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
