@@ -57,14 +57,30 @@ def cmd_setup(_args) -> int:
     return 0
 
 
+def _resolve_board(args, m) -> str:
+    """Explicit --board wins; otherwise route by the diff — a change that
+    touches src/backends/metal/ can only show its effect on the Metal board,
+    so scoring it on core_cpu records an honest but useless neutral."""
+    if args.board:
+        return args.board
+    from . import runner
+    if any(p.startswith("src/backends/metal/") for p in runner.changed_paths(m.root)):
+        print(ansi.style(
+            "  board auto-selected: core_metal (diff touches src/backends/metal/; "
+            "pass --board to override)", "dim"))
+        return "core_metal"
+    return "core_cpu"
+
+
 def cmd_run(args) -> int:
     from . import runner
     m = manifest_mod.load()
     out_dir = m.root / "autoresearch" / ".runs" / "latest"
+    board = _resolve_board(args, m)
     if args.aa:
         try:
             result = runner.evaluate_aa(
-                m.root, m, args.workload_class, out_dir, board=args.board,
+                m.root, m, args.workload_class, out_dir, board=board,
             )
         except runner.RunError as exc:
             return _fail(str(exc))
@@ -94,7 +110,7 @@ def cmd_run(args) -> int:
         # minted exclusively by the judge bot, which signs them (signing.py).
         verdict = runner.evaluate(
             m.root, predecessor, m, args.workload_class, args.dimension,
-            args.scope, judged=False, out_dir=out_dir, board=args.board,
+            args.scope, judged=False, out_dir=out_dir, board=board,
             guards_mode=args.guards,
         )
     except runner.RunError as exc:
@@ -508,10 +524,12 @@ def build_parser() -> argparse.ArgumentParser:
              "all = full portfolio, none = objective only (inner-loop iteration; "
              "submissions still face the judged guard matrix)",
     )
-    p.add_argument("--board", default="core_cpu",
+    p.add_argument("--board", default=None,
                    choices=["core_cpu", "core_hybrid", "core_metal",
                             "heavy_native", "heavy_cairo", "stream", "riscv"],
-                   help="scoring board (schema/scoring.md); kernels are never boards")
+                   help="scoring board (schema/scoring.md); kernels are never "
+                        "boards. Default: auto — core_metal when the diff "
+                        "touches src/backends/metal/, else core_cpu")
     p.add_argument("--predecessor", help="worktree of the paired A arm (required)")
     p.add_argument("--aa", action="store_true",
                    help="A/A dispersion measurement (both arms = this tree)")

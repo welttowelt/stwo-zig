@@ -74,5 +74,41 @@ class SecretScanTest(unittest.TestCase):
         self.assertTrue(self._scan('api_key = "abcdef0123456789abcdef"'))
 
 
+class CheckClaimedVerdictsTest(unittest.TestCase):
+    @staticmethod
+    def _verdict(board, workload_class, kind="claimed"):
+        return {
+            "kind": kind,
+            "declared_objective": {"board": board, "workload_class": workload_class},
+        }
+
+    def test_same_class_across_boards_is_legitimate(self):
+        submitter.check_claimed_verdicts(
+            [self._verdict("core_cpu", "small"), self._verdict("core_metal", "small")],
+            ["a.json", "b.json"],
+        )
+
+    def test_same_board_and_class_is_duplicate(self):
+        with self.assertRaisesRegex(submitter.SubmitError, "core_metal/small"):
+            submitter.check_claimed_verdicts(
+                [self._verdict("core_metal", "small"),
+                 self._verdict("core_metal", "small")],
+                ["a.json", "b.json"],
+            )
+
+    def test_missing_board_defaults_to_core_cpu(self):
+        bare = {"kind": "claimed", "declared_objective": {"workload_class": "wide"}}
+        with self.assertRaisesRegex(submitter.SubmitError, "core_cpu/wide"):
+            submitter.check_claimed_verdicts(
+                [bare, self._verdict("core_cpu", "wide")], ["a.json", "b.json"],
+            )
+
+    def test_judged_verdict_refused(self):
+        with self.assertRaisesRegex(submitter.SubmitError, "judge"):
+            submitter.check_claimed_verdicts(
+                [self._verdict("core_cpu", "small", kind="judged")], ["a.json"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,18 @@ stwo-perf submit --slug <short-name> --note-file note.md \
   --transcripts ./transcripts --model "<your model>"
 ```
 
+## Boards — score your change where it can actually show up
+
+Two boards are live: **core_cpu** (the CPU bench) and **core_metal** (the
+Metal bench, `zig build native-proof-bench-metal`). A change under
+`src/backends/metal/` never executes in the CPU bench — scored there it
+records an honest but useless neutral. `stwo-perf run` therefore
+auto-selects `core_metal` when your diff touches `src/backends/metal/`
+(explicit `--board` overrides). A change that moves both backends deserves
+a verdict per board: run once per board (`--board core_cpu`,
+`--board core_metal`), pass every verdict to `submit` via repeated
+`--verdict` flags, and each board/class pair earns its own ledger row.
+
 ## Session policy — maximize verified improvement, not first significance
 
 The suite score is `100 × geomean over {small, wide, deep}` of each class's
