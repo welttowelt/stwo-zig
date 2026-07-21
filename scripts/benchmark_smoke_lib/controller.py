@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import shutil
+import statistics
 import subprocess
 import time
 from pathlib import Path
@@ -150,6 +151,7 @@ def summarize_samples(
                 stage_profiles.append(json.loads(stage_profile_path.read_text(encoding="utf-8")))
 
     avg_seconds = sum(samples) / len(samples)
+    median_seconds = statistics.median(samples)
     result: Dict[str, Any] = {
         "name": name,
         "command": cmd,
@@ -159,6 +161,7 @@ def summarize_samples(
         "min_seconds": round(min(samples), 6),
         "max_seconds": round(max(samples), 6),
         "avg_seconds": round(avg_seconds, 6),
+        "median_seconds": round(median_seconds, 6),
         "raw_runs": raw_runs,
     }
     if rss_samples:
@@ -491,8 +494,8 @@ def main() -> int:
             merkle_pool_reuse_workloads=merkle_pool_reuse_workloads,
         )
 
-        prove_ratio = ratio(zig["prove"]["avg_seconds"], rust["prove"]["avg_seconds"])
-        verify_ratio = ratio(zig["verify"]["avg_seconds"], rust["verify"]["avg_seconds"])
+        prove_ratio = ratio(zig["prove"]["median_seconds"], rust["prove"]["median_seconds"])
+        verify_ratio = ratio(zig["verify"]["median_seconds"], rust["verify"]["median_seconds"])
         proof_size_ratio = ratio(
             float(zig["proof_metrics"]["proof_wire_bytes"]),
             float(rust["proof_metrics"]["proof_wire_bytes"]),
@@ -591,6 +594,7 @@ def main() -> int:
         settings["include_long"] = True
     thresholds = {
         "max_zig_over_rust_ratio": args.max_zig_over_rust,
+        "latency_statistic": "median_seconds",
         "conformance_reference": "conformance/upstream.md (full contract archived in stwo-zig-og-docs)",
     }
 

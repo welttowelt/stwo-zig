@@ -33,6 +33,23 @@ class BenchmarkSmokeControllerTests(unittest.TestCase):
             self.assertEqual(len(result["raw_runs"]), 3)
             self.assertTrue(artifact.exists())
 
+    def test_latency_summary_is_robust_to_a_single_scheduler_outlier(self) -> None:
+        samples = iter([0.0037] * 10 + [0.068954])
+
+        def measure(_cmd, _env):
+            return {"seconds": next(samples), "peak_rss_kb": None}
+
+        with mock.patch.object(controller, "run_timed", side_effect=measure):
+            result = controller.summarize_samples(
+                "prove",
+                ["prover"],
+                warmups=0,
+                repeats=11,
+            )
+
+        self.assertEqual(result["median_seconds"], 0.0037)
+        self.assertGreater(result["avg_seconds"], 0.009)
+
 
 if __name__ == "__main__":
     unittest.main()
