@@ -31,9 +31,9 @@ Columns (tab-separated; v1 columns first, one submission per row):
 | outcome | `promoted` / `neutral` / `rejected` — only promoted rows shape the frontier |
 | judged_r | geometric-mean paired ratio (<1 improves) |
 | ci_low / ci_high | 95% bootstrap CI of judged_r |
-| prove_ms / native_mhz / peak_rss_mib | per-dimension medians on the declared class |
+| prove_ms / native_mhz / peak_rss_mib | candidate portfolio geometric means on the declared class. v3 writers populate peak RSS from `score.resource_portfolio`; `0.0` is retained only as the unavailable sentinel for verdicts that predate that evidence block |
 | waits / dispatches | Metal telemetry when applicable, else empty |
-| energy_j | joules per proof when captured, else empty |
+| energy_j | candidate portfolio geometric-mean joules per proof from `score.resource_portfolio`, else empty |
 | gates | `G1..G5:pass` or the failing gate list (a failing row records a rejection) |
 | holdout | `pass`/`fail` plus the generator seed, e.g. `pass;seed=180734` |
 | submission_id | submissions/<dir> name |

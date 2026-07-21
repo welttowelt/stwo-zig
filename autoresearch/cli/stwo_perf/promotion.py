@@ -144,6 +144,35 @@ def portfolio_ledger_summary(
     )
 
 
+def portfolio_resource_candidate(score: dict, dimension: str) -> float | None:
+    """Read one absolute candidate value from governed resource evidence."""
+    resource_portfolio = score.get("resource_portfolio")
+    if resource_portfolio is None:
+        return None
+    if not isinstance(resource_portfolio, dict):
+        raise PromotionError("score.resource_portfolio must be an object")
+    entry = resource_portfolio.get(dimension)
+    if entry is None:
+        return None
+    if not isinstance(entry, dict):
+        raise PromotionError(
+            f"score.resource_portfolio.{dimension} must be an object"
+        )
+    candidate = entry.get("candidate_geomean")
+    if candidate is None:
+        return None
+    if (
+        isinstance(candidate, bool)
+        or not isinstance(candidate, (int, float))
+        or not math.isfinite(float(candidate))
+        or float(candidate) <= 0
+    ):
+        raise PromotionError(
+            f"score.resource_portfolio.{dimension}.candidate_geomean is invalid"
+        )
+    return float(candidate)
+
+
 def decide_outcome(verdict: dict, predecessor_fresh: bool) -> tuple[str, str]:
     """Pure outcome decision (playbook F.5). ``predecessor_fresh`` is whether
     the verdict's predecessor contains the current class head — a stale
@@ -201,6 +230,8 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
     (
         ci_low, ci_high, prove_ms, proof_bytes, measurement_rounds,
     ) = portfolio_ledger_summary(score)
+    peak_rss_mib = portfolio_resource_candidate(score, "peak_rss_mib")
+    energy_j = portfolio_resource_candidate(score, "energy_j")
     search_health = verdict.get("search_health")
     measurement_seconds = (
         search_health.get("measurement_wall_seconds")
@@ -268,10 +299,12 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
         "ci_high": ci_high,
         "prove_ms": prove_ms,
         "native_mhz": 0.0,
-        "peak_rss_mib": 0.0,
+        # The frozen v1 column cannot encode missing RSS. Zero remains the
+        # legacy sentinel; complete runner verdicts always supply the value.
+        "peak_rss_mib": peak_rss_mib if peak_rss_mib is not None else 0.0,
         "waits": None,
         "dispatches": None,
-        "energy_j": None,
+        "energy_j": energy_j,
         "gates": gates_cell,
         "holdout": holdout_cell,
         "submission_id": submission_id,
