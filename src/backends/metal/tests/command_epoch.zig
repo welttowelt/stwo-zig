@@ -462,35 +462,47 @@ test "metal: fused parent tail retains its plan and materializes every layer" {
     try std.testing.expectEqualSlices(u8, &root, std.mem.sliceAsBytes(words[root_offset .. root_offset + 8]));
 }
 
-test "metal: parent tail capacity preserves a per-level prefix" {
+test "metal: generic parent chain reduces independent bottom subtrees in one grid" {
+    const allocator = std.testing.allocator;
     var runtime = try runtime_mod.Runtime.init();
     defer runtime.deinit();
-    var arena = try runtime.allocateResidentBuffer(64 * 1024);
-    defer arena.deinit();
-    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
-    var children: [1024]Hasher.Hash = undefined;
-    for (&children, 0..) |*hash, child| {
+    const leaf_count = 2048;
+    const level_count = 11;
+    const children = try allocator.alloc(Hasher.Hash, leaf_count);
+    defer allocator.free(children);
+    for (children, 0..) |*hash, child| {
         for (hash, 0..) |*byte, index| byte.* = @intCast((child * 29 + index * 17 + 5) & 0xff);
     }
-    @memcpy(std.mem.sliceAsBytes(words[0 .. children.len * 8]), std.mem.sliceAsBytes(&children));
+    var expected: [level_count][]Hasher.Hash = undefined;
+    var expected_level_count: usize = 0;
+    defer for (expected[0..expected_level_count]) |level| allocator.free(level);
+    var previous: []const Hasher.Hash = children;
+    for (&expected) |*level| {
+        level.* = try allocator.alloc(Hasher.Hash, previous.len / 2);
+        expected_level_count += 1;
+        for (level.*, 0..) |*hash, index|
+            hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = previous[index * 2], .right = previous[index * 2 + 1] });
+        previous = level.*;
+    }
 
-    var level0: [512]Hasher.Hash = undefined;
-    for (&level0, 0..) |*hash, index|
-        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = children[index * 2], .right = children[index * 2 + 1] });
-    var level1: [256]Hasher.Hash = undefined;
-    for (&level1, 0..) |*hash, index|
-        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = level0[index * 2], .right = level0[index * 2 + 1] });
-    var level2: [128]Hasher.Hash = undefined;
-    for (&level2, 0..) |*hash, index|
-        hash.* = Hasher.hashChildrenWithSeed(Hasher.nodeSeed(), .{ .left = level1[index * 2], .right = level1[index * 2 + 1] });
-
-    const level0_offset: u32 = 8192;
-    const level1_offset: u32 = 12288;
-    const level2_offset: u32 = 14336;
+    var child_offsets: [level_count]u32 = undefined;
+    var destination_offsets: [level_count]u32 = undefined;
+    var parent_counts: [level_count]u32 = undefined;
+    var cursor: u32 = leaf_count * 8;
+    for (0..level_count) |level| {
+        child_offsets[level] = if (level == 0) 0 else destination_offsets[level - 1];
+        destination_offsets[level] = cursor;
+        parent_counts[level] = @intCast(expected[level].len);
+        cursor += parent_counts[level] * 8;
+    }
+    var arena = try runtime.allocateResidentBuffer(@as(usize, cursor) * @sizeOf(u32));
+    defer arena.deinit();
+    const words: [*]u32 = @ptrCast(@alignCast(arena.contents));
+    @memcpy(std.mem.sliceAsBytes(words[0 .. children.len * 8]), std.mem.sliceAsBytes(children));
     var plan = try runtime.prepareMerkleParentChain(
-        &.{ 0, level0_offset, level1_offset },
-        &.{ level0_offset, level1_offset, level2_offset },
-        &.{ 512, 256, 128 },
+        &child_offsets,
+        &destination_offsets,
+        &parent_counts,
         Hasher.nodeSeed(),
         Hasher.domainPrefixBytes(),
     );
@@ -501,11 +513,43 @@ test "metal: parent tail capacity preserves a per-level prefix" {
     try epoch.submit();
     const stats = try epoch.wait();
 
-    try std.testing.expectEqual(@as(u64, 2), stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 1), stats.compute_encoders);
     try std.testing.expectEqual(@as(u64, 2), stats.dispatches);
-    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level0), std.mem.sliceAsBytes(words[level0_offset .. level0_offset + level0.len * 8]));
-    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level1), std.mem.sliceAsBytes(words[level1_offset .. level1_offset + level1.len * 8]));
-    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&level2), std.mem.sliceAsBytes(words[level2_offset .. level2_offset + level2.len * 8]));
+    for (expected, destination_offsets) |level, offset|
+        try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(level), std.mem.sliceAsBytes(words[offset .. offset + level.len * 8]));
+
+    // Reuse the leaf range as one half of a ping-pong chain.  The global
+    // dispatch barriers make this legal, but one multi-threadgroup grid
+    // would race a destination writer against another group's initial read.
+    // Preparation must therefore retain the conservative per-level schedule.
+    const alternate_offset: u32 = leaf_count * 8;
+    var aliased_children: [level_count]u32 = undefined;
+    var aliased_destinations: [level_count]u32 = undefined;
+    for (0..level_count) |level| {
+        aliased_children[level] = if (level == 0) 0 else aliased_destinations[level - 1];
+        aliased_destinations[level] = if (level & 1 == 0) alternate_offset else 0;
+    }
+    var aliased_plan = try runtime.prepareMerkleParentChain(
+        &aliased_children,
+        &aliased_destinations,
+        &parent_counts,
+        Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
+    );
+    defer aliased_plan.deinit();
+    var aliased_epoch = try runtime.beginCommandEpoch(arena);
+    defer aliased_epoch.deinit();
+    try aliased_epoch.encodeMerkleParentChain(aliased_plan);
+    try aliased_epoch.submit();
+    const aliased_stats = try aliased_epoch.wait();
+    // Nine global levels plus the existing two-level top tail.
+    try std.testing.expectEqual(@as(u64, 1), aliased_stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, level_count - 1), aliased_stats.dispatches);
+    try std.testing.expectEqualSlices(
+        u8,
+        std.mem.sliceAsBytes(expected[level_count - 1]),
+        std.mem.sliceAsBytes(words[alternate_offset .. alternate_offset + 8]),
+    );
 }
 
 test "metal: parent chain preparation and arena bounds fail closed" {

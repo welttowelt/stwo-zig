@@ -192,16 +192,18 @@ void *stwo_zig_metal_merkle_commit(
                                     runtime.leaves.threadExecutionWidth * 8u);
         [leaf_encoder dispatchThreads:MTLSizeMake(leaf_count, 1, 1)
                 threadsPerThreadgroup:MTLSizeMake(leaf_width, 1, 1)];
-        [leaf_encoder endEncoding];
 
         if (parent_plan != nil) {
-            uint64_t parent_encoders = 0u, parent_dispatches = 0u;
-            if (!encode_merkle_parent_chain_prepared(runtime, hash_arena, parent_plan, command,
-                                                      &parent_encoders, &parent_dispatches)) {
+            [leaf_encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+            uint64_t parent_dispatches = 0u;
+            if (!encode_merkle_parent_chain_on_encoder(runtime, hash_arena, parent_plan,
+                                                        leaf_encoder, &parent_dispatches)) {
+                [leaf_encoder endEncoding];
                 write_error(error_message, error_message_len, @"Metal Merkle parent-chain encoding failed");
                 return NULL;
             }
         }
+        [leaf_encoder endEncoding];
         if (!runtime.device.hasUnifiedMemory) {
             id<MTLBlitCommandEncoder> root_copy = [command blitCommandEncoder];
             if (root_copy == nil) {

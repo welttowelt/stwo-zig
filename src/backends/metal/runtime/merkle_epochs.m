@@ -433,6 +433,37 @@ static uint32_t merkle_parent_tail_start(
     return level_count;
 }
 
+static uint32_t merkle_floor_power_of_two(uint32_t value) {
+    if (value == 0u) return 0u;
+    return 1u << (31u - (uint32_t)__builtin_clz(value));
+}
+
+static uint32_t merkle_parent_bottom_level_count(
+    const uint32_t *children, const uint32_t *destinations, const uint32_t *counts,
+    uint32_t level_count, uint32_t width, uint32_t tail_capacity
+) {
+    if (width < 2u || counts[0] <= tail_capacity || counts[0] % width != 0u) return 0u;
+    uint32_t bottom_levels = 1u;
+    for (uint32_t count = width; count > 1u; count >>= 1u) bottom_levels += 1u;
+    if (level_count < bottom_levels) return 0u;
+
+    uint64_t initial_child_start = children[0];
+    uint64_t initial_child_words = (uint64_t)counts[0] * 16u;
+    for (uint32_t level = 0u; level < bottom_levels; ++level) {
+        uint32_t expected_count = counts[0] >> level;
+        if (counts[level] != expected_count ||
+            (level > 0u && children[level] != destinations[level - 1u])) return 0u;
+        uint64_t destination_words = (uint64_t)counts[level] * 8u;
+        if (merkle_ranges_overlap(destinations[level], destination_words,
+                                  initial_child_start, initial_child_words)) return 0u;
+        for (uint32_t prior = 0u; prior < level; ++prior) {
+            if (merkle_ranges_overlap(destinations[level], destination_words,
+                                      destinations[prior], (uint64_t)counts[prior] * 8u)) return 0u;
+        }
+    }
+    return bottom_levels;
+}
+
 void *stwo_zig_metal_merkle_parent_chain_prepare(
     void *runtime_ptr, const uint32_t *child_offsets, const uint32_t *destination_offsets,
     const uint32_t *parent_counts, uint32_t level_count, const uint32_t *node_seed,
@@ -459,8 +490,18 @@ void *stwo_zig_metal_merkle_parent_chain_prepare(
         NSUInteger capacity = MIN((NSUInteger)256u,
             MIN(runtime.parentTailSparse.maxTotalThreadsPerThreadgroup,
                 available_bytes / (8u * sizeof(uint32_t))));
-        plan.tailStart = merkle_parent_tail_start(child_offsets, destination_offsets,
-                                                  parent_counts, level_count, (uint32_t)capacity);
+        uint32_t bottom_width = merkle_floor_power_of_two((uint32_t)MIN((NSUInteger)128u, capacity));
+        plan.bottomLevelCount = merkle_parent_bottom_level_count(
+            child_offsets, destination_offsets, parent_counts, level_count,
+            bottom_width, (uint32_t)capacity);
+        if (plan.bottomLevelCount > 0u) {
+            plan.bottomThreadgroupWidth = bottom_width;
+            plan.bottomThreadgroupCount = parent_counts[0] / bottom_width;
+            plan.bottomScratchBytes = (NSUInteger)bottom_width * 8u * sizeof(uint32_t);
+        }
+        uint32_t tail_start = merkle_parent_tail_start(child_offsets, destination_offsets,
+                                                       parent_counts, level_count, (uint32_t)capacity);
+        plan.tailStart = MAX(tail_start, plan.bottomLevelCount);
         if (plan.tailStart < level_count) {
             plan.tailThreadgroupWidth = parent_counts[plan.tailStart];
             plan.tailScratchBytes = (NSUInteger)plan.tailThreadgroupWidth * 8u * sizeof(uint32_t);
@@ -473,11 +514,11 @@ void stwo_zig_metal_merkle_parent_chain_destroy(void *plan_ptr) {
     if (plan_ptr != NULL) CFRelease(plan_ptr);
 }
 
-static bool encode_merkle_parent_chain_prepared(
+static bool encode_merkle_parent_chain_on_encoder(
     StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigMerkleParentChain *plan,
-    id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
+    id<MTLComputeCommandEncoder> encoder, uint64_t *dispatches
 ) {
-    if (runtime == nil || arena == nil || plan == nil || command == nil) return false;
+    if (runtime == nil || arena == nil || plan == nil || encoder == nil) return false;
     const uint32_t *children = plan.childOffsets.bytes, *destinations = plan.destinationOffsets.bytes, *counts = plan.parentCounts.bytes;
     uint64_t arena_words = arena.length / sizeof(uint32_t);
     for (uint32_t level = 0u; level < plan.levelCount; ++level) {
@@ -487,22 +528,41 @@ static bool encode_merkle_parent_chain_prepared(
     }
     NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
     uint32_t prefix_bytes = plan.prefixBytes;
-    for (uint32_t level = 0; level < plan.tailStart; ++level) {
+    if (plan.bottomLevelCount > 32u) return false;
+    uint64_t encoded_dispatches = 0u;
+    if (plan.bottomLevelCount > 0u) {
+        uint32_t local_counts[32];
+        for (uint32_t level = 0u; level < plan.bottomLevelCount; ++level)
+            local_counts[level] = plan.bottomThreadgroupWidth >> level;
+        uint32_t bottom_levels = plan.bottomLevelCount;
+        [encoder setComputePipelineState:runtime.parentTailSparse];
+        [encoder setBuffer:arena offset:0 atIndex:0];
+        [encoder setBytes:children length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:1];
+        [encoder setBytes:destinations length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:2];
+        [encoder setBytes:local_counts length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:3];
+        [encoder setBytes:&bottom_levels length:sizeof(bottom_levels) atIndex:4];
+        [encoder setBuffer:plan.nodeSeed offset:0 atIndex:5];
+        [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:6];
+        [encoder setThreadgroupMemoryLength:plan.bottomScratchBytes atIndex:0];
+        [encoder dispatchThreadgroups:MTLSizeMake(plan.bottomThreadgroupCount, 1u, 1u)
+                 threadsPerThreadgroup:MTLSizeMake(plan.bottomThreadgroupWidth, 1u, 1u)];
+        encoded_dispatches += 1u;
+        if (plan.bottomLevelCount < plan.levelCount)
+            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+    }
+    for (uint32_t level = plan.bottomLevelCount; level < plan.tailStart; ++level) {
         uint32_t child = children[level], destination = destinations[level], count = counts[level];
-        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-        if (encoder == nil) return false;
         [encoder setComputePipelineState:runtime.parentsSparse]; [encoder setBuffer:arena offset:0 atIndex:0];
         [encoder setBytes:&child length:sizeof(child) atIndex:1]; [encoder setBytes:&destination length:sizeof(destination) atIndex:2];
         [encoder setBytes:&count length:sizeof(count) atIndex:3]; [encoder setBuffer:plan.nodeSeed offset:0 atIndex:4];
         [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:5];
         [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
-        [encoder endEncoding];
-        *compute_encoders += 1u; *dispatches += 1u;
+        encoded_dispatches += 1u;
+        if (level + 1u < plan.tailStart || plan.tailStart < plan.levelCount)
+            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
     }
     if (plan.tailStart < plan.levelCount) {
         uint32_t tail_levels = plan.levelCount - plan.tailStart;
-        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-        if (encoder == nil) return false;
         [encoder setComputePipelineState:runtime.parentTailSparse];
         [encoder setBuffer:arena offset:0 atIndex:0];
         [encoder setBytes:children + plan.tailStart length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:1];
@@ -514,9 +574,23 @@ static bool encode_merkle_parent_chain_prepared(
         [encoder setThreadgroupMemoryLength:plan.tailScratchBytes atIndex:0];
         [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(plan.tailThreadgroupWidth, 1u, 1u)];
-        [encoder endEncoding];
-        *compute_encoders += 1u; *dispatches += 1u;
+        encoded_dispatches += 1u;
     }
+    *dispatches += encoded_dispatches;
+    return true;
+}
+
+static bool encode_merkle_parent_chain_prepared(
+    StwoZigMetalRuntime *runtime, id<MTLBuffer> arena, StwoZigMerkleParentChain *plan,
+    id<MTLCommandBuffer> command, uint64_t *compute_encoders, uint64_t *dispatches
+) {
+    if (command == nil) return false;
+    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+    if (encoder == nil) return false;
+    bool encoded = encode_merkle_parent_chain_on_encoder(runtime, arena, plan, encoder, dispatches);
+    [encoder endEncoding];
+    if (!encoded) return false;
+    *compute_encoders += 1u;
     return true;
 }
 

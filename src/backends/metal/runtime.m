@@ -214,6 +214,10 @@
 @property(nonatomic, strong) id<MTLBuffer> nodeSeed;
 @property(nonatomic) uint32_t levelCount;
 @property(nonatomic) uint32_t prefixBytes;
+@property(nonatomic) uint32_t bottomLevelCount;
+@property(nonatomic) uint32_t bottomThreadgroupWidth;
+@property(nonatomic) uint32_t bottomThreadgroupCount;
+@property(nonatomic) NSUInteger bottomScratchBytes;
 @property(nonatomic) uint32_t tailStart;
 @property(nonatomic) uint32_t tailThreadgroupWidth;
 @property(nonatomic) NSUInteger tailScratchBytes;
