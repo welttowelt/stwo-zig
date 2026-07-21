@@ -1,4 +1,4 @@
-//! Versioned proof envelope for the staged Stark-V RV32IM adapter.
+//! Versioned proof envelope for the release-gated Stark-V RV32IM adapter.
 //!
 //! This is a publication contract, not a release claim. V3 stores the exact
 //! descriptor-indexed interaction claims consumed by the production verifier.
@@ -15,7 +15,7 @@ pub const wire_protocol = @import("riscv_artifact/protocol.zig");
 pub const SCHEMA_VERSION = schema.SCHEMA_VERSION;
 pub const ARTIFACT_KIND = schema.ARTIFACT_KIND;
 pub const EXCHANGE_MODE = schema.EXCHANGE_MODE;
-pub const RELEASE_STATUS = "not_release_gated";
+pub const RELEASE_STATUS = "release_gated";
 pub const GENERATOR = schema.GENERATOR;
 pub const AIR = schema.AIR;
 pub const ORACLE_REPOSITORY = schema.ORACLE_REPOSITORY;

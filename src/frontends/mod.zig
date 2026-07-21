@@ -12,7 +12,7 @@
 //!
 //! - `examples` — Reference implementations (blake, poseidon, plonk, state_machine, etc.)
 //! - `cairo` — (future) Full stwo-cairo prover in Zig
-//! - `riscv` — experimental RV32IM frontend (Stark-V adapter); not release-gated
+//! - `riscv` — release-gated RV32IM frontend backed by the pinned Stark-V oracle
 
 pub const examples = @import("../examples/mod.zig");
 pub const cairo = @import("cairo/mod.zig");

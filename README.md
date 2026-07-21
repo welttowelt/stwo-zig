@@ -39,7 +39,7 @@ and the Cairo frontend (stwo-cairo in Zig) when that effort resumes.
 | :--- | :--- |
 | **Native Stwo** | Blake, Poseidon, Plonk, state-machine, wide-Fibonacci, and XOR AIRs |
 | **Cairo** | Versioned PIE ingestion and SN2-specialized resident proof machinery, parked until the stwo-cairo effort resumes; the general Cairo proof path is not release-gated |
-| **RISC-V** | Staged Stark-V RV32IM ELF adapter with sharded AIR components and the CPU prove/verify CLI. It remains fail-closed behind `--experimental` until the [release contract](conformance/2026-07-18-riscv-release-goal.md) passes |
+| **RISC-V** | Release-gated Stark-V RV32IM ELF adapter with sharded AIR components, CPU proving, independent verification, and pinned-Rust oracle evidence |
 
 ## Quick Start
 
@@ -61,7 +61,7 @@ zig build test-native-metal -Doptimize=ReleaseFast  # macOS with Metal
 | `stwo-native-cpu` | Zig-supported hosts | Released CPU/SIMD CLI |
 | `stwo-native-metal` | macOS with Apple Metal | Parity-gated, source-JIT, device-only CLI |
 | `stwo-zig` | Zig-supported hosts | Released CPU aggregate; Metal only with `-Daggregate-metal=true` on macOS |
-| `stwo-zig-riscv-cpu` | Native host; static x86_64 Linux artifact | Staged and fail-closed behind `--experimental` |
+| `stwo-zig-riscv-cpu` | Native host; static x86_64 Linux artifact | Release-gated RV32IM prove, verify, and benchmark CLI |
 | Cairo products | No production host | Deferred until the separate Rust-oracle semantic goal resumes |
 | CUDA products | No production host | Explicitly unavailable; no fallback or placeholder execution |
 
@@ -112,20 +112,20 @@ sample. `stwo-zig-native-metal` admits only its exact source-JIT identity and
 fails rather than entering a CPU commitment path. Run `applications` on any
 CLI for its compiled capability registry.
 
-## RISC-V frontend (experimental)
+## RISC-V frontend
 
-The staged adapter accepts an RV32IM ELF, executes it, builds the sharded witness, proves it through
+The release-gated adapter accepts an RV32IM ELF, executes it, builds the sharded witness, proves it through
 the same PCS/FRI core, self-verifies before publication, and emits a bounded schema-v3 artifact.
 A separate process must verify that artifact against a caller-supplied expected-statement digest.
 The pinned Rust [Stark-V](https://github.com/ClementWalter/stark-v) implementation remains the final
-oracle at shared boundaries. Staged artifacts say `not_release_gated` and cannot be relabelled.
+oracle at shared boundaries. Published artifacts carry the immutable `release_gated` status.
 
 ```sh
 zig build stwo-zig -Doptimize=ReleaseFast
 
 zig-out/bin/stwo-zig prove \
   --elf vectors/riscv_elfs/branch_fib.elf \
-  --backend cpu --protocol functional --experimental \
+  --backend cpu --protocol functional \
   --output riscv-proof.json --report-out riscv-report.json
 
 STATEMENT_DIGEST=$(python3 -c \
