@@ -6,6 +6,42 @@ const metal_merkle = @import("merkle_tree.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 
+const FoldCoordinate = enum { x, y };
+
+/// Builds the inverse-coordinate vector for a Metal FRI fold with one linear
+/// coset walk. Scattering natural point j to bitReverse(j) is equivalent to
+/// the former per-output indexed reconstruction because bit reversal is an
+/// involution, while avoiding O(N log N) circle-group work on the host.
+fn prepareBitReversedFoldInverses(
+    coordinates: []@import("stwo_core").fields.m31.M31,
+    inverses: []@import("stwo_core").fields.m31.M31,
+    coset: @import("stwo_core").circle.Coset,
+    comptime coordinate: FoldCoordinate,
+) !void {
+    const M31 = @import("stwo_core").fields.m31.M31;
+    const fields = @import("stwo_core").fields;
+    const core_utils = @import("stwo_core").utils;
+    if (coordinates.len == 0 or
+        coordinates.len != inverses.len or
+        !std.math.isPowerOfTwo(coordinates.len) or
+        coordinates.len > coset.size())
+    {
+        return error.ShapeMismatch;
+    }
+
+    const log_len: u32 = @intCast(std.math.log2_int(usize, coordinates.len));
+    var points = coset.iter();
+    for (0..coordinates.len) |natural_index| {
+        const point = points.next() orelse unreachable;
+        const output_index = core_utils.bitReverseIndex(natural_index, log_len);
+        coordinates[output_index] = switch (coordinate) {
+            .x => point.x,
+            .y => point.y,
+        };
+    }
+    try fields.batchInverseInPlace(M31, coordinates, inverses);
+}
+
 pub fn warmup() !void {
     return MetalCommitBackend.warmup();
 }
@@ -407,17 +443,10 @@ pub const MetalCommitBackend = struct {
         alpha: @import("stwo_core").fields.qm31.QM31,
         workspace: *@import("stwo_core").fri.FoldCircleWorkspace,
     ) !void {
-        const M31 = @import("stwo_core").fields.m31.M31;
-        const core_utils = @import("stwo_core").utils;
-        const fields = @import("stwo_core").fields;
         try workspace.ensureCapacity(allocator, dst.len);
         const py = workspace.py_values[0..dst.len];
         const inverse_y = workspace.inv_py_values[0..dst.len];
-        const log_size = src_domain.logSize();
-        for (py, 0..) |*value, index| {
-            value.* = src_domain.at(core_utils.bitReverseIndex(index << 1, log_size)).y;
-        }
-        try fields.batchInverseInPlace(M31, py, inverse_y);
+        try prepareBitReversedFoldInverses(py, inverse_y, src_domain.half_coset, .y);
         const alpha_coords = alpha.toM31Array();
         const alpha_words = [4]u32{ alpha_coords[0].v, alpha_coords[1].v, alpha_coords[2].v, alpha_coords[3].v };
         const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(src_columns[0].ptr[0 .. src_columns[0].len * 4]));
@@ -443,9 +472,6 @@ pub const MetalCommitBackend = struct {
         workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         n_folds: u32,
     ) !@import("stwo_prover_impl").line.LineEvaluation {
-        const M31 = @import("stwo_core").fields.m31.M31;
-        const core_utils = @import("stwo_core").utils;
-        const fields = @import("stwo_core").fields;
         var current = evaluation;
         var owns_current = false;
         var current_alpha = alpha;
@@ -459,11 +485,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, destination_len);
             const x = workspace.x_values[0..destination_len];
             const inverse_x = workspace.inv_x_values[0..destination_len];
-            const log_size = current.domain().logSize();
-            for (x, 0..) |*value, index| {
-                value.* = current.domain().at(core_utils.bitReverseIndex(index << 1, log_size));
-            }
-            try fields.batchInverseInPlace(M31, x, inverse_x);
+            try prepareBitReversedFoldInverses(x, inverse_x, current.domain().coset(), .x);
             const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(current.values));
             const destination_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(@constCast(next.values)));
             const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_x));
@@ -501,8 +523,6 @@ pub const MetalCommitBackend = struct {
         n_folds: u32,
     ) !@import("stwo_backend_contracts").fri_ops.FoldLineAndCommitResult(MerkleTree(H)) {
         const M31 = @import("stwo_core").fields.m31.M31;
-        const core_utils = @import("stwo_core").utils;
-        const fields = @import("stwo_core").fields;
         const secure_column = @import("stwo_prover_impl").secure_column;
         if (n_folds == 0 or n_folds >= @bitSizeOf(usize) or
             evaluation.len() >> @intCast(n_folds) == 0)
@@ -555,11 +575,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, destination_count);
             const x = workspace.x_values[0..destination_count];
             const inverse_x = workspace.inv_x_values[0..destination_count];
-            const log_size = current_domain.logSize();
-            for (x, 0..) |*value, index| {
-                value.* = current_domain.at(core_utils.bitReverseIndex(index << 1, log_size));
-            }
-            try fields.batchInverseInPlace(M31, x, inverse_x);
+            try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
             @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
             inverse_cursor += destination_count;
             const alpha_coordinates = current_alpha.toM31Array();
@@ -623,8 +639,6 @@ pub const MetalCommitBackend = struct {
     ) !?FriLineCascadeResult(H) {
         const channel_blake2s = @import("stwo_core").channel.blake2s;
         const M31 = @import("stwo_core").fields.m31.M31;
-        const core_utils = @import("stwo_core").utils;
-        const fields = @import("stwo_core").fields;
         if (comptime @TypeOf(channel.*) != channel_blake2s.Blake2sChannel) return null;
         if (fold_step != 1 or last_layer_size == 0 or
             evaluation.len() <= last_layer_size or evaluation.resident_storage == null or
@@ -647,11 +661,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, destination_count);
             const x = workspace.x_values[0..destination_count];
             const inverse_x = workspace.inv_x_values[0..destination_count];
-            const log_size = current_domain.logSize();
-            for (x, 0..) |*value, index| {
-                value.* = current_domain.at(core_utils.bitReverseIndex(index << 1, log_size));
-            }
-            try fields.batchInverseInPlace(M31, x, inverse_x);
+            try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
             @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
             inverse_cursor += destination_count;
             current_count = destination_count;

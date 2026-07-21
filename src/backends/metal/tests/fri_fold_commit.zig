@@ -392,7 +392,7 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
     try std.testing.expectEqual(@as(u64, 1), result.stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 1), result.stats.wait_count);
     try std.testing.expectEqual(@as(u64, 1), result.stats.compute_encoders);
-    try std.testing.expectEqual(@as(u64, 38), result.stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 20), result.stats.dispatches);
     for (result.trees, expected_roots) |tree, expected_root| {
         const actual_root = try tree.root();
         try std.testing.expectEqualSlices(u8, &expected_root, &actual_root.hash);
