@@ -405,20 +405,60 @@ bool stwo_zig_metal_fri_line_cascade(
             uint32_t tree_log_size = tree.logSize;
 
             uint32_t child_offsets[31], destination_offsets[31], parent_counts[31];
-            uint32_t tail_level = tree_log_size + 1u;
             uint32_t parent_count = count >> 1u;
             for (uint32_t level = 1u; level <= tree_log_size; ++level) {
                 child_offsets[level - 1u] = tree_layer_word_offset(tree, level - 1u);
                 destination_offsets[level - 1u] = tree_layer_word_offset(tree, level);
                 parent_counts[level - 1u] = parent_count;
-                // Leave a one-level tail alone; fusing is useful only when a
-                // single threadgroup replaces at least two dispatches.
-                if (tail_level > tree_log_size && level < tree_log_size &&
-                    parent_count <= tail_capacity)
-                    tail_level = level;
                 parent_count >>= 1u;
             }
-            for (uint32_t level = 1u; level < tail_level; ++level) {
+
+            uint32_t first_parent_level = 1u;
+            if (tail_capacity >= 2u && parent_counts[0] > tail_capacity) {
+                // Reduce independent bottom subtrees concurrently with the
+                // existing tail kernel. 128 parent hashes need only 4 KiB of
+                // scratch and leave the 256-thread upper-tail policy intact.
+                uint32_t bottom_capacity = MIN(128u, tail_capacity);
+                uint32_t bottom_width = 1u;
+                while ((bottom_width << 1u) <= bottom_capacity) bottom_width <<= 1u;
+                uint32_t bottom_levels = 1u;
+                for (uint32_t width = bottom_width; width > 1u; width >>= 1u)
+                    bottom_levels += 1u;
+                uint32_t bottom_counts[31];
+                uint32_t local_count = bottom_width;
+                for (uint32_t level = 0u; level < bottom_levels; ++level) {
+                    bottom_counts[level] = local_count;
+                    local_count >>= 1u;
+                }
+
+                [encoder setComputePipelineState:runtime.parentTailSparse];
+                [encoder setBuffer:transcript_arena offset:0u atIndex:0];
+                [encoder setBytes:child_offsets
+                    length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:1];
+                [encoder setBytes:destination_offsets
+                    length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:2];
+                [encoder setBytes:bottom_counts
+                    length:(NSUInteger)bottom_levels * sizeof(uint32_t) atIndex:3];
+                [encoder setBytes:&bottom_levels length:sizeof(bottom_levels) atIndex:4];
+                [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
+                [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
+                [encoder setThreadgroupMemoryLength:(NSUInteger)bottom_width * 8u * sizeof(uint32_t)
+                    atIndex:0];
+                [encoder dispatchThreadgroups:MTLSizeMake(parent_counts[0] / bottom_width, 1u, 1u)
+                     threadsPerThreadgroup:MTLSizeMake(bottom_width, 1u, 1u)];
+                [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                dispatches += 1u;
+                first_parent_level = bottom_levels + 1u;
+            }
+
+            uint32_t tail_level = tree_log_size + 1u;
+            for (uint32_t level = first_parent_level; level < tree_log_size; ++level) {
+                if (parent_counts[level - 1u] <= tail_capacity) {
+                    tail_level = level;
+                    break;
+                }
+            }
+            for (uint32_t level = first_parent_level; level < tail_level; ++level) {
                 uint32_t level_index = level - 1u;
                 [encoder setComputePipelineState:runtime.parents];
                 [encoder setBuffer:transcript_arena

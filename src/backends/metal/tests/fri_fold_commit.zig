@@ -264,7 +264,7 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
     var runtime = try runtime_mod.Runtime.init();
     defer runtime.deinit();
 
-    const source_log: u32 = 6;
+    const source_log: u32 = 10;
     const final_log: u32 = 1;
     const layer_count: usize = source_log - final_log;
     const source_count: usize = @as(usize, 1) << source_log;
@@ -392,7 +392,7 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
     try std.testing.expectEqual(@as(u64, 1), result.stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 1), result.stats.wait_count);
     try std.testing.expectEqual(@as(u64, 1), result.stats.compute_encoders);
-    try std.testing.expectEqual(@as(u64, 21), result.stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 38), result.stats.dispatches);
     for (result.trees, expected_roots) |tree, expected_root| {
         const actual_root = try tree.root();
         try std.testing.expectEqualSlices(u8, &expected_root, &actual_root.hash);
