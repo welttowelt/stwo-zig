@@ -115,6 +115,49 @@ class FeedTest(unittest.TestCase):
         self.assertIsNotNone(row["lanes"]["cpu"]["prove_ms"])
         self.assertIsNotNone(row["native_unit"])
 
+    def test_reference_backends_are_distinct_and_peer_series_is_discoverable(self):
+        references = self.feed["references"]
+        scalar = references["peer_rust_scalar"]
+        simd = references["peer_rust_simd"]
+        self.assertEqual(
+            scalar["rust_reference"]["backend_type"],
+            "stwo::prover::backend::cpu::CpuBackend",
+        )
+        self.assertEqual(
+            simd["rust_reference"]["backend_type"],
+            "stwo::prover::backend::simd::SimdBackend",
+        )
+        self.assertTrue(scalar["proof_equivalence_receipt"]["all_equal"])
+        self.assertTrue(simd["proof_equivalence_receipt"]["all_equal"])
+        self.assertEqual(
+            references["peer_relative_series"]["peer_source"]["commit"],
+            "07ea1ccca13351028da94e66babf79e7ce91437f",
+        )
+
+    def test_reference_files_are_bound_into_feed_provenance(self):
+        inputs = self.feed["provenance"]["inputs_sha256"]
+        self.assertIn("autoresearch/reference/peer-rust-scalar.json", inputs)
+        self.assertIn("autoresearch/reference/peer-rust-simd.json", inputs)
+        self.assertIn("autoresearch/reference/peer-relative-series.json", inputs)
+
+    def test_reference_discovery_rejects_scalar_labeled_as_simd(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            references = root / "autoresearch/reference"
+            references.mkdir(parents=True)
+            (references / "peer-rust-simd.json").write_text(json.dumps({
+                "schema": "autoresearch-reference-v2",
+                "reference_kind": "upstream-rust-backend",
+                "name": "peer-rust-simd",
+                "rust_reference": {
+                    "backend_id": "simd",
+                    "backend_type": "stwo::prover::backend::cpu::CpuBackend",
+                },
+            }))
+            with self.assertRaisesRegex(feed.FeedError, "backend identity mismatch"):
+                feed._references(root)
+
 
 class FeedGuaranteeTest(unittest.TestCase):
     """Fixture-based tests that exercise the contract, not the happy path."""

@@ -369,12 +369,73 @@ def _references(repo: Path) -> dict:
     if not ref_dir.is_dir():
         return {}
     out = {}
-    for path in sorted(ref_dir.glob("*.json")):
+    paths = [
+        path for path in sorted(ref_dir.glob("*.json"))
+        if not path.name.endswith(".schema.json")
+    ]
+    paths.extend(sorted((ref_dir / "peer-series" / "runs").glob("*.json")))
+    for path in paths:
         try:
-            out[path.stem.replace("-", "_")] = json.loads(path.read_text())
+            document = json.loads(path.read_text())
         except json.JSONDecodeError as exc:
             raise FeedError(f"reference file {path.name} is not valid JSON: {exc}")
+        _validate_reference(path, document)
+        if path.parent.name == "runs":
+            key = "peer_series_run_" + path.stem.replace("-", "_")
+        else:
+            key = path.stem.replace("-", "_")
+        if key in out:
+            raise FeedError(f"duplicate reference key {key}")
+        out[key] = document
     return out
+
+
+def _validate_reference(path: Path, document: dict) -> None:
+    kind = document.get("reference_kind")
+    if kind == "upstream-rust-backend":
+        name = document.get("name")
+        rust = document.get("rust_reference", {})
+        actual = (rust.get("backend_id"), rust.get("backend_type"))
+        expected = {
+            "peer-rust-scalar": (
+                "cpu-scalar",
+                "stwo::prover::backend::cpu::CpuBackend",
+            ),
+            "peer-rust-simd": (
+                "simd",
+                "stwo::prover::backend::simd::SimdBackend",
+            ),
+        }.get(name)
+        if expected is None or actual != expected:
+            raise FeedError(
+                f"reference file {path.name} backend identity mismatch: "
+                f"name={name!r}, backend={actual!r}"
+            )
+    elif kind == "peer-relative-series":
+        peer = document.get("peer_source", {})
+        if (
+            peer.get("repository") != "https://github.com/ClementWalter/stwo"
+            or peer.get("commit") != "07ea1ccca13351028da94e66babf79e7ce91437f"
+        ):
+            raise FeedError(f"reference file {path.name} peer source pin mismatch")
+    elif document.get("schema") == "peer-relative-wide-fibonacci-series-point-v1":
+        peer = document.get("peer_source", {})
+        if (
+            peer.get("repository") != "https://github.com/ClementWalter/stwo"
+            or peer.get("commit") != "07ea1ccca13351028da94e66babf79e7ce91437f"
+        ):
+            raise FeedError(f"reference file {path.name} peer series pin mismatch")
+        if [size.get("log_n_rows") for size in document.get("sizes", [])] != [14, 16, 18, 20]:
+            raise FeedError(f"reference file {path.name} peer series size vector mismatch")
+
+
+def _reference_input_files(repo: Path) -> list[Path]:
+    ref_dir = repo / "autoresearch" / "reference"
+    if not ref_dir.is_dir():
+        return []
+    paths = sorted(ref_dir.glob("*.json"))
+    paths.extend(sorted((ref_dir / "peer-series" / "runs").glob("*.json")))
+    return paths
 
 
 def _notes_count(repo: Path) -> int:
@@ -453,6 +514,9 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
             rel = path.relative_to(repo).as_posix()
             inputs[rel] = _sha256_file(path)
     inputs.update(extra_inputs)
+    for path in _reference_input_files(repo):
+        rel = str(path.relative_to(repo))
+        inputs[rel] = _sha256_file(path)
 
     head = _git(repo, "rev-parse", "HEAD")
     head_time = _git(repo, "show", "-s", "--format=%cI", "HEAD")
