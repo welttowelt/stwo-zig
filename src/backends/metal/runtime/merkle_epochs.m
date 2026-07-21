@@ -528,6 +528,7 @@ static bool encode_merkle_parent_chain_on_encoder(
     }
     NSUInteger width = MIN((NSUInteger)256u, runtime.parentsSparse.maxTotalThreadsPerThreadgroup);
     uint32_t prefix_bytes = plan.prefixBytes;
+    const uint32_t disabled_transcript_config[3] = {0u, 0u, 0u};
     if (plan.bottomLevelCount > 32u) return false;
     uint64_t encoded_dispatches = 0u;
     if (plan.bottomLevelCount > 0u) {
@@ -543,6 +544,8 @@ static bool encode_merkle_parent_chain_on_encoder(
         [encoder setBytes:&bottom_levels length:sizeof(bottom_levels) atIndex:4];
         [encoder setBuffer:plan.nodeSeed offset:0 atIndex:5];
         [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:6];
+        [encoder setBytes:disabled_transcript_config
+            length:sizeof(disabled_transcript_config) atIndex:7];
         [encoder setThreadgroupMemoryLength:plan.bottomScratchBytes atIndex:0];
         [encoder dispatchThreadgroups:MTLSizeMake(plan.bottomThreadgroupCount, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(plan.bottomThreadgroupWidth, 1u, 1u)];
@@ -571,6 +574,8 @@ static bool encode_merkle_parent_chain_on_encoder(
         [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
         [encoder setBuffer:plan.nodeSeed offset:0 atIndex:5];
         [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:6];
+        [encoder setBytes:disabled_transcript_config
+            length:sizeof(disabled_transcript_config) atIndex:7];
         [encoder setThreadgroupMemoryLength:plan.tailScratchBytes atIndex:0];
         [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(plan.tailThreadgroupWidth, 1u, 1u)];

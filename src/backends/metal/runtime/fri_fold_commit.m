@@ -370,6 +370,7 @@ bool stwo_zig_metal_fri_line_cascade(
             write_error(error_message, error_message_len, @"Metal FRI cascade compute encoder failed");
             return false;
         }
+        const uint32_t disabled_transcript_config[3] = {0u, 0u, 0u};
 
         id<MTLBuffer> initial_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[0];
         StwoZigMetalTree *initial_tree = trees[0];
@@ -442,6 +443,8 @@ bool stwo_zig_metal_fri_line_cascade(
                 [encoder setBytes:&bottom_levels length:sizeof(bottom_levels) atIndex:4];
                 [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
+                [encoder setBytes:disabled_transcript_config
+                    length:sizeof(disabled_transcript_config) atIndex:7];
                 [encoder setThreadgroupMemoryLength:(NSUInteger)bottom_width * 8u * sizeof(uint32_t)
                     atIndex:0];
                 [encoder dispatchThreadgroups:MTLSizeMake(parent_counts[0] / bottom_width, 1u, 1u)
@@ -482,16 +485,13 @@ bool stwo_zig_metal_fri_line_cascade(
                 uint32_t tail_index = tail_level - 1u;
                 uint32_t tail_levels = tree_log_size - tail_index;
                 uint32_t tail_width = parent_counts[tail_index];
-                NSUInteger fused_static_bytes = runtime.parentTailTranscriptSparse.staticThreadgroupMemoryLength;
-                NSUInteger fused_available_bytes = runtime.device.maxThreadgroupMemoryLength > fused_static_bytes
-                    ? runtime.device.maxThreadgroupMemoryLength - fused_static_bytes : 0u;
                 uint32_t last_tail_index = tail_index + tail_levels - 1u;
                 fused_transcript = parent_counts[last_tail_index] == 1u &&
-                    destination_offsets[last_tail_index] == root_base &&
-                    tail_width <= runtime.parentTailTranscriptSparse.maxTotalThreadsPerThreadgroup &&
-                    (NSUInteger)tail_width * 8u * sizeof(uint32_t) <= fused_available_bytes;
-                [encoder setComputePipelineState:fused_transcript
-                    ? runtime.parentTailTranscriptSparse : runtime.parentTailSparse];
+                    destination_offsets[last_tail_index] == root_base;
+                uint32_t transcript_config[3] = {
+                    transcript_state_base, alpha_base, fused_transcript ? 1u : 0u,
+                };
+                [encoder setComputePipelineState:runtime.parentTailSparse];
                 [encoder setBuffer:transcript_arena offset:0u atIndex:0];
                 [encoder setBytes:child_offsets + tail_index
                     length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:1];
@@ -502,10 +502,7 @@ bool stwo_zig_metal_fri_line_cascade(
                 [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
                 [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
-                if (fused_transcript) {
-                    [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:7];
-                    [encoder setBytes:&alpha_base length:sizeof(alpha_base) atIndex:8];
-                }
+                [encoder setBytes:transcript_config length:sizeof(transcript_config) atIndex:7];
                 [encoder setThreadgroupMemoryLength:(NSUInteger)tail_width * 8u * sizeof(uint32_t)
                     atIndex:0];
                 [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
