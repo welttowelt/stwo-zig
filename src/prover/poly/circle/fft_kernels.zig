@@ -127,6 +127,76 @@ pub inline fn fftLayerLoopForwardM31(
     }
 }
 
+/// Fused forward pass over the three smallest-block layers (half-block 4, 2,
+/// and the adjacent-pair circle layer). All three operate strictly within
+/// 8-element blocks, so each block is loaded once, transformed in registers,
+/// and stored once. Butterfly order, twiddle selection, and arithmetic are
+/// identical to running `fftLayerLoopForwardM31` for half-block 4 and 2
+/// followed by the per-pair tail (twiddle pattern `[y, -y, -x, x]`), so the
+/// output is bit-identical to the unfused cascade.
+///
+/// `t2s` is the half-block-4 layer's twiddle slice (one per block).
+/// `t01s` is the shared final slice: `t01s[2b] = x_b`, `t01s[2b + 1] = y_b`;
+/// the half-block-2 layer reads them as consecutive block twiddles and the
+/// pair layer as its `[y, -y, -x, x]` pattern.
+pub fn fftBottomThreeLayersForwardM31(
+    values: []M31,
+    t2s: []const M31,
+    t01s: []const M31,
+) void {
+    std.debug.assert(values.len % 8 == 0);
+    const n_blocks = values.len / 8;
+    std.debug.assert(t2s.len >= n_blocks);
+    std.debug.assert(t01s.len >= n_blocks * 2);
+
+    var b: usize = 0;
+    // Two blocks per iteration: each block's three layers form one serial
+    // dependency chain, so interleaving two independent chains keeps the
+    // vector pipes fed.
+    while (b + 2 <= n_blocks) : (b += 2) {
+        fusedBottomBlockForward(values.ptr + b * 8, t2s[b], t01s[2 * b], t01s[2 * b + 1]);
+        fusedBottomBlockForward(values.ptr + (b + 1) * 8, t2s[b + 1], t01s[2 * b + 2], t01s[2 * b + 3]);
+    }
+    while (b < n_blocks) : (b += 1) {
+        fusedBottomBlockForward(values.ptr + b * 8, t2s[b], t01s[2 * b], t01s[2 * b + 1]);
+    }
+}
+
+inline fn fusedBottomBlockForward(base: [*]M31, t2_scalar: M31, x: M31, y: M31) void {
+    const va = m31.loadVec4(base);
+    const vb = m31.loadVec4(base + 4);
+
+    // Layer with half-block 4: one twiddle per block.
+    const t2: m31.Vec4u32 = @splat(t2_scalar.v);
+    const m2 = m31.mulVec4(vb, t2);
+    const a2 = m31.addVec4(va, m2);
+    const b2 = m31.subVec4(va, m2);
+
+    // Layer with half-block 2: lhs lanes [a2_0 a2_1 b2_0 b2_1],
+    // rhs lanes [a2_2 a2_3 b2_2 b2_3]; twiddles x then y.
+    const lo = @shuffle(u32, a2, b2, @Vector(4, i32){ 0, 1, -1, -2 });
+    const hi = @shuffle(u32, a2, b2, @Vector(4, i32){ 2, 3, -3, -4 });
+    const tw1 = m31.Vec4u32{ x.v, x.v, y.v, y.v };
+    const m1 = m31.mulVec4(hi, tw1);
+    const lo1 = m31.addVec4(lo, m1);
+    const hi1 = m31.subVec4(lo, m1);
+
+    // Pair layer: evens/odds with twiddle pattern [y, -y, -x, x].
+    const e = @shuffle(u32, lo1, hi1, @Vector(4, i32){ 0, -1, 2, -3 });
+    const o = @shuffle(u32, lo1, hi1, @Vector(4, i32){ 1, -2, 3, -4 });
+    const y_neg = y.neg();
+    const x_neg = x.neg();
+    const tw0 = m31.Vec4u32{ y.v, y_neg.v, x_neg.v, x.v };
+    const m0 = m31.mulVec4(o, tw0);
+    const e0 = m31.addVec4(e, m0);
+    const o0 = m31.subVec4(e, m0);
+
+    const out_a = @shuffle(u32, e0, o0, @Vector(4, i32){ 0, -1, 1, -2 });
+    const out_b = @shuffle(u32, e0, o0, @Vector(4, i32){ 2, -3, 3, -4 });
+    m31.storeVec4(base, out_a);
+    m31.storeVec4(base + 4, out_b);
+}
+
 /// Applies one adjacent forward butterfly.
 pub inline fn fftPairForwardM31(values: []M31, h: usize, twid: M31) void {
     std.debug.assert(isValidPairGeometry(values.len, h));
@@ -247,6 +317,59 @@ pub inline fn fftLayerLoopInverseM31(
         rhs[0] = v0.sub(v1).mul(itwid);
         lhs += 1;
         rhs += 1;
+    }
+}
+
+/// Fused inverse pass over the three smallest-block layers — the mirror of
+/// `fftBottomThreeLayersForwardM31`, run at the START of the inverse cascade:
+/// the adjacent-pair layer (itwiddle pattern `[y, -y, -x, x]`), then
+/// half-block 2 (itwiddles x, y), then half-block 4 (`it2s[b]`). Inverse
+/// butterfly: `lhs' = lhs + rhs; rhs' = (lhs - rhs) * itw`. Bit-identical to
+/// the unfused cascade.
+pub fn fftBottomThreeLayersInverseM31(
+    values: []M31,
+    it2s: []const M31,
+    it01s: []const M31,
+) void {
+    std.debug.assert(values.len % 8 == 0);
+    const n_blocks = values.len / 8;
+    std.debug.assert(it2s.len >= n_blocks);
+    std.debug.assert(it01s.len >= n_blocks * 2);
+
+    var b: usize = 0;
+    while (b < n_blocks) : (b += 1) {
+        const base = values.ptr + b * 8;
+        const x = it01s[2 * b];
+        const y = it01s[2 * b + 1];
+        const va = m31.loadVec4(base);
+        const vb = m31.loadVec4(base + 4);
+
+        // Pair layer: evens/odds, itwiddle pattern [y, -y, -x, x].
+        const e = @shuffle(u32, va, vb, @Vector(4, i32){ 0, 2, -1, -3 });
+        const o = @shuffle(u32, va, vb, @Vector(4, i32){ 1, 3, -2, -4 });
+        const y_neg = y.neg();
+        const x_neg = x.neg();
+        const tw0 = m31.Vec4u32{ y.v, y_neg.v, x_neg.v, x.v };
+        const sum0 = m31.addVec4(e, o);
+        const prod0 = m31.mulVec4(m31.subVec4(e, o), tw0);
+
+        // Half-block-2 layer: lhs [x0 x1 x4 x5], rhs [x2 x3 x6 x7],
+        // itwiddles x then y.
+        const lo = @shuffle(u32, sum0, prod0, @Vector(4, i32){ 0, -1, 2, -3 });
+        const hi = @shuffle(u32, sum0, prod0, @Vector(4, i32){ 1, -2, 3, -4 });
+        const tw1 = m31.Vec4u32{ x.v, x.v, y.v, y.v };
+        const sum1 = m31.addVec4(lo, hi);
+        const prod1 = m31.mulVec4(m31.subVec4(lo, hi), tw1);
+
+        // Half-block-4 layer: lhs [x0 x1 x2 x3], rhs [x4 x5 x6 x7].
+        const lhs2 = @shuffle(u32, sum1, prod1, @Vector(4, i32){ 0, 1, -1, -2 });
+        const rhs2 = @shuffle(u32, sum1, prod1, @Vector(4, i32){ 2, 3, -3, -4 });
+        const it2: m31.Vec4u32 = @splat(it2s[b].v);
+        const out_lo = m31.addVec4(lhs2, rhs2);
+        const out_hi = m31.mulVec4(m31.subVec4(lhs2, rhs2), it2);
+
+        m31.storeVec4(base, out_lo);
+        m31.storeVec4(base + 4, out_hi);
     }
 }
 

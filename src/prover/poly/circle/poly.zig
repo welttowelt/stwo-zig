@@ -275,8 +275,12 @@ pub const CircleCoefficients = struct {
         const values = try allocator.alloc(M31, domain.size());
         errdefer allocator.free(values);
         @memcpy(values[0..self.coeffs.len], self.coeffs);
-        if (self.coeffs.len < values.len) @memset(values[self.coeffs.len..], M31.zero());
-        transforms.evaluateBufferWithTwiddles(values, domain, twiddle_tree);
+        if (self.coeffs.len * 2 == values.len) {
+            transforms.evaluateExtensionBufferWithTwiddles(values, domain, twiddle_tree);
+        } else {
+            if (self.coeffs.len < values.len) @memset(values[self.coeffs.len..], M31.zero());
+            transforms.evaluateBufferWithTwiddles(values, domain, twiddle_tree);
+        }
         return eval_mod.CircleEvaluation.init(domain, values);
     }
 
@@ -422,22 +426,35 @@ pub fn evaluateManyWithTwiddles(
         for (out[0..initialized]) |values| allocator.free(values);
     }
 
+    var all_extension = polys.len > 0;
     for (polys, 0..) |poly, i| {
         if (domain.logSize() < poly.log_size) return PolyError.InvalidLogSize;
         const values = try allocator.alloc(M31, domain.size());
         @memcpy(values[0..poly.coeffs.len], poly.coeffs);
-        if (poly.coeffs.len < values.len) @memset(values[poly.coeffs.len..], M31.zero());
+        if (poly.coeffs.len * 2 != values.len) {
+            all_extension = false;
+            if (poly.coeffs.len < values.len) @memset(values[poly.coeffs.len..], M31.zero());
+        }
         out[i] = values;
         initialized += 1;
     }
 
-    try evaluateBuffersWithTwiddles(out, domain, twiddle_tree);
+    if (all_extension) {
+        try transforms.evaluateExtensionBuffersWithTwiddles(out, domain, twiddle_tree);
+    } else {
+        for (out, polys) |values, poly| {
+            if (poly.coeffs.len * 2 == values.len) @memset(values[poly.coeffs.len..], M31.zero());
+        }
+        try evaluateBuffersWithTwiddles(out, domain, twiddle_tree);
+    }
     return out;
 }
 
 pub const interpolateBuffersWithTwiddles = transforms.interpolateBuffersWithTwiddles;
 
 pub const evaluateBuffersWithTwiddles = transforms.evaluateBuffersWithTwiddles;
+
+pub const evaluateExtensionBuffersWithTwiddles = transforms.evaluateExtensionBuffersWithTwiddles;
 
 fn checkedPow2(log_size: u32) PolyError!usize {
     if (log_size >= @bitSizeOf(usize)) return PolyError.InvalidLogSize;
