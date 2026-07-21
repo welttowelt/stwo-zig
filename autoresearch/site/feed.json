@@ -8,6 +8,11 @@
     "small": 2.789,
     "wide": 17.656
    },
+   "core_metal": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   },
    "riscv": {
     "deep": null,
     "small": null,
@@ -1458,6 +1463,11 @@
     "small": 0.018654,
     "wide": 0.014645
    },
+   "core_metal": {
+    "deep": null,
+    "small": null,
+    "wide": null
+   },
    "note": "Per-board, per-class A/A paired-ratio CI half-widths, measured by `stwo-perf run --aa` on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores, 2026-07-20) and recorded here. riscv stays null until its board enables; theta = max(floor, 2 x dispersion) per class.",
    "riscv": {
     "deep": null,
@@ -1902,12 +1912,31 @@
   },
   "future_boards": [
    "core_hybrid",
-   "core_metal",
    "heavy_cairo",
    "heavy_native",
    "stream"
   ],
   "groups": {
+   "metal": {
+    "board": "core_metal",
+    "disabled_reason": null,
+    "enabled": true,
+    "report_schema": "native_proof_v6",
+    "workloads": {
+     "mplonk_log14": {
+      "class": "deep",
+      "native_unit": "gates"
+     },
+     "mwf_log10x8": {
+      "class": "small",
+      "native_unit": "trace rows"
+     },
+     "mwf_log14x32": {
+      "class": "wide",
+      "native_unit": "trace rows"
+     }
+    }
+   },
    "native": {
     "board": "core_cpu",
     "disabled_reason": null,
@@ -1947,6 +1976,7 @@
   },
   "owned_boards": [
    "core_cpu",
+   "core_metal",
    "riscv"
   ]
  },
@@ -1954,14 +1984,14 @@
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
-   "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
+   "autoresearch/MANIFEST.json": "d89f61a5c11e9a39bb44153db15765c44251f733bebf47b45c6b6363bae6e2fd",
+   "autoresearch/ledger/epochs.json": "268ac6d71b00254ebf1ffefaf2759d3fc7c41094e647ddb664f039a0a4739078",
    "autoresearch/ledger/promotions.tsv": "3b9cf5ed005c87b02d751d6a91bae2466e1bdbb61577e47d83d60d46c04e1ded",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "3c15d7fbc605",
-  "repo_commit_time": "2026-07-21T05:58:53Z"
+  "repo_commit": "ef33f7039e07",
+  "repo_commit_time": "2026-07-21T07:35:44+01:00"
  },
  "references": {
   "peer_rust_scalar": {
