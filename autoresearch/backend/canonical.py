@@ -15,7 +15,7 @@ from store import Store
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
-from stwo_perf import frontier, ledger, manifest as manifest_mod, qualification, runner, signing  # noqa: E402
+from stwo_perf import frontier, ledger, manifest as manifest_mod, promotion, qualification, runner, signing  # noqa: E402
 
 
 class CanonicalError(RuntimeError):
@@ -137,10 +137,11 @@ def decide_outcome(repo: Path, verdict: dict) -> tuple[str, str]:
     head = frontier.view(
         ledger.load(repo), objective["board"], objective["workload_class"],
     ).head
-    if head is not None:
-        first = next(iter(verdict["score"]["per_workload"].values()))
-        if float(first["b_median_ms"]) >= float(head.prove_ms):
-            return "rejected", "G1..G5:pass"
+    # Same rule as promotion.decide_outcome: never compare absolute ms across
+    # runs/hosts — a significant claim measured against a stale predecessor
+    # is recorded (neutral) until re-measured on top of the current frontier.
+    if not promotion.predecessor_is_fresh(repo, verdict, head):
+        return "neutral", "G1..G5:pass"
     return "promoted", "G1..G5:pass"
 
 

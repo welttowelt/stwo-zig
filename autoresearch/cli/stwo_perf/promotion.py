@@ -27,9 +27,18 @@ class PromotionError(RuntimeError):
     pass
 
 
-def decide_outcome(verdict: dict, head_prove_ms: float | None) -> tuple[str, str]:
-    """Pure outcome decision (playbook F.5); head_prove_ms is the current
-    promoted class HEAD's prove time, or None when the class has no HEAD."""
+def decide_outcome(verdict: dict, predecessor_fresh: bool) -> tuple[str, str]:
+    """Pure outcome decision (playbook F.5). ``predecessor_fresh`` is whether
+    the verdict's predecessor contains the current class head — a stale
+    branch may be re-deriving gains the frontier already credited, so its
+    significant claim is recorded (neutral) until a paired re-measurement
+    against the current frontier proves additivity.
+
+    The old check compared this run's b_median against the head row's
+    prove_ms in absolute milliseconds — an unpaired cross-run (and, for
+    outside contributors, cross-host) comparison the scoring contract
+    forbids everywhere else. A contributor on slower hardware could never
+    promote under it, however real their improvement."""
     gates_ok = all(g["pass"] for g in verdict["gates"].values())
     if not gates_ok:
         failing = ",".join(g for g, v in verdict["gates"].items() if not v["pass"])
@@ -39,11 +48,30 @@ def decide_outcome(verdict: dict, head_prove_ms: float | None) -> tuple[str, str
         return "rejected", "G1..G5:pass"
     if not verdict["score"]["significant"]:
         return ("neutral" if verdict["score"]["neutral"] else "rejected"), "G1..G5:pass"
-    if head_prove_ms is not None:
-        first = next(iter(verdict["score"]["per_workload"].values()))
-        if float(first["b_median_ms"]) >= head_prove_ms:
-            return "rejected", "G1..G5:pass"
+    if not predecessor_fresh:
+        return "neutral", "G1..G5:pass"
     return "promoted", "G1..G5:pass"
+
+
+def predecessor_is_fresh(repo: Path, verdict: dict, head) -> bool:
+    """True when the verdict's predecessor tree contains the current class
+    head (or the class has no head): the paired R was measured on top of
+    everything already credited, so promoting it cannot double-count."""
+    if head is None:
+        return True
+    pred = str(verdict.get("predecessor_commit") or "")
+    resolved = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{pred}^{{commit}}"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if resolved.returncode != 0:
+        return False
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", str(head.commit),
+         resolved.stdout.strip()],
+        cwd=repo, capture_output=True, text=True,
+    )
+    return ancestor.returncode == 0
 
 
 def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str,
@@ -158,7 +186,7 @@ def promote_claimed(repo: Path, submission_id: str,
         objective["workload_class"],
     ).head
     outcome, gates_cell = decide_outcome(
-        verdict, float(head.prove_ms) if head is not None else None
+        verdict, predecessor_is_fresh(repo, verdict, head)
     )
     row = row_from_verdict(
         submission_id, verdict, ledger.current_epoch(repo)["epoch"],

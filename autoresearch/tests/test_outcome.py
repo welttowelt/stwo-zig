@@ -30,32 +30,35 @@ def verdict(significant=True, neutral=False, gates_ok=True, holdout_pass=True,
 
 class DecideOutcomeTest(unittest.TestCase):
     def test_promoted_when_all_clear(self):
-        outcome, gates = promote_action.decide_outcome(verdict(), head_prove_ms=3.5)
+        outcome, gates = promote_action.decide_outcome(verdict(), predecessor_fresh=True)
         self.assertEqual(outcome, "promoted")
         self.assertEqual(gates, "G1..G5:pass")
 
     def test_gate_failure_rejected(self):
         outcome, gates = promote_action.decide_outcome(
-            verdict(gates_ok=False), head_prove_ms=None
+            verdict(gates_ok=False), predecessor_fresh=True
         )
         self.assertEqual(outcome, "rejected")
         self.assertIn("G3", gates)
 
     def test_holdout_failure_rejected(self):
         outcome, _ = promote_action.decide_outcome(
-            verdict(holdout_pass=False), head_prove_ms=None
+            verdict(holdout_pass=False), predecessor_fresh=True
         )
         self.assertEqual(outcome, "rejected")
 
     def test_neutral_recorded_not_promoted(self):
         outcome, _ = promote_action.decide_outcome(
-            verdict(significant=False, neutral=True), head_prove_ms=None
+            verdict(significant=False, neutral=True), predecessor_fresh=True
         )
         self.assertEqual(outcome, "neutral")
 
-    def test_no_improvement_vs_head_rejected(self):
-        outcome, _ = promote_action.decide_outcome(verdict(b_median=3.0), head_prove_ms=2.5)
-        self.assertEqual(outcome, "rejected")
+    def test_stale_predecessor_neutral_never_absolute_ms(self):
+        # A significant claim measured against a stale predecessor is
+        # recorded without credit — never rejected by comparing absolute
+        # milliseconds against a head measured in another run or host.
+        outcome, _ = promote_action.decide_outcome(verdict(), predecessor_fresh=False)
+        self.assertEqual(outcome, "neutral")
 
 
 class HoldoutHelpersTest(unittest.TestCase):

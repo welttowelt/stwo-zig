@@ -92,7 +92,7 @@ def main() -> int:
     objective_board = verdict["declared_objective"]["board"]
     head = frontier.view(ledger.load(repo), objective_board, objective_class).head
     outcome, gates_cell = decide_outcome(
-        verdict, float(head.prove_ms) if head is not None else None
+        verdict, promotion.predecessor_is_fresh(repo, verdict, head)
     )
     epoch = ledger.current_epoch(repo)["epoch"]
     row = promotion.row_from_verdict(
