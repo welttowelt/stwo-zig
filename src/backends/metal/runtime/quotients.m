@@ -138,12 +138,19 @@ bool stwo_zig_metal_compute_quotients(
                                                      options:runtime.device.hasUnifiedMemory
                                                          ? MTLResourceStorageModeShared
                                                          : MTLResourceStorageModePrivate];
-            root_readback = [runtime.device newBufferWithLength:32u options:MTLResourceStorageModeShared];
-            for (uint32_t level = 0u; level <= lifting_log_size; ++level) [layers addObject:hash_arena];
+            root_readback = runtime.device.hasUnifiedMemory ? hash_arena
+                : [runtime.device newBufferWithLength:32u options:MTLResourceStorageModeShared];
             layer_word_offsets_data = [NSData dataWithBytes:layer_word_offsets
                                                     length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
             layer_word_lengths_data = [NSData dataWithBytes:layer_word_lengths
                                                     length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
+            if (column_offsets == nil || column_logs == nil || leaf_seed_buffer == nil ||
+                hash_arena == nil || root_readback == nil || layer_word_offsets_data == nil ||
+                layer_word_lengths_data == nil) {
+                write_error(error_message, error_message_len, @"Resident quotient Merkle metadata allocation failed");
+                return false;
+            }
+            for (uint32_t level = 0u; level <= lifting_log_size; ++level) [layers addObject:hash_arena];
 
             uint32_t child_offsets[30] = { 0u };
             uint32_t destination_offsets[30] = { 0u };
@@ -158,9 +165,8 @@ bool stwo_zig_metal_compute_quotients(
                 lifting_log_size, node_seed, domain_prefix_bytes, error_message, error_message_len);
             if (parent_plan_ptr != NULL)
                 parent_plan = (__bridge_transfer StwoZigMerkleParentChain *)parent_plan_ptr;
-            if (column_offsets == nil || column_logs == nil || leaf_seed_buffer == nil ||
-                hash_arena == nil || root_readback == nil || parent_plan == nil) {
-                write_error(error_message, error_message_len, @"Resident quotient Merkle metadata allocation failed");
+            if (parent_plan == nil) {
+                write_error(error_message, error_message_len, @"Resident quotient parent-chain allocation failed");
                 return false;
             }
         }
@@ -298,15 +304,17 @@ bool stwo_zig_metal_compute_quotients(
                 write_error(error_message, error_message_len, @"Resident quotient parent-chain encoding failed");
                 return false;
             }
-            id<MTLBlitCommandEncoder> root_copy = [command blitCommandEncoder];
-            if (root_copy == nil) {
-                write_error(error_message, error_message_len, @"Resident quotient root encoder allocation failed");
-                return false;
+            if (!runtime.device.hasUnifiedMemory) {
+                id<MTLBlitCommandEncoder> root_copy = [command blitCommandEncoder];
+                if (root_copy == nil) {
+                    write_error(error_message, error_message_len, @"Resident quotient root encoder allocation failed");
+                    return false;
+                }
+                [root_copy copyFromBuffer:hash_arena
+                             sourceOffset:(NSUInteger)layer_word_offsets[lifting_log_size] * sizeof(uint32_t)
+                                 toBuffer:root_readback destinationOffset:0u size:32u];
+                [root_copy endEncoding];
             }
-            [root_copy copyFromBuffer:hash_arena
-                         sourceOffset:(NSUInteger)layer_word_offsets[lifting_log_size] * sizeof(uint32_t)
-                             toBuffer:root_readback destinationOffset:0u size:32u];
-            [root_copy endEncoding];
         }
         [command commit];
         [command waitUntilCompleted];
@@ -326,6 +334,8 @@ bool stwo_zig_metal_compute_quotients(
             tree.layerWordOffsets = layer_word_offsets_data;
             tree.layerWordLengths = layer_word_lengths_data;
             tree.rootReadback = root_readback;
+            tree.rootReadbackWordOffset = runtime.device.hasUnifiedMemory
+                ? layer_word_offsets[lifting_log_size] : 0u;
             tree.logSize = lifting_log_size;
             tree.gpuMilliseconds = gpu_milliseconds != NULL ? *gpu_milliseconds : 0.0;
             *tree_out = (__bridge_retained void *)tree;
