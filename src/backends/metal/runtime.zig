@@ -8,7 +8,7 @@ const command_epoch = @import("command_epoch.zig");
 const shader_manifest = @import("shaders/manifest.zig");
 
 comptime {
-    if (shader_manifest.core_shader_abi != 5) @compileError("Metal core shader ABI drift");
+    if (shader_manifest.core_shader_abi != 6) @compileError("Metal core shader ABI drift");
 }
 
 pub const CommandEpoch = command_epoch.CommandEpoch;

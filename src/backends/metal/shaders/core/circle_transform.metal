@@ -96,16 +96,40 @@ kernel void stwo_zig_circle_rescale(
 }
 
 kernel void stwo_zig_circle_expand_coefficients(
-    device const uint *coefficients [[buffer(0)]],
+    device uint *coefficients [[buffer(0)]],
     device uint *extended [[buffer(1)]],
-    constant uint &base_log_size [[buffer(2)]],
-    constant uint &extended_log_size [[buffer(3)]],
-    constant uint &column_count [[buffer(4)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &base_log_size [[buffer(3)]],
+    constant uint &extended_log_size [[buffer(4)]],
+    constant uint &column_count [[buffer(5)]],
+    constant uint &scale_factor [[buffer(6)]],
+    constant uint &fuse_top_two [[buffer(7)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     uint extended_len = 1u << extended_log_size;
-    if (position.x >= extended_len || position.y >= column_count) return;
     uint base_len = 1u << base_log_size;
+    if (position.y >= column_count) return;
+    if (fuse_top_two != 0u) {
+        uint half_len = base_len >> 1u;
+        if (position.x >= half_len) return;
+        uint coefficient_base = position.y << base_log_size;
+        uint output_base = position.y << extended_log_size;
+        uint lhs = m31_mul(coefficients[coefficient_base + position.x], scale_factor);
+        uint rhs = m31_mul(coefficients[coefficient_base + half_len + position.x], scale_factor);
+        coefficients[coefficient_base + position.x] = lhs;
+        coefficients[coefficient_base + half_len + position.x] = rhs;
+
+        uint pair_count = extended_len >> 1u;
+        uint twiddle_offset = pair_count - 4u;
+        uint product0 = m31_mul(rhs, twiddles[twiddle_offset]);
+        uint product1 = m31_mul(rhs, twiddles[twiddle_offset + 1u]);
+        extended[output_base + position.x] = m31_add(lhs, product0);
+        extended[output_base + half_len + position.x] = m31_sub(lhs, product0);
+        extended[output_base + base_len + position.x] = m31_add(lhs, product1);
+        extended[output_base + base_len + half_len + position.x] = m31_sub(lhs, product1);
+        return;
+    }
+    if (position.x >= extended_len) return;
     uint value = position.x < base_len
         ? coefficients[(position.y << base_log_size) + position.x]
         : 0u;
@@ -218,20 +242,54 @@ kernel void stwo_zig_circle_rfft_radix4_sparse(
     uint2 position [[thread_position_in_grid]]
 ) {
     uint tuple_count = 1u << (log_size - 2u);
-    if (position.x >= tuple_count || position.y >= column_count || layer < 2u) return;
-    uint half_distance = 1u << (layer - 1u);
-    uint group = position.x >> (layer - 1u);
+    uint stage = layer & 0x7fffffffu;
+    bool inverse = (layer & 0x80000000u) != 0u;
+    if (position.x >= tuple_count || position.y >= column_count ||
+        (!inverse && stage < 2u) || (inverse && stage + 1u >= log_size)) return;
+
+    uint pair_count = 1u << (log_size - 1u);
+    if (inverse) {
+        // Compose inverse stages L and L+1. The first stage operates on the
+        // two adjacent pairs; the second combines their sums and weighted
+        // differences, keeping all four intermediates in registers.
+        uint half_distance = 1u << stage;
+        uint group = position.x >> stage;
+        uint lane = position.x & (half_distance - 1u);
+        uint base = destination_offsets[position.y] + (group << (stage + 2u));
+        uint idx0 = base + lane;
+        uint idx1 = idx0 + half_distance;
+        uint idx2 = idx1 + half_distance;
+        uint idx3 = idx2 + half_distance;
+        uint first_offset = pair_count - (1u << (log_size - stage));
+        uint second_offset = pair_count - (1u << (log_size - stage - 1u));
+        uint first_group = group << 1u;
+
+        uint a = arena[idx0], b = arena[idx1];
+        uint c = arena[idx2], d = arena[idx3];
+        uint ab_sum = m31_add(a, b);
+        uint ab_diff = m31_mul(m31_sub(a, b), twiddles[first_offset + first_group]);
+        uint cd_sum = m31_add(c, d);
+        uint cd_diff = m31_mul(m31_sub(c, d), twiddles[first_offset + first_group + 1u]);
+        uint second_twiddle = twiddles[second_offset + group];
+        arena[idx0] = m31_add(ab_sum, cd_sum);
+        arena[idx1] = m31_add(ab_diff, cd_diff);
+        arena[idx2] = m31_mul(m31_sub(ab_sum, cd_sum), second_twiddle);
+        arena[idx3] = m31_mul(m31_sub(ab_diff, cd_diff), second_twiddle);
+        return;
+    }
+
+    uint half_distance = 1u << (stage - 1u);
+    uint group = position.x >> (stage - 1u);
     uint lane = position.x & (half_distance - 1u);
     uint distance = half_distance << 1u;
-    uint base = destination_offsets[position.y] + (group << (layer + 1u));
+    uint base = destination_offsets[position.y] + (group << (stage + 1u));
     uint idx0 = base + lane;
     uint idx1 = idx0 + half_distance;
     uint idx2 = idx0 + distance;
     uint idx3 = idx2 + half_distance;
 
-    uint pair_count = 1u << (log_size - 1u);
-    uint first_twiddle_offset = pair_count - (1u << (log_size - layer));
-    uint second_twiddle_offset = pair_count - (1u << (log_size - layer + 1u));
+    uint first_twiddle_offset = pair_count - (1u << (log_size - stage));
+    uint second_twiddle_offset = pair_count - (1u << (log_size - stage + 1u));
     uint first_twiddle = twiddles[first_twiddle_offset + group];
     uint second_group = group << 1u;
 

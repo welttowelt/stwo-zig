@@ -52,9 +52,24 @@ void *stwo_zig_metal_merkle_commit(
             flat_len += column_lengths[column];
         }
         NSUInteger flat_bytes = flat_len * sizeof(uint32_t);
-        bool gpu_upload = flat_bytes >= (64u * 1024u * 1024u) && column_count >= 16u;
-        id<MTLBuffer> staging = [runtime.device newBufferWithLength:flat_bytes
-                                                            options:gpu_upload ? MTLResourceStorageModePrivate : MTLResourceStorageModeShared];
+        bool contiguous_columns = true;
+        size_t contiguous_words = column_lengths[0];
+        for (uint32_t column = 1u; column < column_count; ++column) {
+            contiguous_columns &= columns[column] == columns[0] + contiguous_words;
+            contiguous_words += column_lengths[column];
+        }
+        size_t page_size = (size_t)getpagesize();
+        bool alias_shared = flat_bytes >= (1u * 1024u * 1024u) &&
+            runtime.device.hasUnifiedMemory && contiguous_columns &&
+            ((uintptr_t)columns[0] % page_size) == 0u && (flat_bytes % page_size) == 0u;
+        bool gpu_upload = !alias_shared && flat_bytes >= (64u * 1024u * 1024u) && column_count >= 16u;
+        id<MTLBuffer> staging = alias_shared
+            ? [runtime.device newBufferWithBytesNoCopy:(void *)columns[0]
+                                                length:flat_bytes
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithLength:flat_bytes
+                                           options:gpu_upload ? MTLResourceStorageModePrivate : MTLResourceStorageModeShared];
         id<MTLBuffer> offsets = [runtime.device newBufferWithLength:column_count * sizeof(uint32_t)
                                                             options:MTLResourceStorageModeShared];
         id<MTLBuffer> log_sizes = [runtime.device newBufferWithBytes:column_log_sizes
@@ -77,7 +92,8 @@ void *stwo_zig_metal_merkle_commit(
                 return NULL;
             }
             offset_values[column] = (uint32_t)cursor;
-            if (!gpu_upload) memcpy(staging_values + cursor, columns[column], column_lengths[column] * sizeof(uint32_t));
+            if (!gpu_upload && !alias_shared)
+                memcpy(staging_values + cursor, columns[column], column_lengths[column] * sizeof(uint32_t));
             cursor += column_lengths[column];
         }
 
