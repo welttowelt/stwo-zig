@@ -20,7 +20,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "autoresearch" / "cli"))
 from stwo_perf import frontier, ledger, signing  # noqa: E402
 from stwo_perf.promotion import decide_outcome  # noqa: E402  (re-export; tests import it here)
 from stwo_perf import promotion  # noqa: E402
