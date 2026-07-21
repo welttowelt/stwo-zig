@@ -12,9 +12,20 @@ inline uint m31_reduce(ulong value) {
     return result >= 0x7fffffffu ? result - 0x7fffffffu : result;
 }
 
-inline uint m31_add(uint lhs, uint rhs) { return m31_reduce((ulong)lhs + rhs); }
+// Canonical operands sum to less than 2p, so addition needs no 64-bit fold.
+inline uint m31_add(uint lhs, uint rhs) {
+    uint sum = lhs + rhs;
+    return sum >= 0x7fffffffu ? sum - 0x7fffffffu : sum;
+}
 inline uint m31_sub(uint lhs, uint rhs) { return lhs >= rhs ? lhs - rhs : lhs + 0x7fffffffu - rhs; }
-inline uint m31_mul(uint lhs, uint rhs) { return m31_reduce((ulong)lhs * rhs); }
+// A product of canonical operands is below p^2. One Mersenne fold is then
+// below 2p, and one conditional subtraction produces the canonical residue.
+inline uint m31_mul(uint lhs, uint rhs) {
+    ulong product = (ulong)lhs * rhs;
+    ulong folded = (product & 0x7ffffffful) + (product >> 31u);
+    uint result = (uint)folded;
+    return result >= 0x7fffffffu ? result - 0x7fffffffu : result;
+}
 inline uint m31_neg(uint value) { return value == 0u ? 0u : 0x7fffffffu - value; }
 
 inline uint m31_inv(uint value) {
