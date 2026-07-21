@@ -23,6 +23,7 @@ def _dominates(a: ledger.Row, b: ledger.Row) -> bool:
         (a.prove_ms, b.prove_ms),
         (a.peak_rss_mib, b.peak_rss_mib),
         (a.energy_j, b.energy_j),
+        (a.proof_bytes, b.proof_bytes),
     ]
     strictly = False
     for av, bv in pairs:
@@ -41,12 +42,8 @@ def effective_rows(rows: list[ledger.Row]) -> list[ledger.Row]:
     Neutral and rejected rows stay in the ledger as the search record but
     never enter dominance or drift computations (playbook F.5/F.6).
     """
-    superseded_keys = {r.supersedes for r in rows if r.supersedes}
     out = []
-    for row in rows:
-        key = f"{row.judged_at_utc}+{row.commit}"
-        if key in superseded_keys:
-            continue
+    for row in ledger.resolve_corrections(rows):
         if row.values.get("outcome") != "promoted":
             continue
         out.append(row)

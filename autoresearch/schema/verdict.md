@@ -33,6 +33,11 @@ runner. A claimed verdict is advisory by definition.
       }
     },
     "R_geomean": 0.97,
+    "portfolio": {
+      "proof_bytes": 45200,
+      "measurement_seconds": 31.25,
+      "measurement_rounds": 9
+    },
     "theta": 0.012,
     "aa_dispersion": 0.0151,
     "significant": true,
@@ -40,6 +45,12 @@ runner. A claimed verdict is advisory by definition.
   },
   "tiebreakers": { "rss_ratio": 0.99, "waits": null, "dispatches": null, "energy_j": null },
   "holdout": { "seed": 180734, "pass": true, "r": 1.004 },
+  "ledger_evidence": {
+    "evidence_kind": "promotion | span_audit | direct_audit",
+    "covers": [],
+    "credit_replaces": [],
+    "supersedes": ""
+  },
   "guards": { "guard_blake_12x16": { "r": 1.004, "ci": [0.99, 1.02], "rounds": 3,
               "budget_upper": 1.05, "pass": true, "proof_digest": "<hex>" } },
   "rust_oracle": [ { "workload": "plonk_log14", "verified": true,
@@ -68,6 +79,16 @@ SHA-256 of every raw report, so vanished temp files never orphan a verdict.
 `skipped_groups` (additive, registry v2) records every workload group the
 manifest disables at run time, with its manifest `disabled_reason` — the same
 skip the runner announces on stdout. Empty list when every group ran.
+
+`ledger_evidence` is optional only for an ordinary promotion, for which the
+writer supplies the empty defaults shown above. A span audit must explicitly
+list the stable observation digests it covers, in ledger order. A direct audit
+must explicitly list the exact active credit-event row digests it replaces and
+has an empty `covers`; an initial anchor audit may replace an empty set. A
+correction sets `supersedes` to the earlier physical row digest and otherwise
+retains the same submission/board/class observation identity. The complete
+canonical verdict, including this block and any judge signature, is bound into
+the ledger's `evidence_sha256`.
 
 Judge-added fields (present only on signed judged verdicts fetched from the
 `judge-verdicts` branch in the legacy PR flow, or written by the remote

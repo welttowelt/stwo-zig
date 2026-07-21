@@ -19,6 +19,7 @@ def claimed_verdict(**overrides) -> dict:
         "repo_commit": "31a3132ef2e6",
         "predecessor_commit": "31a3132ef2e6",
         "scope": "s3",
+        "search_health": {"measurement_wall_seconds": 25.0},
         "declared_objective": {"board": "core_cpu", "workload_class": "wide",
                                "dimension": "time"},
         "gates": {g: {"pass": True} for g in ("G1", "G2", "G3", "G4", "G5")},
@@ -27,7 +28,10 @@ def claimed_verdict(**overrides) -> dict:
             "R_geomean": 0.9631,
             "significant": True,
             "neutral": False,
-            "per_workload": {"wf_log14x32": {"b_median_ms": 95.1, "ci": [0.955, 0.972]}},
+            "per_workload": {"wf_log14x32": {
+                "b_median_ms": 95.1, "ci": [0.955, 0.972], "rounds": 9,
+                "proof_bytes": 4096, "measurement_seconds": 12.5,
+            }},
         },
     }
     verdict.update(overrides)
@@ -138,6 +142,15 @@ class PromoteClaimedTest(unittest.TestCase):
         self._land_submission("2026-07-20-packed", claimed_verdict())
         row = promotion.promote_claimed(self.repo, "2026-07-20-packed")
         self.assertEqual(row["verdict_kind"], "claimed")
+        self.assertEqual(row["schema_version"], 3)
+        self.assertEqual(row["evidence_kind"], "promotion")
+        self.assertEqual(row["covers"], [])
+        self.assertEqual(row["credit_replaces"], [])
+        self.assertEqual(row["row_id"], ledger.compute_row_id(row))
+        self.assertEqual(
+            row["observation_id"],
+            ledger.observation_id("2026-07-20-packed", "core_cpu", "wide"),
+        )
         self.assertEqual(row["outcome"], "promoted")
         rows = ledger.load(self.repo)
         self.assertEqual(len(rows), 1)
@@ -177,7 +190,10 @@ class PromoteClaimedTest(unittest.TestCase):
         (sub / "verdict.json").write_text(json.dumps(claimed_verdict()))
         deep = claimed_verdict()
         deep["declared_objective"]["workload_class"] = "deep"
-        deep["score"]["per_workload"] = {"plonk_log14": {"b_median_ms": 8.5, "ci": [0.85, 0.87]}}
+        deep["score"]["per_workload"] = {"plonk_log14": {
+            "b_median_ms": 8.5, "ci": [0.85, 0.87], "rounds": 9,
+            "proof_bytes": 4096, "measurement_seconds": 12.5,
+        }}
         (sub / "verdict-deep.json").write_text(json.dumps(deep))
         (sub / "note.md").write_text("# note\n")
         self._commit("Merge submission 2026-07-20-multi")
@@ -217,6 +233,10 @@ class PromoteClaimedTest(unittest.TestCase):
             "ci": [0.81, 0.89],
             "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
             "b_median_ms_geomean": 10.0,
+            "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+            "proof_bytes": 4096,
+            "measurement_seconds": 25.0,
+            "measurement_rounds": 18,
         }
         row = promotion.row_from_verdict(
             "portfolio", verdict, 1, "promoted", "G1..G5:pass", "claimed"
@@ -234,6 +254,37 @@ class PromoteClaimedTest(unittest.TestCase):
             promotion.row_from_verdict(
                 "portfolio", verdict, 1, "promoted", "G1..G5:pass", "claimed"
             )
+
+    def test_span_verdict_requires_explicit_metrics_v2_evidence(self):
+        verdict = claimed_verdict()
+        verdict["span_constituents"] = ["one", "two"]
+        with self.assertRaisesRegex(promotion.PromotionError, "explicit Metrics-v2"):
+            promotion.row_from_verdict(
+                "span", verdict, 2, "promoted", "G1..G5:pass", "claimed"
+            )
+
+    def test_v3_row_requires_total_evaluation_wall_time(self):
+        verdict = claimed_verdict()
+        verdict.pop("search_health")
+        with self.assertRaisesRegex(promotion.PromotionError, "measurement_wall_seconds"):
+            promotion.row_from_verdict(
+                "missing-wall", verdict, 2, "promoted", "G1..G5:pass", "claimed"
+            )
+
+    def test_explicit_direct_audit_row_preserves_replacement_set(self):
+        replaced = "sha256:" + "a" * 64
+        verdict = claimed_verdict(ledger_evidence={
+            "evidence_kind": "direct_audit",
+            "covers": [],
+            "credit_replaces": [replaced],
+            "supersedes": "",
+        })
+        row = promotion.row_from_verdict(
+            "audit", verdict, 2, "rejected", "G1..G5:pass", "claimed"
+        )
+        self.assertEqual(row["evidence_kind"], "direct_audit")
+        self.assertEqual(row["credit_replaces"], [replaced])
+        self.assertEqual(row["row_id"], ledger.compute_row_id(row))
 
     def test_fabricated_riscv_verdict_cannot_create_a_ledger_row(self):
         verdict = claimed_verdict()

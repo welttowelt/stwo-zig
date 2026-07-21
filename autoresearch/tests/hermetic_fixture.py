@@ -236,6 +236,7 @@ def passing_verdict(candidate: Path, predecessor: Path, _manifest,
             "dimension": dimension,
         },
         "environment": {"fixture": "hermetic"},
+        "search_health": {"measurement_wall_seconds": 25.0},
         "gates": {
             name: {"pass": True}
             for name in ("G1", "G2", "G3", "G4", "G5")
@@ -251,6 +252,9 @@ def passing_verdict(candidate: Path, predecessor: Path, _manifest,
                     "ci": [0.88, 0.92],
                     "a_median_ms": 10.0,
                     "b_median_ms": 9.0,
+                    "rounds": 9,
+                    "proof_bytes": 4096,
+                    "measurement_seconds": 12.5,
                 },
             },
         },

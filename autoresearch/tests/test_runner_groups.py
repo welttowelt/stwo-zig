@@ -689,6 +689,8 @@ class RunnerGroupTest(unittest.TestCase):
                 a_median_ms=1.0,
                 b_median_ms=1.0,
                 rss_ratio=None,
+                proof_bytes=4096,
+                measurement_seconds=1.0,
             )
             result = runner.evaluate_aa(
                 self.root, m, "small", self.out_dir, board="core_cpu",
@@ -718,6 +720,8 @@ class RunnerGroupTest(unittest.TestCase):
             a_median_ms=1.0,
             b_median_ms=1.0,
             rss_ratio=None,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
         with mock.patch.object(runner, "build_arm"), \
                 mock.patch.object(runner, "paired_rounds", return_value=score) as paired:
@@ -739,6 +743,7 @@ class RunnerGroupTest(unittest.TestCase):
         report_path.write_text("{}")
         arm = runner.ArmResult(
             1.0, 1, True, None, str(report_path), proof_digest="7" * 64,
+            proof_bytes=4096,
         )
         policy = {
             **GATES_POLICY,
@@ -825,6 +830,8 @@ class RunnerGroupTest(unittest.TestCase):
             b_median_ms=1.0,
             rss_ratio=None,
             mechanism_verified=False,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
         )
         with mock.patch.object(runner, "changed_paths", return_value=[]):
             gates = runner._gates(
@@ -889,10 +896,12 @@ class RunnerGroupTest(unittest.TestCase):
         }
         a = runner.ArmResult(
             1.0, 1, True, None, "a.json", proof_digest="7" * 64,
+            proof_bytes=4096,
             mechanism=stable,
         )
         b = runner.ArmResult(
             1.0, 1, True, None, "b.json", proof_digest="7" * 64,
+            proof_bytes=4096,
             mechanism={**stable, "statement_sha256": "8" * 64},
         )
         with mock.patch.object(runner, "bench_once", side_effect=[a, b]), \

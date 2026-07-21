@@ -1,4 +1,4 @@
-# Promotions ledger schema (v1 rows + v2 rows)
+# Promotions ledger schema (v1-v3 rows)
 
 `autoresearch/ledger/promotions.tsv` is append-only. CI rejects any PR that
 edits or reorders existing rows, and a correction is a new row whose
@@ -40,6 +40,39 @@ Columns (tab-separated; v1 columns first, one submission per row):
 | predecessor | the paired A-arm commit |
 | supersedes | empty, or the judged_at_utc+commit of the row this corrects |
 | verdict_kind | **v2 only** (24th cell): `judged` (signed judge verdict) or `claimed` (maintainer-adjudicated optimistic row). v1 rows are read as `judged` — only the judge ever wrote them |
+| row_id | **v3**: `sha256:<hex>` of the canonical v3 row payload excluding this cell; immutable physical identity |
+| observation_id | **v3**: stable digest of `(submission_id, board, workload_class)`; corrections retain it |
+| evidence_kind | **v3**: `promotion`, `span_audit`, or `direct_audit` |
+| covers | **v3**: canonical compact JSON array. Non-empty only for a span audit, naming earlier gate-passing neutral promotion observations in ledger order |
+| credit_replaces | **v3**: canonical compact JSON array. Non-empty only for a direct audit and exactly equal to the active, non-audit credit-event IDs since the previous direct audit |
+| evidence_sha256 | **v3**: digest of the canonical signed/claimed verdict payload that produced the row |
+| proof_bytes | **v3**: positive integer candidate proof size for the deterministic class portfolio |
+| measurement_seconds | **v3**: positive finite wall seconds spent collecting this evidence; canonical six-decimal cell |
+| measurement_rounds | **v3**: positive integer total paired portfolio rounds |
+
+v1/v2 physical IDs are synthesized as a digest of a domain separator, their
+immutable physical index, and their exact existing row bytes. This changes no
+ledger byte and is stable under every append. Legacy correction keys are
+resolved only inside the same epoch/board/class, avoiding the historical
+collision where several cells shared one `judged_at_utc+commit` key.
+
+## Metrics v2 invariants
+
+- Corrections point to an earlier physical row, preserve observation, epoch,
+  board, and class, and replace only the active tip of that correction chain.
+- Span coverage is chronological and disjoint. A span consumes only neutral,
+  gate-passing promotion observations; a neutral span consumes the span but
+  contributes no score credit.
+- A direct audit is score-bearing whenever its gates pass, including a
+  regression whose generic promotion outcome is `rejected`. Its replacement
+  list is the exact current non-audit credit set; missing or surplus IDs fail.
+- Promotion and span credit uses directional neutralward log-CI shrinkage. A
+  CI crossing 1 receives zero credit. Direct audits use their point estimate.
+- At every direct audit the class score equals the chained direct-audit
+  product exactly. Later shrunken credits accumulate only until the next audit.
+- The first direct audit in an epoch names that epoch's canonical 40-hex
+  `metrics_v2.audit_anchor_commit` as predecessor; later audits name the prior
+  audit's candidate commit. Empty replacement credit never bypasses this chain.
 
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.

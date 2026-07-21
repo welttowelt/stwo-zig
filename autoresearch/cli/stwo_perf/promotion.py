@@ -66,8 +66,10 @@ def require_verdict_promotion_eligible(repo: Path, verdict: dict) -> None:
         ) from exc
 
 
-def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
-    """Return portfolio CI and candidate latency summary for one ledger row.
+def portfolio_ledger_summary(
+    score: dict,
+) -> tuple[float, float, float, int, int]:
+    """Return the complete portfolio evidence vector for one ledger row.
 
     New multi-workload verdicts must carry the deterministic portfolio
     statistics emitted by the runner. Legacy single-workload verdicts remain
@@ -86,6 +88,8 @@ def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
         only = next(iter(per_workload.values()))
         ci = only.get("ci")
         prove_ms = only.get("b_median_ms")
+        proof_bytes = only.get("proof_bytes")
+        measurement_rounds = only.get("rounds")
     else:
         if not isinstance(portfolio, dict):
             raise PromotionError("score.portfolio must be an object")
@@ -93,6 +97,8 @@ def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
             raise PromotionError("score.portfolio has an unsupported CI method")
         if portfolio.get("prove_ms_method") != stats.PORTFOLIO_PROVE_MS_METHOD:
             raise PromotionError("score.portfolio has an unsupported prove-ms method")
+        if portfolio.get("proof_bytes_method") != stats.PORTFOLIO_PROOF_BYTES_METHOD:
+            raise PromotionError("score.portfolio has an unsupported proof-bytes method")
         level = portfolio.get("ci_level")
         iterations = portfolio.get("bootstrap_iterations")
         seed = portfolio.get("seed")
@@ -109,6 +115,8 @@ def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
             raise PromotionError("score.portfolio has an invalid deterministic seed")
         ci = portfolio.get("ci")
         prove_ms = portfolio.get("b_median_ms_geomean")
+        proof_bytes = portfolio.get("proof_bytes")
+        measurement_rounds = portfolio.get("measurement_rounds")
     if not isinstance(ci, list) or len(ci) != 2:
         raise PromotionError("portfolio CI must contain exactly two bounds")
     try:
@@ -122,7 +130,18 @@ def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
         or prove <= 0
     ):
         raise PromotionError("portfolio ledger values are invalid")
-    return ci_low, ci_high, prove
+    if (
+        isinstance(proof_bytes, bool)
+        or not isinstance(proof_bytes, int)
+        or proof_bytes <= 0
+        or isinstance(measurement_rounds, bool)
+        or not isinstance(measurement_rounds, int)
+        or measurement_rounds <= 0
+    ):
+        raise PromotionError("portfolio proof/measurement counts are invalid")
+    return (
+        ci_low, ci_high, prove, proof_bytes, measurement_rounds,
+    )
 
 
 def decide_outcome(verdict: dict, predecessor_fresh: bool) -> tuple[str, str]:
@@ -179,20 +198,69 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
     (the claimed path records the commit that landed the submission)."""
     score = verdict["score"]
     objective = verdict["declared_objective"]
-    ci_low, ci_high, prove_ms = portfolio_ledger_summary(score)
+    (
+        ci_low, ci_high, prove_ms, proof_bytes, measurement_rounds,
+    ) = portfolio_ledger_summary(score)
+    search_health = verdict.get("search_health")
+    measurement_seconds = (
+        search_health.get("measurement_wall_seconds")
+        if isinstance(search_health, dict) else None
+    )
+    if (
+        isinstance(measurement_seconds, bool)
+        or not isinstance(measurement_seconds, (int, float))
+        or not math.isfinite(float(measurement_seconds))
+        or float(measurement_seconds) <= 0
+    ):
+        raise PromotionError(
+            "verdict search_health.measurement_wall_seconds is required and positive"
+        )
+    measurement_seconds = float(measurement_seconds)
     holdout = verdict.get("holdout")
     holdout_cell = (
         f"{'pass' if holdout['pass'] else 'fail'};seed={holdout['seed']}"
         if holdout else "none"
     )
-    return {
+    evidence_sha256 = ledger.evidence_sha256(verdict)
+    ledger_evidence = verdict.get("ledger_evidence", {})
+    if not isinstance(ledger_evidence, dict):
+        raise PromotionError("verdict ledger_evidence must be an object")
+    if verdict.get("span_constituents") and not ledger_evidence:
+        raise PromotionError(
+            "span verdict must name explicit Metrics-v2 ledger_evidence"
+        )
+    evidence_kind = ledger_evidence.get("evidence_kind", "promotion")
+    covers = ledger_evidence.get("covers", [])
+    credit_replaces = ledger_evidence.get("credit_replaces", [])
+    supersedes = ledger_evidence.get("supersedes", "")
+    if evidence_kind not in ledger.EVIDENCE_KINDS:
+        raise PromotionError("verdict ledger evidence kind is invalid")
+    if (
+        not isinstance(covers, list)
+        or not isinstance(credit_replaces, list)
+        or any(not isinstance(value, str) for value in covers + credit_replaces)
+    ):
+        raise PromotionError("verdict ledger evidence lists must be arrays")
+    if not isinstance(supersedes, str):
+        raise PromotionError("verdict ledger supersedes must be a string")
+    if evidence_kind == "promotion" and (covers or credit_replaces):
+        raise PromotionError("promotion evidence cannot cover or replace credit")
+    if evidence_kind == "span_audit" and (not covers or credit_replaces):
+        raise PromotionError("span evidence requires covers and cannot replace credit")
+    if evidence_kind == "direct_audit" and covers:
+        raise PromotionError("direct audit evidence cannot carry covers")
+    objective_board = objective.get("board", "core_cpu")
+    observation = ledger.observation_id(
+        submission_id, objective_board, objective["workload_class"]
+    )
+    row = {
         "schema_version": ledger.SCHEMA_VERSION,
         "harness_commit": verdict["harness_commit"],
         "epoch": epoch,
         "judged_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit": commit or verdict["repo_commit"],
         "scope": verdict["scope"],
-        "board": objective.get("board", "core_cpu"),
+        "board": objective_board,
         "workload_class": objective["workload_class"],
         "outcome": outcome,
         "judged_r": float(score["R_geomean"]),
@@ -208,9 +276,20 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
         "holdout": holdout_cell,
         "submission_id": submission_id,
         "predecessor": verdict["predecessor_commit"],
-        "supersedes": "",
+        "supersedes": supersedes,
         "verdict_kind": verdict_kind,
+        "row_id": "",
+        "observation_id": observation,
+        "evidence_kind": evidence_kind,
+        "covers": covers,
+        "credit_replaces": credit_replaces,
+        "evidence_sha256": evidence_sha256,
+        "proof_bytes": proof_bytes,
+        "measurement_seconds": measurement_seconds,
+        "measurement_rounds": measurement_rounds,
     }
+    row["row_id"] = ledger.compute_row_id(row)
+    return row
 
 
 def _git(repo: Path, *args: str) -> str:

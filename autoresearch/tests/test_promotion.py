@@ -87,6 +87,7 @@ class RemotePromotionRowTest(unittest.TestCase):
             "repo_commit": "2" * 12,
             "predecessor_commit": "3" * 12,
             "scope": "s3",
+            "search_health": {"measurement_wall_seconds": 25.0},
             "declared_objective": {
                 "board": "core_cpu",
                 "workload_class": "wide",
@@ -105,6 +106,10 @@ class RemotePromotionRowTest(unittest.TestCase):
                     "ci": [0.82, 0.91],
                     "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
                     "b_median_ms_geomean": 10.0,
+                    "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+                    "proof_bytes": 4096,
+                    "measurement_seconds": 25.0,
+                    "measurement_rounds": 18,
                 },
             },
             "holdout": None,
@@ -203,6 +208,7 @@ class PromotionIntegrationTest(unittest.TestCase):
                 "canonical_commit": candidate, "harness_commit": "1" * 12,
                 "repo_commit": candidate[:12], "predecessor_commit": frontier[:12],
                 "scope": "s3",
+                "search_health": {"measurement_wall_seconds": 25.0},
                 "declared_objective": {
                     "board": "core_cpu", "workload_class": "small", "dimension": "time",
                 },
@@ -210,7 +216,8 @@ class PromotionIntegrationTest(unittest.TestCase):
                 "score": {
                     "R_geomean": 0.9, "significant": True, "neutral": False,
                     "per_workload": {"wf": {
-                        "ci": [0.88, 0.92], "b_median_ms": 9.0,
+                        "ci": [0.88, 0.92], "b_median_ms": 9.0, "rounds": 9,
+                        "proof_bytes": 4096, "measurement_seconds": 12.5,
                     }},
                 },
                 "holdout": {"pass": True, "seed": 7, "r": 0.95},

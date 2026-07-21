@@ -191,10 +191,10 @@ class ArmResult:
     peak_rss_mib: float | None
     report_path: str
     proof_digest: str | None = None
+    proof_bytes: int | None = None
     request_ms: float | None = None
     mechanism: dict | None = None
     energy_j: float | None = None
-    proof_bytes: int | None = None
     instructions: int | None = None
     cycles: int | None = None
 
@@ -215,12 +215,22 @@ class WorkloadScore:
     mechanism_verified: bool | None = None
     resource_estimates: dict[str, dimensions.RatioEstimate] = field(default_factory=dict)
     candidate_resources: dict[str, float] = field(default_factory=dict)
+    proof_bytes: int = 0
+    measurement_seconds: float = 0.0
 
 
 def portfolio_summary(scores: list[WorkloadScore], ci_level: float) -> dict:
     """Aggregate a deterministic, independently resampled workload portfolio."""
     if not scores:
         raise RunError("cannot score an empty workload portfolio")
+    if any(
+        type(score.proof_bytes) is not int
+        or score.proof_bytes <= 0
+        or not math.isfinite(score.measurement_seconds)
+        or score.measurement_seconds <= 0
+        for score in scores
+    ):
+        raise RunError("portfolio is missing proof-size or measurement-time evidence")
     ordered = sorted(scores, key=lambda score: score.workload.workload_id)
     seed = _seed(
         "portfolio:" + "|".join(score.workload.workload_id for score in ordered),
@@ -243,6 +253,12 @@ def portfolio_summary(scores: list[WorkloadScore], ci_level: float) -> dict:
         "b_median_ms_geomean": stats.geometric_mean(
             [score.b_median_ms for score in ordered]
         ),
+        "proof_bytes_method": stats.PORTFOLIO_PROOF_BYTES_METHOD,
+        "proof_bytes": round(stats.geometric_mean(
+            [float(score.proof_bytes) for score in ordered]
+        )),
+        "measurement_seconds": sum(score.measurement_seconds for score in ordered),
+        "measurement_rounds": sum(len(score.ratios) for score in ordered),
     }
 
 
@@ -721,11 +737,11 @@ def _parse_riscv_report(
         peak_rss_mib=None,
         report_path=str(out_path),
         proof_digest=hashlib.sha256(proof_bytes).hexdigest(),
+        proof_bytes=len(proof_bytes),
         request_ms=_finite_number(
             median_seconds, "median_seconds", positive=True,
         ) * 1000.0,
         mechanism=mechanism,
-        proof_bytes=len(proof_bytes),
     )
 
 
@@ -760,6 +776,7 @@ def paired_rounds(
     proof_sizes_b: list[int] = []
     request_ratios: list[float] = []
     cross_digest: str | None = None
+    cross_proof_bytes: int | None = None
     mechanism_reference: dict | None = None
     mechanism_verified: bool | None = None
     group = manifest.group(workload.group_id)
@@ -800,7 +817,6 @@ def paired_rounds(
         if a.proof_digest and b.proof_digest and a.proof_digest != b.proof_digest:
             raise RunError(
                 f"{workload.workload_id}: cross-arm proof digest mismatch in round "
-                f"{round_no} (predecessor {a.proof_digest[:12]} vs candidate "
                 f"{b.proof_digest[:12]}) — conformance failure"
             )
         if cross_digest is None:
@@ -809,6 +825,16 @@ def paired_rounds(
             raise RunError(
                 f"{workload.workload_id}: proof digest changed between rounds — "
                 f"nondeterministic proof bytes"
+            )
+        if not a.proof_bytes or not b.proof_bytes or a.proof_bytes != b.proof_bytes:
+            raise RunError(
+                f"{workload.workload_id}: cross-arm proof byte length mismatch"
+            )
+        if cross_proof_bytes is None:
+            cross_proof_bytes = b.proof_bytes
+        elif b.proof_bytes != cross_proof_bytes:
+            raise RunError(
+                f"{workload.workload_id}: proof byte length changed between rounds"
             )
         if group.report_schema == "riscv_proof_v1":
             if a.mechanism is None or b.mechanism is None:
@@ -916,6 +942,8 @@ def paired_rounds(
         mechanism_verified=mechanism_verified,
         resource_estimates=resource_estimates,
         candidate_resources=candidate_resources,
+        proof_bytes=cross_proof_bytes or 0,
+        measurement_seconds=elapsed,
     )
 
 
@@ -1087,6 +1115,10 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
             "b_median_ms_geomean": round(
                 portfolio["b_median_ms_geomean"], 6
             ),
+            "proof_bytes_method": portfolio["proof_bytes_method"],
+            "proof_bytes": portfolio["proof_bytes"],
+            "measurement_seconds": round(portfolio["measurement_seconds"], 6),
+            "measurement_rounds": portfolio["measurement_rounds"],
         },
         "anchor_prove_ms": round(portfolio["b_median_ms_geomean"], 6),
         "per_workload": {
@@ -1439,6 +1471,7 @@ def evaluate(
     evaluates claimed. The judged trust boundary is the HMAC signature applied
     by the judge (signing.py), never this flag alone.
     """
+    evaluation_started = time.monotonic()
     skipped = announce_skipped_groups(manifest)
     workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:
@@ -1537,6 +1570,9 @@ def evaluate(
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
                    workload_class, board, guard_results, oracle_results)
+    measurement_wall_seconds = max(
+        round(time.monotonic() - evaluation_started, 6), 0.000001
+    )
     verdict = {
         "schema_version": 1,
         "kind": "judged" if judged else "claimed",
@@ -1550,6 +1586,9 @@ def evaluate(
             "dimension": dimension,
         },
         "environment": environment_block(repo_root, judged),
+        "search_health": {
+            "measurement_wall_seconds": measurement_wall_seconds,
+        },
         "gates": gates,
         "score": {
             "per_workload": {
@@ -1577,6 +1616,8 @@ def evaluate(
                         )
                     },
                     "mechanism_verified": s.mechanism_verified,
+                    "proof_bytes": s.proof_bytes,
+                    "measurement_seconds": round(s.measurement_seconds, 6),
                 }
                 for s in scores
             },
@@ -1594,6 +1635,12 @@ def evaluate(
                 "b_median_ms_geomean": round(
                     portfolio["b_median_ms_geomean"], 6
                 ),
+                "proof_bytes_method": portfolio["proof_bytes_method"],
+                "proof_bytes": portfolio["proof_bytes"],
+                "measurement_seconds": round(
+                    portfolio["measurement_seconds"], 6
+                ),
+                "measurement_rounds": portfolio["measurement_rounds"],
             },
             "theta": round(th, 6),
             "aa_dispersion": dispersion,
