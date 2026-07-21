@@ -1,9 +1,9 @@
 # Build-monorepo performance baseline v2 protocol
 
 This document describes the repository-owned implementation of the
-[epoch-2 amendment](2026-07-19-build-monorepo-baseline-epoch-2-amendment.md).
+[epoch-3 authority amendment](2026-07-21-performance-authority-epoch-3-amendment.md).
 The machine authority is
-[`build-monorepo-performance-baseline-v2-protocol-v1.json`](build-monorepo-performance-baseline-v2-protocol-v1.json).
+[`build-monorepo-performance-baseline-v2-protocol-v2.json`](build-monorepo-performance-baseline-v2-protocol-v2.json).
 
 No epoch-2 measurements are committed yet, so the separate future autoresearch
 promotion remains `NO-GO`. This protocol defines how those measurements are
@@ -14,7 +14,7 @@ and BG-15 do not execute or consume this protocol.
 
 | Component | Owner | Responsibility |
 | --- | --- | --- |
-| Protocol manifest | `conformance/build-monorepo-performance-baseline-v2-protocol-v1.json` | Frozen authority, workloads, hosts, lanes, statistics, budgets, and bounds |
+| Protocol manifest | `conformance/build-monorepo-performance-baseline-v2-protocol-v2.json` | Frozen authority, workloads, hosts, lanes, statistics, budgets, and bounds |
 | CLI | `scripts/performance_epoch_gate.py` | Thin command dispatch and machine-readable results |
 | Plan | `performance_epoch_gate_lib/plan.py` | Deterministic host plan with fixed baseline `A` and candidate `B` ownership |
 | Capture | `performance_epoch_gate_lib/capture.py` | Bounded no-shell execution, raw evidence, append-only journal, and atomic publication |

@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument(
         "--protocol", type=Path,
-        default=ROOT / "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json",
+        default=ROOT / "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json",
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

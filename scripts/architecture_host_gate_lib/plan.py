@@ -224,7 +224,7 @@ def authority_argv(
                 "--protocol",
                 str(
                     authority_root
-                    / "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json"
+                    / "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json"
                 ),
             ])
         return resolved

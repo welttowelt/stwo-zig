@@ -48,8 +48,10 @@ def _load_protocol(root: Path, path: Path) -> tuple[dict[str, Any], str]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise ReadinessError("epoch-two protocol fields drifted")
-    if value["schema"] != "build-monorepo-performance-baseline-v2-protocol-v1":
+    if value["schema"] != "build-monorepo-performance-baseline-v2-protocol-v2":
         raise ReadinessError("epoch-two protocol schema drifted")
+    if value["schema_version"] != 2:
+        raise ReadinessError("epoch-three protocol version drifted")
     authority = value["authority"]
     if not isinstance(authority, dict):
         raise ReadinessError("epoch-two authority is malformed")

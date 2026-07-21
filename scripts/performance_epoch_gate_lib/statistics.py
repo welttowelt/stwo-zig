@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import sys
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +15,12 @@ def _module(root: Path, protocol: dict[str, Any]):
     path = root / protocol["authority"]["stats_path"]
     if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
         raise EvidenceError("frozen statistics source digest mismatch")
-    cli_path = str(root / "autoresearch/cli")
-    if cli_path not in sys.path:
-        sys.path.insert(0, cli_path)
-    from stwo_perf import stats  # pylint: disable=import-outside-toplevel
-
-    return stats
+    spec = importlib.util.spec_from_file_location("stwo_perf_epoch3_stats", path)
+    if spec is None or spec.loader is None:
+        raise EvidenceError("cannot load frozen statistics source")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def workload_seed(workload_id: str) -> int:

@@ -34,16 +34,16 @@ BUDGET_FIELDS = {
     "riscv_hosted_challenge_seconds",
 }
 EXPECTED_AUTHORITY = {
-    "amendment_path": "conformance/2026-07-19-build-monorepo-baseline-epoch-2-amendment.md",
-    "amendment_sha256": "60c91e0d007169f82b9f9e3307962147c26071c8a9812789268441eec014c726",
+    "amendment_path": "conformance/2026-07-21-performance-authority-epoch-3-amendment.md",
+    "amendment_sha256": "481e2c995eadb8cdd1240e4a205d63fc15550d03a3ee3635ba434286f8033606",
     "baseline_receipt_path": "conformance/build-monorepo-baseline-v1.json",
     "baseline_receipt_sha256": "69a6fa54fb9263122fa7851e68343c4dd0fc2ade4426d0b2c72dff2f701be9f0",
-    "runner_path": "autoresearch/cli/stwo_perf/runner.py",
-    "runner_sha256": "aabb84192965d545315cad8e7f06580f609d2b4dfeab228dcd828d9c7750007a",
-    "stats_path": "autoresearch/cli/stwo_perf/stats.py",
-    "stats_sha256": "78ac6b44ffc2b73f6f4418a3d01341ac50213376f5ff92d7a72168a3d965e503",
-    "autoresearch_manifest_path": "autoresearch/MANIFEST.json",
-    "autoresearch_manifest_sha256": "d89f61a5c11e9a39bb44153db15765c44251f733bebf47b45c6b6363bae6e2fd",
+    "runner_path": "conformance/performance-authority/epoch-3/runner.py.txt",
+    "runner_sha256": "bf86d66188783e3b1e9695a2a39c1571096ffa82d92890d494ef68a91f2a6641",
+    "stats_path": "conformance/performance-authority/epoch-3/stats.py",
+    "stats_sha256": "6c5b887033273e2e523841509c3387395245b63e5a32c7b0f17304d7b99c9ec7",
+    "autoresearch_manifest_path": "conformance/performance-authority/epoch-3/MANIFEST.json",
+    "autoresearch_manifest_sha256": "086f5d1c8265b8ef75d4a85349fef0a2c0de4c4f97e75914adf93b80c8762f62",
 }
 EXPECTED_BUDGETS = {
     "minimum_throughput_ci_lower": 0.97,
@@ -96,9 +96,9 @@ def load_protocol(root: Path, path: Path) -> tuple[dict[str, Any], str]:
         raise EvidenceError("protocol must be a repository-owned file")
     value = strict_json(path, 1024 * 1024, canonical=False)
     exact_object(value, PROTOCOL_FIELDS, "protocol")
-    if value["schema"] != "build-monorepo-performance-baseline-v2-protocol-v1":
+    if value["schema"] != "build-monorepo-performance-baseline-v2-protocol-v2":
         raise EvidenceError("unsupported performance protocol")
-    if value["schema_version"] != 1:
+    if value["schema_version"] != 2:
         raise EvidenceError("unsupported performance protocol version")
     authority = exact_object(value["authority"], AUTHORITY_FIELDS, "authority")
     if authority != EXPECTED_AUTHORITY:

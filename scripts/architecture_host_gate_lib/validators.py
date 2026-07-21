@@ -525,6 +525,6 @@ def validate_outputs(
     elif command_id == "performance-readiness":
         performance_readiness.validate(
             outputs[0], root,
-            root / "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json",
+            root / "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json",
         )
     return {path.relative_to(root).as_posix(): input_digest(path) for path in outputs}

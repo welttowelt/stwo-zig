@@ -310,7 +310,7 @@ class PerformanceReadinessTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         value = performance_readiness.inspect(
             root,
-            root / "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json",
+            root / "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json",
         )
         self.assertEqual("DEFERRED", value["status"])
         self.assertEqual("PASS", value["architecture_status"])
@@ -322,12 +322,12 @@ class PerformanceReadinessTest(unittest.TestCase):
             copy = Path(raw)
             for relative in (
                 ".github/workflows/ci.yml",
-                "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json",
-                "conformance/2026-07-19-build-monorepo-baseline-epoch-2-amendment.md",
+                "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json",
+                "conformance/2026-07-21-performance-authority-epoch-3-amendment.md",
                 "conformance/build-monorepo-baseline-v1.json",
-                "autoresearch/cli/stwo_perf/runner.py",
-                "autoresearch/cli/stwo_perf/stats.py",
-                "autoresearch/MANIFEST.json",
+                "conformance/performance-authority/epoch-3/runner.py.txt",
+                "conformance/performance-authority/epoch-3/stats.py",
+                "conformance/performance-authority/epoch-3/MANIFEST.json",
                 *performance_readiness.REQUIRED_TESTS,
             ):
                 target = copy / relative
@@ -345,7 +345,7 @@ class PerformanceReadinessTest(unittest.TestCase):
             ):
                 performance_readiness.inspect(
                     copy,
-                    copy / "conformance/build-monorepo-performance-baseline-v2-protocol-v1.json",
+                    copy / "conformance/build-monorepo-performance-baseline-v2-protocol-v2.json",
                 )
 
     def test_top_level_performance_promotion_is_fail_closed_while_deferred(self) -> None:
