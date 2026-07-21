@@ -11,6 +11,11 @@ import random
 import statistics
 
 
+PORTFOLIO_CI_METHOD = "independent_workload_round_bootstrap_percentile_v1"
+PORTFOLIO_PROVE_MS_METHOD = "geometric_mean_candidate_workload_medians_ms_v1"
+PORTFOLIO_BOOTSTRAP_ITERATIONS = 4000
+
+
 def hodges_lehmann(ratios: list[float]) -> float:
     """Median of pairwise means (Walsh averages) — robust location estimate."""
     if not ratios:
@@ -26,7 +31,7 @@ def hodges_lehmann(ratios: list[float]) -> float:
 def bootstrap_ci(
     ratios: list[float],
     level: float = 0.95,
-    iterations: int = 4000,
+    iterations: int = PORTFOLIO_BOOTSTRAP_ITERATIONS,
     seed: int = 0,
 ) -> tuple[float, float]:
     """Percentile bootstrap CI of the Hodges-Lehmann estimate over paired ratios."""
@@ -43,6 +48,48 @@ def bootstrap_ci(
     lo = estimates[max(0, math.floor(alpha * iterations))]
     hi = estimates[min(iterations - 1, math.ceil((1.0 - alpha) * iterations) - 1)]
     return (lo, hi)
+
+
+def portfolio_geomean_ci(
+    workload_ratios: list[list[float]],
+    level: float = 0.95,
+    iterations: int = PORTFOLIO_BOOTSTRAP_ITERATIONS,
+    seed: int = 0,
+) -> tuple[float, tuple[float, float]]:
+    """Geometric-mean portfolio estimate and deterministic bootstrap CI.
+
+    Workloads may stop after different numbers of paired rounds. Each bootstrap
+    draw therefore resamples every workload independently at its observed round
+    count, applies the per-workload Hodges-Lehmann estimator, and then takes the
+    geometric mean across workloads. This keeps a noisy or longer-running row
+    from supplying synthetic pairings to another row.
+    """
+    if not workload_ratios:
+        raise ValueError("no workload ratios")
+    if iterations <= 0:
+        raise ValueError("iterations must be positive")
+    if not 0.0 < level < 1.0:
+        raise ValueError("level must be in (0, 1)")
+    if any(len(ratios) < 3 for ratios in workload_ratios):
+        raise ValueError("need at least 3 paired rounds per workload for a portfolio CI")
+
+    estimate = geometric_mean(
+        [hodges_lehmann(ratios) for ratios in workload_ratios]
+    )
+    rng = random.Random(seed)
+    estimates = []
+    for _ in range(iterations):
+        workload_estimates = []
+        for ratios in workload_ratios:
+            n = len(ratios)
+            sample = [ratios[rng.randrange(n)] for _ in range(n)]
+            workload_estimates.append(hodges_lehmann(sample))
+        estimates.append(geometric_mean(workload_estimates))
+    estimates.sort()
+    alpha = (1.0 - level) / 2.0
+    lo = estimates[max(0, math.floor(alpha * iterations))]
+    hi = estimates[min(iterations - 1, math.ceil((1.0 - alpha) * iterations) - 1)]
+    return estimate, (lo, hi)
 
 
 def geometric_mean(values: list[float]) -> float:

@@ -65,6 +65,13 @@ def unrecorded_submissions(repo: Path) -> list[Path]:
     ]
 
 
+def require_current_promotion_authority(repo: Path, verdict: dict) -> None:
+    try:
+        promotion.require_verdict_promotion_eligible(repo, verdict)
+    except promotion.PromotionError as exc:
+        raise SystemExit(f"promotion authority rejected the verdict: {exc}") from exc
+
+
 # Outcome and row construction live in stwo_perf.promotion, shared with the
 # maintainer-as-judge `stwo-perf promote-claimed` path; this bot is the only
 # writer of verdict_kind=judged rows.
@@ -88,6 +95,7 @@ def main() -> int:
     if sub is None or verdict is None:
         print("no unrecorded submission has a signed judged verdict yet")
         return 0
+    require_current_promotion_authority(repo, verdict)
     objective_class = verdict["declared_objective"]["workload_class"]
     objective_board = verdict["declared_objective"]["board"]
     head = frontier.view(ledger.load(repo), objective_board, objective_class).head

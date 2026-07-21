@@ -67,6 +67,69 @@ class WorkloadScore:
     mechanism_verified: bool | None = None
 
 
+def portfolio_summary(scores: list[WorkloadScore], ci_level: float) -> dict:
+    """Aggregate a deterministic, independently resampled workload portfolio."""
+    if not scores:
+        raise RunError("cannot score an empty workload portfolio")
+    ordered = sorted(scores, key=lambda score: score.workload.workload_id)
+    seed = _seed(
+        "portfolio:" + "|".join(score.workload.workload_id for score in ordered),
+        0,
+    )
+    estimate, ci = stats.portfolio_geomean_ci(
+        [score.ratios for score in ordered],
+        level=ci_level,
+        iterations=stats.PORTFOLIO_BOOTSTRAP_ITERATIONS,
+        seed=seed,
+    )
+    return {
+        "r": estimate,
+        "ci": ci,
+        "ci_method": stats.PORTFOLIO_CI_METHOD,
+        "ci_level": ci_level,
+        "bootstrap_iterations": stats.PORTFOLIO_BOOTSTRAP_ITERATIONS,
+        "seed": seed,
+        "prove_ms_method": stats.PORTFOLIO_PROVE_MS_METHOD,
+        "b_median_ms_geomean": stats.geometric_mean(
+            [score.b_median_ms for score in ordered]
+        ),
+    }
+
+
+def _complete_metric_geomean(
+    scores: list[WorkloadScore], field_name: str,
+) -> float | None:
+    values = [getattr(score, field_name) for score in scores]
+    if not values or any(value is None for value in values):
+        return None
+    return stats.geometric_mean([float(value) for value in values])
+
+
+def portfolio_promotion_status(
+    dimension: str, portfolio_ci: tuple[float, float], theta: float,
+) -> tuple[bool, bool, dict]:
+    if dimension != "time":
+        return False, False, {
+            "eligible": False,
+            "method": None,
+            "reason": (
+                f"{dimension} objective is diagnostic until a dimension-specific "
+                "portfolio CI is implemented"
+            ),
+        }
+    significant = portfolio_ci[1] < 1.0 - theta
+    neutral = (
+        not significant
+        and portfolio_ci[0] >= 1.0 - theta
+        and portfolio_ci[1] <= 1.0 + theta
+    )
+    return significant, neutral, {
+        "eligible": True,
+        "method": stats.PORTFOLIO_CI_METHOD,
+        "reason": "prove-time objective uses the deterministic workload portfolio CI",
+    }
+
+
 def _run(cmd: str, cwd: Path, timeout: int) -> str:
     try:
         proc = subprocess.run(
@@ -759,33 +822,79 @@ def _replace_flag(args: str, flag: str, value: str) -> str:
 
 
 def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
-                out_dir: Path, board: str = "core_cpu") -> dict:
+                out_dir: Path, board: str = "core_cpu",
+                allow_staged: bool = False) -> dict:
     """A/A run (both arms = this tree): measures the per-class dispersion that
-    theta is built from. Record the half_width in ledger/epochs.json by PR."""
+    theta is built from. ``allow_staged`` is an explicit calibration-only path
+    for a disabled board; ordinary evaluation remains fail-closed."""
     out_dir.mkdir(parents=True, exist_ok=True)
     skipped = announce_skipped_groups(manifest)
-    workloads = _board_workloads(manifest, board, workload_class)
+    workloads = _board_workloads(
+        manifest, board, workload_class, allow_staged=allow_staged
+    )
     if not workloads:
         raise RunError(
             f"no enabled workloads registered for board {board}, class {workload_class}"
         )
-    workload = workloads[0]
-    policy = manifest.gates_for_group(workload.group_id)
-    build_arm(repo_root, manifest, groups=[manifest.group(workload.group_id)])
-    score = paired_rounds(repo_root, repo_root, manifest, workload,
-                          policy, out_dir)
-    half_width = (score.ci[1] - score.ci[0]) / 2.0
+    group_ids = {workload.group_id for workload in workloads}
+    if len(group_ids) != 1:
+        raise RunError(f"board {board} selected workloads from multiple groups")
+    group_id = next(iter(group_ids))
+    policy = manifest.gates_for_group(group_id)
+    build_arm(repo_root, manifest, groups=[manifest.group(group_id)])
+    scores = [
+        paired_rounds(repo_root, repo_root, manifest, workload, policy, out_dir)
+        for workload in workloads
+    ]
+    portfolio = portfolio_summary(scores, float(policy["ci_level"]))
+    half_width = (portfolio["ci"][1] - portfolio["ci"][0]) / 2.0
     return {
         "workload_class": workload_class,
         "board": board,
-        "workload": workload.workload_id,
-        "rounds": len(score.ratios),
-        "aa_r": round(score.r, 6),
+        "workload": (
+            workloads[0].workload_id if len(workloads) == 1
+            else f"portfolio[{len(workloads)}]"
+        ),
+        "workloads": [workload.workload_id for workload in workloads],
+        "rounds": min(len(score.ratios) for score in scores),
+        "rounds_per_workload": {
+            score.workload.workload_id: len(score.ratios) for score in scores
+        },
+        "aa_r": round(portfolio["r"], 6),
+        "portfolio": {
+            "ci_method": portfolio["ci_method"],
+            "ci_level": portfolio["ci_level"],
+            "bootstrap_iterations": portfolio["bootstrap_iterations"],
+            "seed": portfolio["seed"],
+            "ci": [round(portfolio["ci"][0], 6), round(portfolio["ci"][1], 6)],
+            "prove_ms_method": portfolio["prove_ms_method"],
+            "b_median_ms_geomean": round(
+                portfolio["b_median_ms_geomean"], 6
+            ),
+        },
+        "anchor_prove_ms": round(portfolio["b_median_ms_geomean"], 6),
+        "per_workload": {
+            score.workload.workload_id: {
+                "rounds": len(score.ratios),
+                "r": round(score.r, 6),
+                "ci": [round(score.ci[0], 6), round(score.ci[1], 6)],
+                "a_median_ms": round(score.a_median_ms, 6),
+                "b_median_ms": round(score.b_median_ms, 6),
+            }
+            for score in scores
+        },
         "half_width": round(half_width, 6),
         "skipped_groups": skipped,
-        "record_as": {"ledger/epochs.json": {"aa_dispersion": {
-            board: {workload_class: round(half_width, 6)},
-        }}},
+        "record_as": {
+            "ledger/epochs.json": {"aa_dispersion": {
+                board: {workload_class: round(half_width, 6)},
+            }},
+            "MANIFEST.json": {"harness": {"anchor_prove_ms": {
+                board: {
+                    workload_class: round(portfolio["b_median_ms_geomean"], 6)
+                },
+            }}},
+        },
     }
 
 
@@ -1138,6 +1247,7 @@ def evaluate(
                       stop_theta=th)
         for w in workloads
     ]
+    portfolio = portfolio_summary(scores, float(policy["ci_level"]))
 
     touched = changed_paths(repo_root)
     guard_results: dict = {}
@@ -1179,19 +1289,10 @@ def evaluate(
                 "pass": hs.r <= float(policy["targeted_class_budget"]),
                 "r": round(hs.r, 6),
             }
-    objective = scores[0]
-    if dimension == "rss":
-        significant = objective.rss_ratio is not None and objective.rss_ratio < 1.0 - th
-        neutral = objective.rss_ratio is not None and abs(objective.rss_ratio - 1.0) <= th
-    else:
-        significant = objective.ci[1] < 1.0 - th
-        # Confirmed-neutral requires CI containment in the band, not overlap:
-        # a wide, uncertain CI is "not significant", never "neutral".
-        neutral = (
-            not significant
-            and objective.ci[0] >= 1.0 - th
-            and objective.ci[1] <= 1.0 + th
-        )
+    significant, neutral, promotion_significance = portfolio_promotion_status(
+        dimension, portfolio["ci"], th
+    )
+    rss_geomean = _complete_metric_geomean(scores, "rss_ratio")
 
     gates = _gates(repo_root, manifest, scores, policy, judged, dispersion,
                    workload_class, board, guard_results, oracle_results)
@@ -1217,18 +1318,41 @@ def evaluate(
                     "rounds": len(s.ratios),
                     "a_median_ms": round(s.a_median_ms, 6),
                     "b_median_ms": round(s.b_median_ms, 6),
+                    "request_ratio": (
+                        round(s.request_ratio, 6) if s.request_ratio is not None else None
+                    ),
+                    "rss_ratio": (
+                        round(s.rss_ratio, 6) if s.rss_ratio is not None else None
+                    ),
                     "mechanism_verified": s.mechanism_verified,
                 }
                 for s in scores
             },
-            "R_geomean": round(stats.geometric_mean([s.r for s in scores]), 6),
+            "R_geomean": round(portfolio["r"], 6),
+            "portfolio": {
+                "ci_method": portfolio["ci_method"],
+                "ci_level": portfolio["ci_level"],
+                "bootstrap_iterations": portfolio["bootstrap_iterations"],
+                "seed": portfolio["seed"],
+                "ci": [
+                    round(portfolio["ci"][0], 6),
+                    round(portfolio["ci"][1], 6),
+                ],
+                "prove_ms_method": portfolio["prove_ms_method"],
+                "b_median_ms_geomean": round(
+                    portfolio["b_median_ms_geomean"], 6
+                ),
+            },
             "theta": round(th, 6),
             "aa_dispersion": dispersion,
             "significant": bool(significant),
             "neutral": bool(neutral),
+            "promotion_significance": promotion_significance,
         },
         "tiebreakers": {
-            "rss_ratio": round(objective.rss_ratio, 6) if objective.rss_ratio else None,
+            "rss_ratio": (
+                round(rss_geomean, 6) if rss_geomean is not None else None
+            ),
             "waits": None,
             "dispatches": None,
             "energy_j": None,
@@ -1243,7 +1367,10 @@ def evaluate(
                 s.workload.workload_id: {
                     "round_ratios": [round(x, 6) for x in s.ratios],
                     "proof_digest": s.proof_digest,
-                    "request_ratio": round(s.request_ratio, 6) if s.request_ratio else None,
+                    "request_ratio": (
+                        round(s.request_ratio, 6) if s.request_ratio is not None else None
+                    ),
+                    "rss_ratio": round(s.rss_ratio, 6) if s.rss_ratio is not None else None,
                     "report_sha256s": s.report_sha256s,
                     "mechanism_verified": s.mechanism_verified,
                 }
@@ -1312,9 +1439,9 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
     anchor_ms = anchors.get(board, {}).get(workload_class)
     g4_ok, g4_details = True, []
     if anchor_ms and scores:
-        objective = scores[0]
         targeted = float(policy["targeted_class_budget"])
-        ratio = objective.b_median_ms / float(anchor_ms)
+        candidate_ms = stats.geometric_mean([score.b_median_ms for score in scores])
+        ratio = candidate_ms / float(anchor_ms)
         anchor_ok = ratio <= targeted
         g4_ok = g4_ok and anchor_ok
         g4_details.append(
@@ -1323,6 +1450,25 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
         )
     else:
         g4_details.append("anchor not frozen; drift budget inactive")
+    if scores:
+        matrix_budget_raw = policy.get("matrix_row_budget")
+        if matrix_budget_raw is None:
+            g4_ok = False
+            g4_details.append("matrix row budget missing — cannot admit scored rows")
+        else:
+            matrix_budget = float(matrix_budget_raw)
+            matrix_failed = [
+                score.workload.workload_id
+                for score in scores
+                if score.ci[1] > matrix_budget
+            ]
+            matrix_ok = not matrix_failed
+            g4_ok = g4_ok and matrix_ok
+            g4_details.append(
+                f"matrix row upper CIs {len(scores) - len(matrix_failed)}/{len(scores)} "
+                f"within budget x{matrix_budget}"
+                + (f" — FAILED: {matrix_failed[:4]}" if matrix_failed else "")
+            )
     guards_failed = [g for g, res in guard_results.items() if not res.get("pass")]
     if guard_results:
         g4_ok = g4_ok and not guards_failed
@@ -1330,22 +1476,43 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
             f"regression guards {len(guard_results) - len(guards_failed)}/{len(guard_results)} within budget"
             + (f" — FAILED: {guards_failed[:4]}" if guards_failed else "")
         )
-    objective = scores[0] if scores else None
     request_budget = float(policy.get("request_budget", 0) or 0)
-    if objective and request_budget and objective.request_ratio is not None:
-        request_ok = objective.request_ratio <= request_budget
+    if scores and request_budget:
+        request_present = [score for score in scores if score.request_ratio is not None]
+        request_failed = [
+            score.workload.workload_id for score in request_present
+            if score.request_ratio > request_budget
+        ]
+        request_missing = [
+            score.workload.workload_id for score in scores
+            if score.request_ratio is None
+        ]
+        request_ok = not request_failed
         g4_ok = g4_ok and request_ok
         g4_details.append(
-            f"request ratio {objective.request_ratio:.4f} vs budget x{request_budget}"
-            + ("" if request_ok else " — request-time regression")
+            f"request ratios {len(request_present) - len(request_failed)}/"
+            f"{len(request_present)} present rows within budget x{request_budget}"
+            + (f" — FAILED: {request_failed[:4]}" if request_failed else "")
+            + (f"; absent: {request_missing[:4]}" if request_missing else "")
         )
     rss_budget = float(policy.get("rss_budget", 0) or 0)
-    if objective and rss_budget and objective.rss_ratio is not None:
-        rss_ok = objective.rss_ratio <= rss_budget
+    if scores and rss_budget:
+        rss_present = [score for score in scores if score.rss_ratio is not None]
+        rss_failed = [
+            score.workload.workload_id for score in rss_present
+            if score.rss_ratio > rss_budget
+        ]
+        rss_missing = [
+            score.workload.workload_id for score in scores
+            if score.rss_ratio is None
+        ]
+        rss_ok = not rss_failed
         g4_ok = g4_ok and rss_ok
         g4_details.append(
-            f"rss ratio {objective.rss_ratio:.4f} vs budget x{rss_budget}"
-            + ("" if rss_ok else " — memory regression")
+            f"rss ratios {len(rss_present) - len(rss_failed)}/"
+            f"{len(rss_present)} present rows within budget x{rss_budget}"
+            + (f" — FAILED: {rss_failed[:4]}" if rss_failed else "")
+            + (f"; absent: {rss_missing[:4]}" if rss_missing else "")
         )
     g4_detail = "; ".join(g4_details)
 
@@ -1368,9 +1535,12 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
 
 
 def _board_workloads(manifest: Manifest, board: str,
-                     workload_class: str) -> list[Workload]:
+                     workload_class: str,
+                     allow_staged: bool = False) -> list[Workload]:
     try:
-        return manifest.workloads(workload_class, board=board)
+        return manifest.workloads(
+            workload_class, board=board, include_disabled=allow_staged
+        )
     except ManifestError as exc:
         raise RunError(str(exc)) from exc
 

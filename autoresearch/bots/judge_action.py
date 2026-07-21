@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
-from stwo_perf import ledger, manifest as manifest_mod, render, runner, signing  # noqa: E402
+from stwo_perf import ledger, manifest as manifest_mod, promotion, render, runner, signing  # noqa: E402
 
 
 def comment(body: str) -> None:
@@ -78,10 +78,34 @@ def claimed_board(manifest: manifest_mod.Manifest, objective: dict) -> str:
     if board not in ledger.BOARDS:
         raise SystemExit(f"claimed verdict names unsupported board: {board}")
     try:
-        manifest.group_for_board(board)
-    except manifest_mod.ManifestError as exc:
-        raise SystemExit(f"claimed board is not runnable: {exc}") from exc
+        promotion.require_board_promotion_eligible(manifest, board)
+    except promotion.PromotionError as exc:
+        raise SystemExit(f"claimed board is not admissible: {exc}") from exc
     return board
+
+
+def claimed_divergence(claimed: dict, judged: dict) -> dict | None:
+    claimed_r = claimed.get("score", {}).get("R_geomean")
+    if claimed_r is None:
+        return None
+    score = judged.get("score", {})
+    portfolio = score.get("portfolio")
+    if not isinstance(portfolio, dict):
+        raise SystemExit("judged verdict is missing portfolio confidence evidence")
+    ci = portfolio.get("ci")
+    if not isinstance(ci, list) or len(ci) != 2:
+        raise SystemExit("judged verdict portfolio CI is malformed")
+    judged_r = float(score["R_geomean"])
+    gap = abs(float(claimed_r) - judged_r)
+    judged_half_ci = (float(ci[1]) - float(ci[0])) / 2.0
+    if gap <= judged_half_ci:
+        return None
+    return {
+        "claimed_r": float(claimed_r),
+        "judged_r": judged_r,
+        "gap": round(gap, 6),
+        "judged_ci_half_width": round(judged_half_ci, 6),
+    }
 
 
 def main() -> int:
@@ -116,20 +140,7 @@ def main() -> int:
     # the judge-only verdicts area (published to the judge-verdicts branch by
     # the workflow). The signature — not the location — is the trust anchor.
     verdict["submission_id"] = sub.name
-    objective = verdict["score"]["per_workload"]
-    first = next(iter(objective.values()))
-    claimed_r = claimed.get("score", {}).get("R_geomean")
-    divergence_finding = None
-    if claimed_r is not None:
-        gap = abs(float(claimed_r) - verdict["score"]["R_geomean"])
-        judged_half_ci = (first["ci"][1] - first["ci"][0]) / 2.0
-        if gap > judged_half_ci:
-            divergence_finding = {
-                "claimed_r": float(claimed_r),
-                "judged_r": verdict["score"]["R_geomean"],
-                "gap": round(gap, 6),
-                "judged_ci_half_width": round(judged_half_ci, 6),
-            }
+    divergence_finding = claimed_divergence(claimed, verdict)
     verdict["claimed_divergence"] = divergence_finding
     signed = signing.sign(verdict)
 

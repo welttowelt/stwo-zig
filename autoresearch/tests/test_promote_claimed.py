@@ -47,6 +47,50 @@ class PromoteClaimedTest(unittest.TestCase):
         (self.repo / "autoresearch" / "ledger" / "epochs.json").write_text(
             json.dumps({"epochs": [{"epoch": 1}]})
         )
+        (self.repo / "autoresearch" / "MANIFEST.json").write_text(json.dumps({
+            "manifest_version": 2,
+            "harness": {"anchor_commit": None},
+            "editable_paths": [],
+            "locked_paths": [],
+            "gates_policy": {},
+            "qualification_policy": {
+                "required_checks": ["allowed_diff"],
+                "max_active_per_user": 1,
+            },
+            "workload_registry": {"groups": {
+                "native": {
+                    "enabled": True,
+                    "promotion_eligible": True,
+                    "board": "core_cpu",
+                    "build_step": "true",
+                    "binary": "bin/native",
+                    "report_schema": "native_proof_v6",
+                    "workloads": {"wf": {
+                        "class": "small", "args": "--x", "native_unit": "rows",
+                    }},
+                },
+                "riscv": {
+                    "enabled": True,
+                    "promotion_eligible": False,
+                    "board": "riscv",
+                    "build_step": "true",
+                    "binary": "bin/riscv",
+                    "report_schema": "riscv_proof_v1",
+                    "mechanism_telemetry": {
+                        "fail_closed": True,
+                        "required_fields": [
+                            "n_components",
+                            "statement_sha256",
+                            "total_steps",
+                            "transcript_state_blake2s",
+                        ],
+                    },
+                    "workloads": {"rv": {
+                        "class": "wide", "args": "--x", "native_unit": "cycles",
+                    }},
+                },
+            }},
+        }))
         self._commit("Harness scaffolding")
 
     def _git(self, *args):
@@ -131,6 +175,46 @@ class PromoteClaimedTest(unittest.TestCase):
         self._land_submission("2026-07-20-neutral", verdict)
         row = promotion.promote_claimed(self.repo, "2026-07-20-neutral")
         self.assertEqual(row["outcome"], "neutral")
+
+    def test_multi_workload_row_uses_portfolio_ci_and_latency_summary(self):
+        verdict = claimed_verdict()
+        verdict["score"]["per_workload"] = {
+            "fast_first": {"b_median_ms": 1.0, "ci": [0.40, 0.60]},
+            "slow_second": {"b_median_ms": 100.0, "ci": [1.10, 1.30]},
+        }
+        verdict["score"]["portfolio"] = {
+            "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+            "ci_level": 0.95,
+            "bootstrap_iterations": 4000,
+            "seed": 17,
+            "ci": [0.81, 0.89],
+            "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+            "b_median_ms_geomean": 10.0,
+        }
+        row = promotion.row_from_verdict(
+            "portfolio", verdict, 1, "promoted", "G1..G5:pass", "claimed"
+        )
+        self.assertEqual((row["ci_low"], row["ci_high"]), (0.81, 0.89))
+        self.assertEqual(row["prove_ms"], 10.0)
+
+    def test_multi_workload_row_without_portfolio_statistics_fails_closed(self):
+        verdict = claimed_verdict()
+        verdict["score"]["per_workload"]["second"] = {
+            "b_median_ms": 8.0,
+            "ci": [0.9, 1.1],
+        }
+        with self.assertRaisesRegex(promotion.PromotionError, "portfolio"):
+            promotion.row_from_verdict(
+                "portfolio", verdict, 1, "promoted", "G1..G5:pass", "claimed"
+            )
+
+    def test_fabricated_riscv_verdict_cannot_create_a_ledger_row(self):
+        verdict = claimed_verdict()
+        verdict["declared_objective"]["board"] = "riscv"
+        self._land_submission("2026-07-20-riscv", verdict)
+        with self.assertRaisesRegex(promotion.PromotionError, "not promotion eligible"):
+            promotion.promote_claimed(self.repo, "2026-07-20-riscv")
+        self.assertEqual(ledger.load(self.repo), [])
 
 
 if __name__ == "__main__":

@@ -61,6 +61,7 @@ def manifest_document() -> dict:
             "groups": {
                 "native": {
                     "enabled": True,
+                    "promotion_eligible": True,
                     "board": "core_cpu",
                     "build_step": "true",
                     "binary": "bin/hermetic-bench",

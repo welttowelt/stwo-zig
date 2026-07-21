@@ -59,5 +59,39 @@ class GeomeanTest(unittest.TestCase):
             stats.geometric_mean([1.0, 0.0])
 
 
+class PortfolioBootstrapTest(unittest.TestCase):
+    def test_deterministic_with_different_round_counts(self):
+        ratios = [
+            [0.90, 0.91, 0.89],
+            [1.02, 1.01, 1.03, 1.00, 1.02],
+        ]
+        first = stats.portfolio_geomean_ci(ratios, iterations=1000, seed=17)
+        second = stats.portfolio_geomean_ci(ratios, iterations=1000, seed=17)
+        self.assertEqual(first, second)
+        estimate, ci = first
+        self.assertAlmostEqual(
+            estimate,
+            stats.geometric_mean([stats.hodges_lehmann(row) for row in ratios]),
+        )
+        self.assertLessEqual(ci[0], estimate)
+        self.assertGreaterEqual(ci[1], estimate)
+
+    def test_fast_first_row_does_not_define_portfolio_significance(self):
+        estimate, ci = stats.portfolio_geomean_ci(
+            [
+                [0.50, 0.50, 0.50],
+                [2.20, 2.20, 2.20],
+            ],
+            iterations=200,
+            seed=3,
+        )
+        self.assertAlmostEqual(estimate, 1.048808848, places=8)
+        self.assertGreater(ci[0], 1.0)
+
+    def test_rejects_any_workload_without_three_rounds(self):
+        with self.assertRaisesRegex(ValueError, "per workload"):
+            stats.portfolio_geomean_ci([[0.9, 0.9, 0.9], [1.0, 1.0]])
+
+
 if __name__ == "__main__":
     unittest.main()

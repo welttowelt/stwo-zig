@@ -17,14 +17,100 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import subprocess
 from pathlib import Path
 
-from . import frontier, ledger
+from . import frontier, ledger, manifest as manifest_mod, stats
 
 
 class PromotionError(RuntimeError):
     pass
+
+
+def require_board_promotion_eligible(
+    manifest: manifest_mod.Manifest, board: str
+) -> None:
+    """Fail closed unless the board's current manifest group may promote."""
+    try:
+        group = manifest.group_for_board(board)
+    except manifest_mod.ManifestError as exc:
+        raise PromotionError(f"board is not registered for promotion: {board}") from exc
+    group_spec = manifest.raw["workload_registry"]["groups"].get(group.group_id, {})
+    if group_spec.get("enabled") is not True:
+        raise PromotionError(f"board workload group is disabled: {board}")
+    if group_spec.get("promotion_eligible") is not True:
+        raise PromotionError(f"board is not promotion eligible: {board}")
+
+
+def require_verdict_promotion_eligible(repo: Path, verdict: dict) -> None:
+    objective = verdict.get("declared_objective")
+    if not isinstance(objective, dict) or not isinstance(objective.get("board"), str):
+        raise PromotionError("verdict must declare a string board")
+    try:
+        manifest = manifest_mod.load(repo)
+    except manifest_mod.ManifestError as exc:
+        raise PromotionError(f"cannot load current promotion authority: {exc}") from exc
+    require_board_promotion_eligible(manifest, objective["board"])
+
+
+def portfolio_ledger_summary(score: dict) -> tuple[float, float, float]:
+    """Return portfolio CI and candidate latency summary for one ledger row.
+
+    New multi-workload verdicts must carry the deterministic portfolio
+    statistics emitted by the runner. Legacy single-workload verdicts remain
+    recordable because their only row is mathematically identical to the
+    portfolio.
+    """
+    per_workload = score.get("per_workload")
+    if not isinstance(per_workload, dict) or not per_workload:
+        raise PromotionError("verdict score has no per-workload evidence")
+    portfolio = score.get("portfolio")
+    if portfolio is None:
+        if len(per_workload) != 1:
+            raise PromotionError(
+                "multi-workload verdict is missing deterministic portfolio statistics"
+            )
+        only = next(iter(per_workload.values()))
+        ci = only.get("ci")
+        prove_ms = only.get("b_median_ms")
+    else:
+        if not isinstance(portfolio, dict):
+            raise PromotionError("score.portfolio must be an object")
+        if portfolio.get("ci_method") != stats.PORTFOLIO_CI_METHOD:
+            raise PromotionError("score.portfolio has an unsupported CI method")
+        if portfolio.get("prove_ms_method") != stats.PORTFOLIO_PROVE_MS_METHOD:
+            raise PromotionError("score.portfolio has an unsupported prove-ms method")
+        level = portfolio.get("ci_level")
+        iterations = portfolio.get("bootstrap_iterations")
+        seed = portfolio.get("seed")
+        if (
+            isinstance(level, bool)
+            or not isinstance(level, (int, float))
+            or not math.isfinite(float(level))
+            or not 0.0 < float(level) < 1.0
+        ):
+            raise PromotionError("score.portfolio has an invalid confidence level")
+        if iterations != stats.PORTFOLIO_BOOTSTRAP_ITERATIONS:
+            raise PromotionError("score.portfolio has an unsupported bootstrap count")
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise PromotionError("score.portfolio has an invalid deterministic seed")
+        ci = portfolio.get("ci")
+        prove_ms = portfolio.get("b_median_ms_geomean")
+    if not isinstance(ci, list) or len(ci) != 2:
+        raise PromotionError("portfolio CI must contain exactly two bounds")
+    try:
+        ci_low, ci_high, prove = float(ci[0]), float(ci[1]), float(prove_ms)
+    except (TypeError, ValueError) as exc:
+        raise PromotionError("portfolio ledger values must be numeric") from exc
+    if (
+        not all(math.isfinite(value) for value in (ci_low, ci_high, prove))
+        or ci_low <= 0
+        or ci_high < ci_low
+        or prove <= 0
+    ):
+        raise PromotionError("portfolio ledger values are invalid")
+    return ci_low, ci_high, prove
 
 
 def decide_outcome(verdict: dict, predecessor_fresh: bool) -> tuple[str, str]:
@@ -81,7 +167,7 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
     (the claimed path records the commit that landed the submission)."""
     score = verdict["score"]
     objective = verdict["declared_objective"]
-    first = next(iter(score["per_workload"].values()))
+    ci_low, ci_high, prove_ms = portfolio_ledger_summary(score)
     holdout = verdict.get("holdout")
     holdout_cell = (
         f"{'pass' if holdout['pass'] else 'fail'};seed={holdout['seed']}"
@@ -98,9 +184,9 @@ def row_from_verdict(submission_id: str, verdict: dict, epoch: int, outcome: str
         "workload_class": objective["workload_class"],
         "outcome": outcome,
         "judged_r": float(score["R_geomean"]),
-        "ci_low": float(first["ci"][0]),
-        "ci_high": float(first["ci"][1]),
-        "prove_ms": float(first["b_median_ms"]),
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "prove_ms": prove_ms,
         "native_mhz": 0.0,
         "peak_rss_mib": 0.0,
         "waits": None,
@@ -168,6 +254,7 @@ def promote_claimed(repo: Path, submission_id: str,
             "promote-claimed records claimed verdicts only; judged verdicts "
             "arrive via the signed promote path"
         )
+    require_verdict_promotion_eligible(repo, verdict)
     objective = verdict.get("declared_objective") or {}
     verdict_class = objective.get("workload_class")
     verdict_board = objective.get("board", "core_cpu")

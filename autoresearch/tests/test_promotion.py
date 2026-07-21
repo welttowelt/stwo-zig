@@ -22,6 +22,33 @@ def git(repo, *args):
     ).stdout.strip()
 
 
+def write_manifest(repo: Path, *, promotion_eligible: bool = True) -> None:
+    path = repo / "autoresearch" / "MANIFEST.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "manifest_version": 2,
+        "harness": {"anchor_commit": None},
+        "editable_paths": [],
+        "locked_paths": [],
+        "gates_policy": {},
+        "qualification_policy": {
+            "required_checks": ["allowed_diff"],
+            "max_active_per_user": 1,
+        },
+        "workload_registry": {"groups": {"native": {
+            "enabled": True,
+            "promotion_eligible": promotion_eligible,
+            "board": "core_cpu",
+            "build_step": "true",
+            "binary": "bin/native",
+            "report_schema": "native_proof_v6",
+            "workloads": {"wf": {
+                "class": "small", "args": "--x", "native_unit": "rows",
+            }},
+        }}},
+    }))
+
+
 NOTE = """# Faster field loop
 
 ## Model and harness
@@ -35,6 +62,64 @@ Judged improvement.
 ## Caveats
 None known.
 """
+
+
+class RemotePromotionRowTest(unittest.TestCase):
+    def test_remote_row_uses_shared_portfolio_summary(self):
+        verdict = {
+            "harness_commit": "1" * 12,
+            "repo_commit": "2" * 12,
+            "predecessor_commit": "3" * 12,
+            "scope": "s3",
+            "declared_objective": {
+                "board": "core_cpu",
+                "workload_class": "wide",
+            },
+            "score": {
+                "R_geomean": 0.9,
+                "per_workload": {
+                    "first": {"ci": [0.4, 0.6], "b_median_ms": 1.0},
+                    "second": {"ci": [1.1, 1.3], "b_median_ms": 100.0},
+                },
+                "portfolio": {
+                    "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+                    "ci_level": 0.95,
+                    "bootstrap_iterations": 4000,
+                    "seed": 17,
+                    "ci": [0.82, 0.91],
+                    "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+                    "b_median_ms_geomean": 10.0,
+                },
+            },
+            "holdout": None,
+        }
+        row = promotion._row({
+            "id": "remote",
+            "judged_verdict": verdict,
+            "gates_cell": "G1..G5:pass",
+        })
+        self.assertEqual((row["ci_low"], row["ci_high"]), (0.82, 0.91))
+        self.assertEqual(row["prove_ms"], 10.0)
+
+    def test_remote_resume_rechecks_current_promotion_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            write_manifest(repo, promotion_eligible=False)
+
+            class FakeStore:
+                @staticmethod
+                def transition(_submission, _expected, state, detail, *_args):
+                    return {"state": state, "detail": detail}
+
+            record = {
+                "id": "remote",
+                "judged_verdict": {
+                    "declared_objective": {"board": "core_cpu"},
+                },
+            }
+            result = promotion._resume(FakeStore(), repo, record, None, "main")
+            self.assertEqual(result["state"], "promotion_error")
+            self.assertIn("not promotion eligible", result["detail"])
 
 
 class PromotionIntegrationTest(unittest.TestCase):
@@ -56,6 +141,7 @@ class PromotionIntegrationTest(unittest.TestCase):
             (repo / "autoresearch/ledger/epochs.json").write_text(json.dumps({
                 "epochs": [{"epoch": 1, "aa_dispersion": {}}],
             }) + "\n")
+            write_manifest(repo)
             git(repo, "add", ".")
             git(repo, "commit", "-m", "frontier")
             frontier = git(repo, "rev-parse", "HEAD")

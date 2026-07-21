@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import os
 import subprocess
@@ -14,7 +13,7 @@ from store import Store
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
-from stwo_perf import ledger, qualification, signing  # noqa: E402
+from stwo_perf import ledger, promotion as verdict_promotion, qualification, signing  # noqa: E402
 
 
 class PromotionError(RuntimeError):
@@ -32,40 +31,14 @@ def _git(repo: Path, *args: str, env: dict | None = None) -> str:
 
 def _row(record: dict) -> dict:
     verdict = record["judged_verdict"]
-    score = verdict["score"]
-    objective = verdict["declared_objective"]
-    first = next(iter(score["per_workload"].values()))
-    holdout = verdict.get("holdout")
-    holdout_cell = (
-        f"{'pass' if holdout['pass'] else 'fail'};seed={holdout['seed']}"
-        if holdout else "none"
+    return verdict_promotion.row_from_verdict(
+        record["id"],
+        verdict,
+        epoch=0,  # replaced from the canonical repository immediately before append
+        outcome="promoted",
+        gates_cell=record["gates_cell"],
+        verdict_kind="judged",
     )
-    return {
-        "schema_version": ledger.SCHEMA_VERSION,
-        "harness_commit": verdict["harness_commit"],
-        "epoch": 0,  # replaced from the canonical repository immediately before append
-        "judged_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "commit": verdict["repo_commit"],
-        "scope": verdict["scope"],
-        "board": objective["board"],
-        "workload_class": objective["workload_class"],
-        "outcome": "promoted",
-        "judged_r": float(score["R_geomean"]),
-        "ci_low": float(first["ci"][0]),
-        "ci_high": float(first["ci"][1]),
-        "prove_ms": float(first["b_median_ms"]),
-        "native_mhz": 0.0,
-        "peak_rss_mib": 0.0,
-        "waits": None,
-        "dispatches": None,
-        "energy_j": None,
-        "gates": record["gates_cell"],
-        "holdout": holdout_cell,
-        "submission_id": record["id"],
-        "predecessor": verdict["predecessor_commit"],
-        "supersedes": "",
-        "verdict_kind": "judged",
-    }
 
 
 def _write_record(repo: Path, record: dict) -> Path:
@@ -115,6 +88,15 @@ def _resume(store: Store, repo: Path, record: dict,
             push_remote: str | None, branch: str,
             push_fn: Callable[[Path, str, str, str], None] | None = None,
             ) -> dict:
+    try:
+        verdict_promotion.require_verdict_promotion_eligible(
+            repo, record["judged_verdict"]
+        )
+    except verdict_promotion.PromotionError as exc:
+        return store.transition(
+            record["id"], {"promoting"}, "promotion_error",
+            f"cannot resume: {exc}",
+        )
     promotion_commit = record.get("promotion_commit")
     try:
         at_recorded_tip = bool(promotion_commit) and current_commit(repo) == promotion_commit
@@ -160,6 +142,9 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
         return None
     try:
         signing.verify(record["judged_verdict"])
+        verdict_promotion.require_verdict_promotion_eligible(
+            repo, record["judged_verdict"]
+        )
         if record["judged_verdict"].get("canonical_commit") != record["canonical_commit"]:
             raise PromotionError("signed verdict names a different canonical commit")
         if current_commit(repo) != record["judged_frontier"]:
@@ -201,8 +186,9 @@ def process_one(store: Store, repo: Path, push_remote: str | None = None,
             {"promotion_commit": promotion_commit},
         )
         return _resume(store, repo, record, push_remote, branch, push_fn)
-    except (PromotionError, CanonicalError, signing.SigningError, ledger.LedgerError,
-            OSError, subprocess.SubprocessError) as exc:
+    except (PromotionError, verdict_promotion.PromotionError, CanonicalError,
+            signing.SigningError, ledger.LedgerError, OSError,
+            subprocess.SubprocessError) as exc:
         # Keep only a fully materialized promotion automatically resumable.
         # Partial worktree mutations need explicit repair, never a guessed reset.
         try:
