@@ -31,7 +31,11 @@ def native_applications(registry: dict[str, object]) -> list[dict[str, object]]:
                 "cpu": "cpu" in application["backends"],
             }
             for application in applications
-            if isinstance(application, dict) and "air" in application
+            if (
+                isinstance(application, dict)
+                and "air" in application
+                and "adapter" not in application
+            )
         ),
         key=lambda application: str(application["air"]),
     )
