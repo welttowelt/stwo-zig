@@ -9,14 +9,18 @@ use stwo::core::fields::m31::{M31, P};
 use stwo::core::fields::FieldExpOps;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::utils::{bit_reverse_index, coset_index_to_circle_domain_index};
-use stwo::prover::backend::cpu::CpuCircleEvaluation;
+use stwo::prover::backend::ColumnOps;
+use stwo::prover::poly::circle::CircleEvaluation;
 use stwo::prover::poly::BitReversedOrder;
 
-pub(crate) fn cpu_eval(
+pub(crate) fn backend_eval<B: ColumnOps<M31>>(
     log_size: u32,
     values: Vec<M31>,
-) -> CpuCircleEvaluation<M31, BitReversedOrder> {
-    CpuCircleEvaluation::new(CanonicCoset::new(log_size).circle_domain(), values)
+) -> CircleEvaluation<B, M31, BitReversedOrder> {
+    CircleEvaluation::new(
+        CanonicCoset::new(log_size).circle_domain(),
+        values.into_iter().collect(),
+    )
 }
 
 pub(crate) fn checked_pow2(log_size: u32) -> Result<usize> {
