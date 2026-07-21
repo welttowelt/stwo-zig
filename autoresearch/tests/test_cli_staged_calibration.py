@@ -49,6 +49,7 @@ class StagedCalibrationCliTest(unittest.TestCase):
             "rounds": 3,
             "aa_r": 1.0,
             "half_width": 0.01,
+            "dispersion": 0.012,
             "anchor_prove_ms": 12.5,
         }
         with tempfile.TemporaryDirectory() as tmp:

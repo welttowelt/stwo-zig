@@ -108,12 +108,13 @@ def cmd_run(args) -> int:
             ("workload", result["workload"]),
             ("rounds", str(result["rounds"])),
             ("A/A r", f"{result['aa_r']}"),
-            ("CI half-width", ansi.style(f"{result['half_width']}", "bold")),
+            ("CI half-width", f"{result['half_width']}"),
+            ("dispersion", ansi.style(f"{result['dispersion']}", "bold")),
         ]))
         print()
         print("  record it: set aa_dispersion." + result["board"] + "."
               + result["workload_class"]
-              + f" = {result['half_width']} in ledger/epochs.json via a reviewed PR")
+              + f" = {result['dispersion']} in ledger/epochs.json via a reviewed PR")
         print("  anchor it: set anchor_prove_ms." + result["board"] + "."
               + result["workload_class"]
               + f" = {result['anchor_prove_ms']} in MANIFEST.json via the same PR")

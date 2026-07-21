@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.AUTORESEARCH_PUBLISH_KEY }}
       - name: Record claimed promotions and refresh the feed
         run: |
           git config user.name "autoresearch-record[bot]"

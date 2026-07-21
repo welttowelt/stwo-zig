@@ -68,8 +68,7 @@ class ManifestTest(unittest.TestCase):
             self.m.workloads("huge", board="riscv", include_disabled=True)
         with self.assertRaisesRegex(manifest_mod.ManifestError, "unknown workload class"):
             self.m.workloads("invented", board="core_cpu")
-        with self.assertRaisesRegex(manifest_mod.ManifestError, "group is disabled"):
-            self.m.validate_workload_class("small", board="riscv")
+        self.m.validate_workload_class("small", board="riscv")
         self.m.validate_workload_class(
             "small", board="riscv", include_disabled=True,
         )
@@ -90,7 +89,7 @@ class ManifestTest(unittest.TestCase):
                 self.assertEqual(len(workloads), 1)
                 self.assertIn("--resource-profile large", workloads[0].args)
 
-    def test_groups_native_enabled_riscv_disabled(self):
+    def test_native_and_riscv_groups_are_enabled(self):
         by_id = {g.group_id: g for g in self.m.groups()}
         self.assertIn("native", by_id)
         self.assertIn("riscv", by_id)
@@ -101,13 +100,10 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(native.binary, "zig-out/bin/native-proof-bench-cpu")
         self.assertEqual(native.report_schema, "native_proof_v7")
         self.assertEqual(len(native.workloads), 5)
-        self.assertFalse(riscv.enabled)
-        self.assertFalse(riscv.promotion_eligible)
+        self.assertTrue(riscv.enabled)
+        self.assertTrue(riscv.promotion_eligible)
         self.assertEqual(riscv.board, "riscv")
-        self.assertEqual(
-            riscv.disabled_reason,
-            "RF-01 adapter release and BA-03 autoresearch activation pending",
-        )
+        self.assertIsNone(riscv.disabled_reason)
         self.assertEqual(riscv.binary, "zig-out/bin/stwo-zig")
         self.assertEqual(riscv.build_step, "zig build stwo-zig -Doptimize=ReleaseFast")
         self.assertEqual(riscv.report_schema, "riscv_proof_v2")
@@ -156,11 +152,8 @@ class ManifestTest(unittest.TestCase):
             {w.group_id for w in self.m.workloads("small", board="core_cpu")},
             {"native"},
         )
-        self.assertEqual(self.m.workloads("small", board="riscv"), [])
         self.assertEqual(
-            {w.group_id for w in self.m.workloads(
-                "small", include_disabled=True, board="riscv",
-            )},
+            {w.group_id for w in self.m.workloads("small", board="riscv")},
             {"riscv"},
         )
 

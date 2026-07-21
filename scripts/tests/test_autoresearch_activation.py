@@ -32,8 +32,14 @@ def settings_receipt() -> dict:
             {"context": "autoresearch-validate", "integration_id": 15368},
         ],
         "bypass_actors": [
-            {"actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always"},
+            {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"},
         ],
+        "write_deploy_keys": [{
+            "id": 157962927,
+            "title": "autoresearch-publisher",
+            "verified": True,
+            "read_only": False,
+        }],
     }
     return {
         "schema": SETTINGS_SCHEMA,
@@ -76,8 +82,8 @@ class SettingsReceiptTest(unittest.TestCase):
                 "name": "main",
                 "enforcement": "active",
                 "bypass_actors": [{
-                    "actor_id": 15368,
-                    "actor_type": "Integration",
+                    "actor_id": None,
+                    "actor_type": "DeployKey",
                     "bypass_mode": "always",
                 }],
                 "updated_at": "2026-07-21T12:00:00Z",
@@ -94,6 +100,12 @@ class SettingsReceiptTest(unittest.TestCase):
                         ]},
                     },
                 ],
+            }],
+            [{
+                "id": 157962927,
+                "title": "autoresearch-publisher",
+                "verified": True,
+                "read_only": False,
             }],
             observed_at=dt.datetime(2026, 7, 21, 12, 0, tzinfo=dt.timezone.utc),
         )
@@ -134,6 +146,7 @@ class SettingsReceiptTest(unittest.TestCase):
                     },
                     "rules": [{"type": "non_fast_forward"}],
                 }],
+                [],
             )
 
 
@@ -147,6 +160,9 @@ class ActivationContractTest(unittest.TestCase):
         (self.root / "src/products/riscv_cpu").mkdir(parents=True)
         (self.root / "src/interop").mkdir(parents=True)
         (self.root / "conformance/evidence/riscv").mkdir(parents=True)
+        (self.root / "autoresearch/reference/riscv-calibration-epoch-2").mkdir(
+            parents=True
+        )
         candidate = "a" * 40
         release_receipt = {
             "schema": "riscv-oracle-receipt-v2",
@@ -161,6 +177,46 @@ class ActivationContractTest(unittest.TestCase):
         release_path = self.root / "conformance/evidence/riscv/release-anchor.json"
         release_path.write_bytes(canonical(release_receipt))
         release_digest = hashlib.sha256(release_path.read_bytes()).hexdigest()
+        calibration_classes = {}
+        for index, workload_class in enumerate(("small", "wide", "deep"), 1):
+            raw_receipt = {
+                "board": "riscv",
+                "workload_class": workload_class,
+                "anchor_prove_ms": float(index),
+            }
+            raw_path = (
+                self.root
+                / f"autoresearch/reference/riscv-calibration-epoch-2/{workload_class}.json"
+            )
+            raw_path.write_bytes(canonical(raw_receipt))
+            calibration_classes[workload_class] = {
+                "anchor_prove_ms": float(index),
+                "dispersion": 0.01,
+                "ci": [0.99, 1.01],
+                "receipt": str(raw_path.relative_to(self.root)),
+                "receipt_sha256": hashlib.sha256(raw_path.read_bytes()).hexdigest(),
+            }
+        calibration = {
+            "schema": "stwo_perf_riscv_calibration_freeze_v1",
+            "status": "frozen",
+            "board": "riscv",
+            "epoch": 1,
+            "repository": {
+                "commit": "c" * 40, "tree": "b" * 40, "dirty": False,
+            },
+            "host": {"chip": "Apple M5 Max", "logical_cpu_count": 18},
+            "oracle": {
+                "authority": "stark-v",
+                "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+                "required_features": ["parallel"],
+                "release_anchor_candidate": candidate,
+                "release_anchor_sha256": release_digest,
+            },
+            "classes": calibration_classes,
+        }
+        calibration_path = self.root / "autoresearch/reference/riscv-calibration.json"
+        calibration_path.write_bytes(canonical(calibration))
+        calibration_digest = hashlib.sha256(calibration_path.read_bytes()).hexdigest()
         workloads = {}
         pools = {}
         for workload_class in ("small", "wide", "deep"):
@@ -179,9 +235,23 @@ class ActivationContractTest(unittest.TestCase):
                 }
             pools[workload_class] = members
         manifest = {
-            "harness": {"anchor_prove_ms": {
-                "riscv": {"small": 1.0, "wide": 2.0, "deep": 3.0},
-            }},
+            "harness": {
+                "anchor_prove_ms": {
+                    "riscv": {"small": 1.0, "wide": 2.0, "deep": 3.0},
+                },
+                "riscv_calibration": {
+                    "schema": "stwo_perf_riscv_calibration_freeze_v1",
+                    "status": "frozen",
+                    "board": "riscv",
+                    "epoch": 1,
+                    "artifact": str(calibration_path.relative_to(self.root)),
+                    "artifact_sha256": calibration_digest,
+                    "measured_commit": "c" * 40,
+                    "designated_host": {
+                        "chip": "Apple M5 Max", "logical_cpu_count": 18,
+                    },
+                },
+            },
             "workload_registry": {
                 "classes": {
                     name: {"scored": True}
@@ -232,7 +302,7 @@ class ActivationContractTest(unittest.TestCase):
             }}},
         }
         (self.root / "autoresearch/MANIFEST.json").write_text(json.dumps(manifest))
-        epochs = {"epochs": [{"aa_dispersion": {"riscv": {
+        epochs = {"epochs": [{"epoch": 1, "aa_dispersion": {"riscv": {
             "small": 0.01, "wide": 0.01, "deep": 0.01,
         }}}]}
         (self.root / "autoresearch/ledger/epochs.json").write_text(json.dumps(epochs))
@@ -336,6 +406,24 @@ class ActivationContractTest(unittest.TestCase):
         )
         self.assertIn("RISC-V release anchor receipt digest mismatches", errors)
         self.assertIn("RISC-V adapter is not release gated", errors)
+
+    def test_tampered_calibration_and_manual_anchor_fail(self) -> None:
+        manifest_path = self.root / "autoresearch/MANIFEST.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["harness"]["anchor_prove_ms"]["riscv"]["wide"] = 1.5
+        manifest_path.write_text(json.dumps(manifest))
+        calibration = self.root / "autoresearch/reference/riscv-calibration.json"
+        calibration.write_text(calibration.read_text() + "\n")
+        errors = activation_errors(
+            self.root,
+            board="riscv",
+            settings_receipt=self.receipt,
+            repository="teddyjfpender/stwo-zig",
+        )
+        self.assertIn("RISC-V calibration artifact digest mismatches", errors)
+        self.assertIn(
+            "RISC-V wide anchor differs from calibration evidence", errors,
+        )
 
 
 if __name__ == "__main__":

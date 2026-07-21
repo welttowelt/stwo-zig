@@ -65,7 +65,12 @@ def main(argv: list[str] | None = None) -> int:
 
     repository = _api(f"/repos/{args.repository}", token)
     summaries = _api(f"/repos/{args.repository}/rulesets?per_page=100", token)
-    if not isinstance(repository, dict) or not isinstance(summaries, list):
+    deploy_keys = _api(f"/repos/{args.repository}/keys?per_page=100", token)
+    if (
+        not isinstance(repository, dict)
+        or not isinstance(summaries, list)
+        or not isinstance(deploy_keys, list)
+    ):
         raise SettingsCaptureError("GitHub API returned an unexpected response shape")
     rulesets = []
     for summary in summaries:
@@ -77,7 +82,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SettingsCaptureError("GitHub ruleset detail is not an object")
         rulesets.append(detail)
 
-    receipt = build_settings_receipt(args.repository, repository, rulesets)
+    receipt = build_settings_receipt(
+        args.repository, repository, rulesets, deploy_keys,
+    )
     _atomic_write(args.output.resolve(), receipt)
     print(f"captured GitHub settings receipt: {args.output}")
     return 0

@@ -293,7 +293,7 @@ def measure(manifest: Manifest, out_dir: Path) -> Path:
                 "classification": "neutral",
                 "aa_r": result["aa_r"],
                 "ci": ci,
-                "dispersion": result["half_width"],
+                "dispersion": result["dispersion"],
                 "anchor": anchor,
                 "measurement_rounds": result["portfolio"]["measurement_rounds"],
                 "measurement_seconds": result["portfolio"]["measurement_seconds"],

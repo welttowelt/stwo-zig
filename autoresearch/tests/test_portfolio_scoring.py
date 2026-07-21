@@ -90,8 +90,14 @@ class PortfolioScoringTest(unittest.TestCase):
                 allow_staged=True,
             )
         self.assertEqual(receipt["anchor_prove_ms"], 12.5)
+        self.assertEqual(receipt["dispersion"], 0.0)
         self.assertEqual(receipt["portfolio"]["b_median_ms_geomean"], 12.5)
         self.assertEqual(receipt["per_workload"]["riscv_alu"]["b_median_ms"], 12.5)
+
+    def test_aa_dispersion_covers_center_bias_as_well_as_half_width(self):
+        self.assertAlmostEqual(
+            runner.aa_dispersion([0.991176, 0.999841]), 0.008824,
+        )
 
 
 if __name__ == "__main__":

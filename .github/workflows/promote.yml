@@ -24,6 +24,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          ssh-key: ${{ secrets.AUTORESEARCH_PUBLISH_KEY }}
       - name: Validate main identity and refresh queued authority
         run: |
           set -euo pipefail

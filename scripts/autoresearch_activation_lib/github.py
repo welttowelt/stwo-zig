@@ -32,6 +32,7 @@ def _targets_default_branch(ruleset: dict[str, Any], default_branch: str) -> boo
 def settings_payload(
     repository: dict[str, Any],
     rulesets: list[dict[str, Any]],
+    deploy_keys: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Reduce authenticated API responses to the branch-policy facts BA-03 uses."""
     default_branch = repository.get("default_branch")
@@ -48,7 +49,7 @@ def settings_payload(
         raise SettingsCaptureError("no active ruleset targets the default branch")
 
     checks: set[tuple[str, int]] = set()
-    bypass_actors: set[tuple[int, str, str]] = set()
+    bypass_actors: set[tuple[int | None, str, str]] = set()
     non_fast_forward = False
     identities: list[dict[str, Any]] = []
     for ruleset in applicable:
@@ -61,8 +62,11 @@ def settings_payload(
             actor_id = actor.get("actor_id")
             actor_type = actor.get("actor_type")
             bypass_mode = actor.get("bypass_mode")
+            valid_actor_id = type(actor_id) is int or (
+                actor_id is None and actor_type == "DeployKey"
+            )
             if (
-                type(actor_id) is not int
+                not valid_actor_id
                 or not isinstance(actor_type, str)
                 or not actor_type
                 or not isinstance(bypass_mode, str)
@@ -110,8 +114,23 @@ def settings_payload(
                 "actor_type": actor_type,
                 "bypass_mode": bypass_mode,
             }
-            for actor_id, actor_type, bypass_mode in sorted(bypass_actors)
+            for actor_id, actor_type, bypass_mode in sorted(
+                bypass_actors, key=lambda item: (item[1], str(item[0]), item[2])
+            )
         ],
+        "write_deploy_keys": sorted(
+            [
+                {
+                    "id": key.get("id"),
+                    "title": key.get("title"),
+                    "verified": key.get("verified"),
+                    "read_only": key.get("read_only"),
+                }
+                for key in deploy_keys
+                if isinstance(key, dict) and key.get("read_only") is False
+            ],
+            key=lambda item: str(item["id"]),
+        ),
         "non_fast_forward": non_fast_forward,
         "required_status_checks": [
             {"context": context, "integration_id": integration_id}
@@ -126,10 +145,11 @@ def build_settings_receipt(
     repository_name: str,
     repository: dict[str, Any],
     rulesets: list[dict[str, Any]],
+    deploy_keys: list[dict[str, Any]],
     *,
     observed_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    payload = settings_payload(repository, rulesets)
+    payload = settings_payload(repository, rulesets, deploy_keys)
     timestamp = observed_at or dt.datetime.now(dt.timezone.utc)
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
         raise SettingsCaptureError("observation time must be timezone-aware")
