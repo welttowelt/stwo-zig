@@ -7,6 +7,7 @@ const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
 const canonic = @import("stwo_core").poly.circle.canonic;
+const constraints = @import("stwo_core").constraints;
 const core_utils = @import("stwo_core").utils;
 const tile_sink = @import("quotient_tile_sink.zig");
 const domain_walk = @import("quotient_domain_walk.zig");
@@ -271,6 +272,72 @@ const ScalarInversionChunk = struct {
     inverses: [SCALAR_INVERSION_CHUNK_ROWS * SCALAR_INVERSION_MAX_BATCHES]CM31,
 };
 
+/// Karatsuba CM31 multiply over four packed rows. Identical field
+/// operations to the scalar CM31.mul, one row per lane.
+inline fn mulCM31Vec4(
+    lhs_re: m31.Vec4u32,
+    lhs_im: m31.Vec4u32,
+    rhs_re: m31.Vec4u32,
+    rhs_im: m31.Vec4u32,
+) struct { re: m31.Vec4u32, im: m31.Vec4u32 } {
+    const ac = m31.mulVec4(lhs_re, rhs_re);
+    const bd = m31.mulVec4(lhs_im, rhs_im);
+    const cross = m31.mulVec4(
+        m31.addVec4(lhs_re, lhs_im),
+        m31.addVec4(rhs_re, rhs_im),
+    );
+    return .{
+        .re = m31.subVec4(ac, bd),
+        .im = m31.subVec4(m31.subVec4(cross, ac), bd),
+    };
+}
+
+/// Finalizes quotients for four rows in packed lanes, reading staged
+/// per-row QM31 numerators. Same exact field operations as
+/// `quotients.finalizeRowQuotients` per row, so outputs are byte-identical
+/// to the scalar writeQuotientRow calls it replaces.
+fn finalizeQuadVec4(
+    out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
+    output_position: usize,
+    quotient_constants: *const quotients.QuotientConstants,
+    ys: m31.Vec4u32,
+    staged_numerators: []const [m31.VEC_WIDTH]QM31,
+    staged_inverses: []const [m31.VEC_WIDTH]CM31,
+) void {
+    var acc: [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 = @splat(@splat(0));
+    for (quotient_constants.batch_linear_terms, 0..) |linear_term, batch| {
+        const a_coords = linear_term.sum_a.toM31Array();
+        const b_coords = linear_term.sum_b.toM31Array();
+        var diff: [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            const lt = m31.addVec4(
+                m31.mulVec4(@as(m31.Vec4u32, @splat(a_coords[coordinate].v)), ys),
+                @as(m31.Vec4u32, @splat(b_coords[coordinate].v)),
+            );
+            var nums: [m31.VEC_WIDTH]u32 = undefined;
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                nums[lane] = staged_numerators[batch][lane].toM31Array()[coordinate].v;
+            }
+            diff[coordinate] = m31.subVec4(nums, lt);
+        }
+        var inv_re: [m31.VEC_WIDTH]u32 = undefined;
+        var inv_im: [m31.VEC_WIDTH]u32 = undefined;
+        inline for (0..m31.VEC_WIDTH) |lane| {
+            inv_re[lane] = staged_inverses[batch][lane].a.v;
+            inv_im[lane] = staged_inverses[batch][lane].b.v;
+        }
+        const q0 = mulCM31Vec4(diff[0], diff[1], inv_re, inv_im);
+        const q1 = mulCM31Vec4(diff[2], diff[3], inv_re, inv_im);
+        acc[0] = m31.addVec4(acc[0], q0.re);
+        acc[1] = m31.addVec4(acc[1], q0.im);
+        acc[2] = m31.addVec4(acc[2], q1.re);
+        acc[3] = m31.addVec4(acc[3], q1.im);
+    }
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        m31.storeVec4(out_columns[coordinate][output_position..].ptr, acc[coordinate]);
+    }
+}
+
 fn executeMaterializedScalar(item: *const MaterializedWork) !void {
     const workspace = item.workspace;
     const batch_count = workspace.sample_point_components.len;
@@ -294,7 +361,39 @@ fn executeMaterializedScalar(item: *const MaterializedWork) !void {
             chunk.denominators[0 .. row_count * batch_count],
             chunk.inverses[0 .. row_count * batch_count],
         );
-        for (0..row_count) |row| {
+        var row: usize = 0;
+        while (row + m31.VEC_WIDTH <= row_count) : (row += m31.VEC_WIDTH) {
+            var staged_num: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]QM31 = undefined;
+            var staged_inv: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]CM31 = undefined;
+            var ys: [m31.VEC_WIDTH]M31 = undefined;
+            inline for (0..m31.VEC_WIDTH) |lane| {
+                const r = row + lane;
+                ys[lane] = chunk.points[r].y;
+                workspace.resetNumerators();
+                for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
+                    const base_value = lifted_column[position + r];
+                    for (item.contributions[contribution_range.start..][0..contribution_range.len]) |contribution| {
+                        workspace.batch_numerators[contribution.batch_index] =
+                            workspace.batch_numerators[contribution.batch_index].add(
+                                contribution.value_coeff.mulM31(base_value),
+                            );
+                    }
+                }
+                for (0..batch_count) |batch| {
+                    staged_num[batch][lane] = workspace.batch_numerators[batch];
+                    staged_inv[batch][lane] = chunk.inverses[r * batch_count + batch];
+                }
+            }
+            finalizeQuadVec4(
+                item.out_columns,
+                position + row,
+                item.quotient_constants,
+                m31.loadVec4(&ys),
+                staged_num[0..batch_count],
+                staged_inv[0..batch_count],
+            );
+        }
+        while (row < row_count) : (row += 1) {
             const domain_point = chunk.points[row];
             workspace.resetNumerators();
             for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
@@ -450,7 +549,31 @@ fn executeStreamingScalar(item: *StreamingWork) !void {
                 chunk.denominators[0 .. row_count * batch_count],
                 chunk.inverses[0 .. row_count * batch_count],
             );
-            for (0..row_count) |row| {
+            var row: usize = 0;
+            while (row + m31.VEC_WIDTH <= row_count) : (row += m31.VEC_WIDTH) {
+                var staged_num: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]QM31 = undefined;
+                var staged_inv: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]CM31 = undefined;
+                var ys: [m31.VEC_WIDTH]M31 = undefined;
+                inline for (0..m31.VEC_WIDTH) |lane| {
+                    const r = row + lane;
+                    ys[lane] = chunk.points[r].y;
+                    workspace.resetNumerators();
+                    accumulateStreamingNumerators(workspace, item.combined_views, position + r);
+                    for (0..batch_count) |batch| {
+                        staged_num[batch][lane] = workspace.batch_numerators[batch];
+                        staged_inv[batch][lane] = chunk.inverses[r * batch_count + batch];
+                    }
+                }
+                finalizeQuadVec4(
+                    item.out_columns,
+                    position + row - item.output_start,
+                    item.quotient_constants,
+                    m31.loadVec4(&ys),
+                    staged_num[0..batch_count],
+                    staged_inv[0..batch_count],
+                );
+            }
+            while (row < row_count) : (row += 1) {
                 const domain_point = chunk.points[row];
                 workspace.resetNumerators();
                 accumulateStreamingNumerators(workspace, item.combined_views, position + row);
@@ -794,4 +917,80 @@ test "quotient row workers propagate denominator failures" {
     };
     streamingWorker(&streaming);
     try std.testing.expectEqual(error.DivisionByZero, streaming.failure.?);
+}
+
+test "quad finalize matches scalar finalizeRowQuotients for all batch counts" {
+    const allocator = std.testing.allocator;
+    var rng_state: u64 = 0x9e3779b97f4a7c15;
+    const nextM31 = struct {
+        fn next(state: *u64) M31 {
+            state.* ^= state.* << 13;
+            state.* ^= state.* >> 7;
+            state.* ^= state.* << 17;
+            return M31.fromCanonical(@intCast(state.* % 2147483647));
+        }
+    }.next;
+
+    for ([_]usize{ 1, 2, 3 }) |batch_count| {
+        const line_coeffs = try allocator.alloc([]constraints.LineCoeffs, batch_count);
+        defer allocator.free(line_coeffs);
+        for (line_coeffs) |*lc| lc.* = &[_]constraints.LineCoeffs{};
+        var constants: quotients.QuotientConstants = undefined;
+        constants.line_coeffs = line_coeffs;
+        constants.batch_linear_terms = try allocator.alloc(
+            std.meta.Child(@TypeOf(constants.batch_linear_terms)),
+            batch_count,
+        );
+        defer allocator.free(constants.batch_linear_terms);
+        for (constants.batch_linear_terms) |*term| {
+            term.* = .{
+                .sum_a = QM31.fromM31(nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state)),
+                .sum_b = QM31.fromM31(nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state)),
+            };
+        }
+
+        var out_columns: [qm31.SECURE_EXTENSION_DEGREE][m31.VEC_WIDTH]M31 = undefined;
+        var outs: [qm31.SECURE_EXTENSION_DEGREE][]M31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |c| outs[c] = out_columns[c][0..];
+        var staged_num: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]QM31 = undefined;
+        var staged_inv: [SCALAR_INVERSION_MAX_BATCHES][m31.VEC_WIDTH]CM31 = undefined;
+        var ys: [m31.VEC_WIDTH]M31 = undefined;
+        for (0..batch_count) |batch| {
+            for (0..m31.VEC_WIDTH) |lane| {
+                staged_num[batch][lane] = QM31.fromM31(nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state), nextM31(&rng_state));
+                staged_inv[batch][lane] = CM31.fromM31(nextM31(&rng_state), nextM31(&rng_state));
+            }
+        }
+        for (0..m31.VEC_WIDTH) |lane| ys[lane] = nextM31(&rng_state);
+
+        finalizeQuadVec4(
+            outs,
+            0,
+            &constants,
+            m31.loadVec4(&ys),
+            staged_num[0..batch_count],
+            staged_inv[0..batch_count],
+        );
+        for (0..m31.VEC_WIDTH) |lane| {
+            var numerators: [3]QM31 = undefined;
+            var inverses: [3]CM31 = undefined;
+            for (0..batch_count) |batch| {
+                numerators[batch] = staged_num[batch][lane];
+                inverses[batch] = staged_inv[batch][lane];
+            }
+            const scalar_q = try quotients.finalizeRowQuotients(
+                &constants,
+                ys[lane],
+                numerators[0..batch_count],
+                inverses[0..batch_count],
+            );
+            const scalar_coords = scalar_q.toM31Array();
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                try std.testing.expectEqual(
+                    scalar_coords[coordinate].v,
+                    out_columns[coordinate][lane].v,
+                );
+            }
+        }
+    }
 }
