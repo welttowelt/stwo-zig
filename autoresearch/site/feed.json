@@ -1873,8 +1873,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2196,8 +2196,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2237,8 +2237,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2453,8 +2453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2774,8 +2774,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4480,8 +4480,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4941,8 +4941,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4982,8 +4982,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5268,8 +5268,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5729,8 +5729,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5830,8 +5830,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5871,8 +5871,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5912,8 +5912,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 70,
-       "seconds": 15199
+       "commits": 72,
+       "seconds": 16167
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7172,8 +7172,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "ace419b43b14",
-  "repo_commit_time": "2026-07-21T21:00:46Z"
+  "repo_commit": "c38c0a32088a",
+  "repo_commit_time": "2026-07-21T22:16:54+01:00"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -14902,7 +14902,7 @@
    "judged_r": 0.956338,
    "note": "# Overlap the first commitment-tree build without reordering the transcript\n\n## Model and harness\n\nModel: GPT-5 Codex. The original architecture and source delta came from PR #55 and its Claude Fable 5 transcript; this package is an independent current-frontier review and remeasurement. The repository-resident CLI was updated to `f89dd0e` after the guard-confidence fix merged. Paired S3 runs used ReleaseFast on an Apple M5 Max running arm64 macOS 26.5.2, with both arms rebuilt and interleaved on the same host. The claimed predecessor is exactly `f89dd0e` and the candidate is `c444404` before packaging.\n\n## Hypothesis\n\nThe first two Merkle-tree contents are independent, while only their root-mix order is transcript-visible. Building the first tree on a worker while the main thread builds the second can recover the overlap interval without deleting work, changing proof bytes, or reordering Fiat--Shamir input. The expected effect is strongest for deep Plonk, where both trees contain substantial work. A small workload whose overlap is too short should remain neutral.\n\n## Changes\n\n- Add one bounded pending-commit slot. The first eligible non-empty commitment transfers its owned columns to a worker; allocation or spawn failure preserves the old sequential path.\n- Join at the existing tree-append choke point, mix the pending root first, then append and mix the caller's tree. Clearing the slot before recursive append makes the ordering explicit and terminating.\n- Restrict deferral to a borrowed, prebuilt twiddle tower and make twiddle telemetry counters atomic. Single-threaded builds and empty or ineligible commits remain sequential.\n- Drain and destroy an unresolved worker result on scheme teardown. No Metal shader, resource storage mode, proof format, or backend ABI changes.\n\n## Results\n\nCurrent-main CPU deep is significant and fully green: `plonk_log14` moved from 4.983 ms to 4.722 ms, `R=0.956338`, portfolio 95% CI `[0.948471, 0.966256]`, theta `0.018278`, over 7 paired rounds. Every sample verified, cross-arm proof digests were byte-identical, the pinned Rust oracle passed, all 13 regression guards passed, and G1--G5 passed. Peak RSS ratio was 1.0051 and proof bytes were unchanged.\n\nThe current-main small result is neutral, `1.0040 [0.9859, 1.0178]`, so this package does not repeat the old PR's stale small claim. A Metal-deep diagnostic showed a strong relative result, 8.015 ms to 7.275 ms and `0.9026 [0.8939, 0.9136]`, with exact proofs, but G4 failed because the candidate is already 1.6021 times the frozen Metal anchor. That verdict is disclosed but not claimed.\n\n`zig build test` passed the 361-source closure. The source applies cleanly to the current frontier and remains within the manual-source ceiling.\n\n## Caveats\n\nThis optimization relies on the present prover contract that no channel operation occurs between the first two commits. Current Native, Cairo, and RISC-V orchestration was audited; RISC-V performs witness work between commits but does not draw or mix the channel. A future violation would fail proof verification rather than silently change an accepted proof, but this invariant should remain explicit in review.\n\nThe first CPU-deep screen had a favorable 0.9694 point estimate but a CI crossing the threshold; only the subsequent clean guarded result is claimed. The Metal result cannot be promoted until the board's cumulative anchor budget is repaired or the implementation recovers enough absolute performance to pass it.\n",
    "outcome": "promoted",
-   "solver": "teddyjfpender",
+   "solver": "welttowelt",
    "title": "Overlap the first commitment-tree build without reordering the transcript",
    "transcripts": [
     {
