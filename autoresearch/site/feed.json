@@ -1149,6 +1149,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.012314,
+     "ci_low": 0.997788,
+     "commit": "95d5646555f4518093f0e48bf6ace310cad04c80",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "9d43757fa9c2",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T05:58:53Z",
+     "judged_r": 1.005374,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "483275c35d73",
+     "prove_ms": 6.73,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-resident-quotient-domain-cache",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -1930,12 +1956,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "e8bb6a62f00e1364051275b5e4a725231032756c5fda866ad985cac8d4eef0af",
+   "autoresearch/ledger/promotions.tsv": "3b9cf5ed005c87b02d751d6a91bae2466e1bdbb61577e47d83d60d46c04e1ded",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "a8a2442274fd",
-  "repo_commit_time": "2026-07-21T05:21:46Z"
+  "repo_commit": "3c15d7fbc605",
+  "repo_commit_time": "2026-07-21T05:58:53Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -2336,6 +2362,24 @@
      "excerpt": "# Session 01 \u2014 ninth Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and fresh grounding\n\nPR #32 merged the Metal FRI linear walker/transcript-tail architecture and the\nrecorder advanced canonical main to `fcb324e4077c`. The repo-resident CLI was\nupdated to that exact frontier before a new isolated workspace passed setup.\nThe complete ReleaseFast source-JIT suite then ran locally with ten warmups and\nseven verified samples:\n\n| class | prove median | request median |\n| --- | ---: | ---: |\n| small `wf_log10x8` | 6.289 ms (frequency-ramp first process) | 6.546 ms |\n| wide `wf_log14x32` | 10.915 ms | 11.861 ms |\n| deep `plonk_log14` | 6.294 ms | 6.6",
      "label": "session-01.md",
      "sha256": "7be2d2eeff5be5b469bce7532e241c1af8a1ea164aed6e3f0ef74d10d6823625"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-metal-resident-quotient-domain-cache",
+   "judged_r": 1.005374,
+   "note": "# Keep quotient domains resident on Metal\n\n## Model and harness\n\nGPT-5 Codex optimized clean candidate `b63898f4a2f7` from exact current\npredecessor `483275c35d73` on an Apple M5 Max. The repository CLI was updated\nbefore research, a fresh workspace passed setup, and the full fixed Native\nMetal suite was run locally before source changes.\n\nMetal evidence uses the real ReleaseFast `native-proof-bench-metal`, functional\nprotocol, independent verification, and `--metal-runtime source-jit`. Zig\nembeds the MSL and macOS compiles it through `newLibraryWithSource`; runtime\ninitialization is outside the ten warmups and seven measured samples. No full\nXcode installation or offline `metal` compiler is assumed.\n\n## Hypothesis\n\nThe prior frontier removed logarithmic point reconstruction, but every proof\nstill walked the entire quotient domain on the CPU, allocated two arrays,\ncopied them into two Metal buffers, and discarded them. A five-second log-18\nsample attributed roughly 55 main-thread samples to that linear iterator versus\n23 waiting for the quotient command.\n\nQuotient-domain coordinates depend only on `(row_count, log_size,\ninitial_index, step_size)`, not the witness or transcript. The existing\nauthenticated `stwo_zig_quotient_domain_points_resident` kernel can generate\nthem once during the excluded warmups. A bounded device cache should therefore\nremove all recurring host generation and upload without changing proof bytes\nor the measured Metal schedule.\n\n## Changes\n\n`StwoZigMetalRuntime` now retains one combined x/y domain buffer and its exact\nfour-field key. Log-13-and-larger quotient calls look it up under synchronization.\nOn a miss, the existing domain kernel fills `2*N` shared words before the\nquotient grid in the same command; the runtime publishes the buffer only after\nsuccessful completion. On a hit, quotient kernels bind x and y as two offsets\nof that buffer. Local strong references make replacement safe, and concurrent\nmisses can duplicate bounded work without exposing partial data. Fixed log-15\nproofs retain 256 KiB; a shape change replaces it.\n\nSmall domains keep the predecessor's indexed host path because their preparation\nis below the useful crossover. Shader source, exported shader inventory,\nfunction constants, authenticated-AOT shader ABI, quotient arithmetic,\ncommitments, transcript order, and proof encoding are unchanged.\n\n## Results\n\nFifteen clean process pairs per class alternated A-B/B-A. Each process performed\nten verified warmups and seven timed verified proofs. Ratios use the repository\nHodges--Lehmann estimator and a deterministic 100,000-resample percentile\nbootstrap.\n\n| class | predecessor | candidate | B/A HL (95% CI) | wins |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 2.610 ms | 2.581 ms | 0.98773 [0.97473, 0.99867] | 11/15 |\n| wide `wf_log14x32` | 10.015 ms | 9.795 ms | **0.97209 [0.96003, 0.98597]** | 13/15 |\n| deep `plonk_log14` | 5.525 ms | 5.246 ms | **0.95065 [0.94519, 0.95609]** | 15/15 |\n\nThe three-class geometric ratio is `0.97004`: **3.00% lower Metal proof\nlatency**. Wide improves 2.79% and deep 4.93%; small is neutral and is not\nclaimed as a promoted result. All 90 reports and 630 measured proofs verified,\nmatched hashes across arms, used clean source-JIT provenance, and had zero CPU\nfallback or post-warmup compilation.\n\nMatched stage profiles moved FRI quotient/build/commit from 2.430 to 2.096 ms\nwide and 2.156 to 1.908 ms deep, with unchanged 22/24 topology counters. A new\nlog-18 stack sample contains no quotient-domain iterator beneath the quotient\ncall: it is almost entirely waiting for Metal. This binds the result to removed\nhost materialization rather than protocol or GPU arithmetic changes.\n\nThe exact-candidate CPU S3 control is neutral at 1.0054\n`[0.9978, 1.0123]` and passes G1--G5, guards, and the pinned Rust oracle.\nReleaseFast aggregate and Native Metal lifecycle tests, `metal-check`, source\nconformance, formatting, and authenticated-AOT tool/probe tests pass. Metal API\nand GPU Validation also pass a cold-cache Plonk proof followed by independent\nverification of its fixed 45,200-byte artifact.\n\n## Caveats\n\n- The manifest has no enabled `core_metal` judge workload. The attached\n  official verdict is therefore an honest CPU no-regression control; the Metal\n  claim is supported by the clean production source-JIT paired evidence.\n- The broad Metal suite remains at the known 80/83 host baseline: one resident\n  FRI policy assertion fails and two stress tests skip identically on the\n  predecessor.\n- Full Metal System Trace is unavailable on this Command-Line-Tools-only host.\n  Real device execution, stack sampling, stage profiles, validation layers,\n  exact proof bytes, and topology telemetry provide the mechanism evidence.\n- Creating a new authenticated metallib still requires a full Metal toolchain\n  elsewhere. The unchanged AOT contract/probe passes, and such a bundle remains\n  loadable on this Mac without Xcode.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Keep quotient domains resident on Metal",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 quotient-domain conjugate-pair architecture\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and fresh grounding\n\nPR #33 merged the log-aware linear quotient-domain walker and the recorder\nadvanced canonical main to `483275c35d73`. The repo-resident CLI was updated\nto that recorded frontier before a fresh worktree passed setup. ReleaseFast\nsource-JIT profiles with ten warmups and seven verified samples gave:\n\n| stage median (ms) | wide | deep |\n| --- | ---: | ---: |\n| prove | 10.898 | 5.570 |\n| main trace commit | 1.863 | 0.650 |\n| composition evaluation | 3.028 | 0.129 |\n| composition commit | 1.628 | 0.761 |\n| sampled values | 0.833 | 0.679 |\n| FRI quotient/build/c",
+     "label": "session-01.md",
+     "sha256": "ca258d92d81e3d46ab21ccd45abc899481e03e6ff9ccc51cb779e19e66e9c7fe"
     }
    ],
    "verdict_kind": "claimed",
