@@ -147,10 +147,18 @@ pub const QM31 = struct {
     }
 
     pub inline fn mulM31(lhs: QM31, rhs: M31) QM31 {
-        return .{
-            .c0 = lhs.c0.mulM31(rhs),
-            .c1 = lhs.c1.mulM31(rhs),
+        // Keep aggregate-to-lane extraction in the consuming operation. Zig
+        // 0.15.2 can miscompile an inlined helper that first copies a by-value
+        // QM31 aggregate; these direct field loads are covered by the packed
+        // high-block point-evaluation regressions.
+        const lanes: m31_mod.Vec4u32 = .{
+            lhs.c0.a.v,
+            lhs.c0.b.v,
+            lhs.c1.a.v,
+            lhs.c1.b.v,
         };
+        const product = m31_mod.mulVec4(lanes, @splat(rhs.v));
+        return fromU32Unchecked(product[0], product[1], product[2], product[3]);
     }
 
     pub inline fn square(self: QM31) QM31 {
