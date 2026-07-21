@@ -92,6 +92,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> fixedTableLookup;
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> parentTailSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> parentTailTranscriptSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> felt252Oracle;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpWitness;
 @property(nonatomic, strong) id<MTLComputePipelineState> ecOpLookup;
@@ -581,6 +582,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.relationScanFinalize = make_pipeline(device, library, @"stwo_zig_relation_scan_finalize", error_message, error_message_len);
         runtime.parentsSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_sparse", error_message, error_message_len);
         runtime.parentTailSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parent_tail_sparse", error_message, error_message_len);
+        runtime.parentTailTranscriptSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parent_tail_transcript_sparse", error_message, error_message_len);
         runtime.compactGather = make_pipeline(device, library, @"stwo_zig_compact_gather", error_message, error_message_len);
         runtime.compactRadixHistogram = make_pipeline(device, library, @"stwo_zig_compact_radix_histogram", error_message, error_message_len);
         runtime.compactRadixPrefix = make_pipeline(device, library, @"stwo_zig_compact_radix_prefix", error_message, error_message_len);
@@ -625,7 +627,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
             runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil ||
-            runtime.parentsSparse == nil || runtime.parentTailSparse == nil ||
+            runtime.parentsSparse == nil || runtime.parentTailSparse == nil || runtime.parentTailTranscriptSparse == nil ||
             runtime.compactGather == nil || runtime.compactRadixHistogram == nil || runtime.compactRadixPrefix == nil ||
             runtime.compactRadixScatter == nil || runtime.compactHeads == nil || runtime.compactScanLocal == nil ||
             runtime.compactScanBlocks == nil || runtime.compactScanAdd == nil || runtime.compactClearOutputs == nil ||

@@ -451,6 +451,9 @@ bool stwo_zig_metal_fri_line_cascade(
                 first_parent_level = bottom_levels + 1u;
             }
 
+            uint32_t root_base = transcript_root_base + stage * 8u;
+            uint32_t alpha_base = transcript_alpha_base + stage * 4u;
+            bool fused_transcript = false;
             uint32_t tail_level = tree_log_size + 1u;
             for (uint32_t level = first_parent_level; level < tree_log_size; ++level) {
                 if (parent_counts[level - 1u] <= tail_capacity) {
@@ -479,7 +482,16 @@ bool stwo_zig_metal_fri_line_cascade(
                 uint32_t tail_index = tail_level - 1u;
                 uint32_t tail_levels = tree_log_size - tail_index;
                 uint32_t tail_width = parent_counts[tail_index];
-                [encoder setComputePipelineState:runtime.parentTailSparse];
+                NSUInteger fused_static_bytes = runtime.parentTailTranscriptSparse.staticThreadgroupMemoryLength;
+                NSUInteger fused_available_bytes = runtime.device.maxThreadgroupMemoryLength > fused_static_bytes
+                    ? runtime.device.maxThreadgroupMemoryLength - fused_static_bytes : 0u;
+                uint32_t last_tail_index = tail_index + tail_levels - 1u;
+                fused_transcript = parent_counts[last_tail_index] == 1u &&
+                    destination_offsets[last_tail_index] == root_base &&
+                    tail_width <= runtime.parentTailTranscriptSparse.maxTotalThreadsPerThreadgroup &&
+                    (NSUInteger)tail_width * 8u * sizeof(uint32_t) <= fused_available_bytes;
+                [encoder setComputePipelineState:fused_transcript
+                    ? runtime.parentTailTranscriptSparse : runtime.parentTailSparse];
                 [encoder setBuffer:transcript_arena offset:0u atIndex:0];
                 [encoder setBytes:child_offsets + tail_index
                     length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:1];
@@ -490,6 +502,10 @@ bool stwo_zig_metal_fri_line_cascade(
                 [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
                 [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
+                if (fused_transcript) {
+                    [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:7];
+                    [encoder setBytes:&alpha_base length:sizeof(alpha_base) atIndex:8];
+                }
                 [encoder setThreadgroupMemoryLength:(NSUInteger)tail_width * 8u * sizeof(uint32_t)
                     atIndex:0];
                 [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
@@ -498,29 +514,29 @@ bool stwo_zig_metal_fri_line_cascade(
                 dispatches += 1u;
             }
 
-            uint32_t root_base = transcript_root_base + stage * 8u;
-            uint32_t source_words = 8u;
-            [encoder setComputePipelineState:runtime.transcriptMixResident];
-            [encoder setBuffer:transcript_arena offset:0u atIndex:0];
-            [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:1];
-            [encoder setBytes:&root_base length:sizeof(root_base) atIndex:2];
-            [encoder setBytes:&source_words length:sizeof(source_words) atIndex:3];
-            [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
-                 threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
-            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-            dispatches += 1u;
+            if (!fused_transcript) {
+                uint32_t source_words = 8u;
+                [encoder setComputePipelineState:runtime.transcriptMixResident];
+                [encoder setBuffer:transcript_arena offset:0u atIndex:0];
+                [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:1];
+                [encoder setBytes:&root_base length:sizeof(root_base) atIndex:2];
+                [encoder setBytes:&source_words length:sizeof(source_words) atIndex:3];
+                [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+                     threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+                [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                dispatches += 1u;
 
-            uint32_t alpha_base = transcript_alpha_base + stage * 4u;
-            uint32_t felt_count = 1u;
-            [encoder setComputePipelineState:runtime.transcriptDrawSecureResident];
-            [encoder setBuffer:transcript_arena offset:0u atIndex:0];
-            [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:1];
-            [encoder setBytes:&alpha_base length:sizeof(alpha_base) atIndex:2];
-            [encoder setBytes:&felt_count length:sizeof(felt_count) atIndex:3];
-            [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
-                 threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
-            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-            dispatches += 1u;
+                uint32_t felt_count = 1u;
+                [encoder setComputePipelineState:runtime.transcriptDrawSecureResident];
+                [encoder setBuffer:transcript_arena offset:0u atIndex:0];
+                [encoder setBytes:&transcript_state_base length:sizeof(transcript_state_base) atIndex:1];
+                [encoder setBytes:&alpha_base length:sizeof(alpha_base) atIndex:2];
+                [encoder setBytes:&felt_count length:sizeof(felt_count) atIndex:3];
+                [encoder dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+                     threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+                [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                dispatches += 1u;
+            }
 
             uint32_t destination_count = count >> 1u;
             id<MTLBuffer> destination = destinations[stage];

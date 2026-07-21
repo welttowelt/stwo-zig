@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 3;
+pub const core_shader_abi: u32 = 4;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
@@ -53,6 +53,7 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_blake2s_parents", .owner = .commitments },
     .{ .name = "stwo_zig_blake2s_parents_sparse", .owner = .commitments },
     .{ .name = "stwo_zig_blake2s_parent_tail_sparse", .owner = .commitments },
+    .{ .name = "stwo_zig_blake2s_parent_tail_transcript_sparse", .owner = .fri },
     .{ .name = "stwo_zig_blake2s_parents_plain_sparse", .owner = .commitments },
     .{ .name = "stwo_zig_witness_input_gather_resident", .owner = .cairo_trace },
     .{ .name = "stwo_zig_execution_table_split_resident", .owner = .cairo_trace },
@@ -361,7 +362,7 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
 }
 
 test "Native core source exactly covers its non-Cairo export ABI" {
-    try std.testing.expectEqual(@as(usize, 78), native_exports.len);
+    try std.testing.expectEqual(@as(usize, 79), native_exports.len);
     try std.testing.expectEqual(native_exports.len, std.mem.count(u8, native_amalgamated_source, "kernel void "));
     try std.testing.expect(std.mem.indexOf(u8, native_amalgamated_source, "shaders/cairo/") == null);
     for (native_support_headers) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
@@ -384,7 +385,7 @@ fn expectIsolated(source: []const u8, names: []const []const u8) !void {
 
 test "metal shader manifest exactly covers source and runtime exports" {
     const runtime_source = @embedFile("../runtime.m");
-    try std.testing.expectEqual(@as(usize, 90), exports.len);
+    try std.testing.expectEqual(@as(usize, 91), exports.len);
 
     var declaration_count: usize = 0;
     var remaining: []const u8 = amalgamated_source[0 .. amalgamated_source.len - 1];
@@ -411,13 +412,14 @@ test "metal shader manifest exactly covers source and runtime exports" {
     }
 }
 
-test "commitment shader bindings match core ABI version 3" {
-    try std.testing.expectEqual(@as(u32, 3), core_shader_abi);
+test "commitment shader bindings match core ABI version 4" {
+    try std.testing.expectEqual(@as(u32, 4), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
         .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents_sparse", .argument = "prefix_bytes [[buffer(5)]]" },
         .{ .kernel = "stwo_zig_blake2s_parent_tail_sparse", .argument = "prefix_bytes [[buffer(6)]]" },
+        .{ .kernel = "stwo_zig_blake2s_parent_tail_transcript_sparse", .argument = "alpha_base [[buffer(8)]]" },
         .{ .kernel = "stwo_zig_fri_packed_leaves_resident", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_qm31_to_coordinates", .argument = "prefix_bytes [[buffer(5)]]" },
         .{ .kernel = "stwo_zig_fri_fold_line", .argument = "prefix_bytes [[buffer(8)]]" },
