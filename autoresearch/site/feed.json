@@ -1838,8 +1838,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1949,8 +1949,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1990,8 +1990,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2101,8 +2101,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2212,8 +2212,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3910,8 +3910,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4021,8 +4021,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4062,8 +4062,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4173,8 +4173,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4284,8 +4284,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4377,8 +4377,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4418,8 +4418,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4459,8 +4459,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 48,
-       "seconds": 10075
+       "commits": 50,
+       "seconds": 10433
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5711,8 +5711,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "53812b9dd5e2",
-  "repo_commit_time": "2026-07-21T20:35:22+01:00"
+  "repo_commit": "15b110d8cca2",
+  "repo_commit_time": "2026-07-21T20:41:20+01:00"
  },
  "references": {
   "peer_relative_series": {
