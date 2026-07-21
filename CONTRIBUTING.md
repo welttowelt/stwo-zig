@@ -1268,6 +1268,16 @@ references over large frameworks.
 
 ## Change workflow
 
+Configure an attributable Git author before committing. The repository does not
+rewrite existing history, but PR validation rejects new commits authored with
+the fixture identity `Test <test@example.*>`. A GitHub noreply address keeps a
+personal email private while preserving attribution:
+
+```sh
+git config --local user.name "Your Name"
+git config --local user.email "<id>+<login>@users.noreply.github.com"
+```
+
 Use the repository entrypoints rather than reconstructing CI commands locally:
 
 ```sh

@@ -15,6 +15,7 @@ from scripts.autoresearch_workflow_policy import (
     finalize_verdict,
     inspect_candidate,
 )
+from autoresearch.bots.validate_action import author_identity_findings
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -209,6 +210,19 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertEqual(receipt["candidate_commit"], self.candidate)
         self.assertEqual(receipt["submission_id"], "20260721-test")
         self.assertRegex(receipt["receipt_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_new_placeholder_author_identity_fails_closed(self) -> None:
+        findings = author_identity_findings(self.base, self.repo)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("Test <test@example.com>", findings[0])
+
+        git(self.repo, "config", "user.name", "Alice Example")
+        git(
+            self.repo, "config", "user.email",
+            "101+alice@users.noreply.github.com",
+        )
+        git(self.repo, "commit", "--allow-empty", "-qm", "attributable")
+        self.assertEqual(author_identity_findings(self.candidate, self.repo), [])
 
     def test_locked_candidate_change_is_rejected(self) -> None:
         workflow = self.repo / ".github/workflows"

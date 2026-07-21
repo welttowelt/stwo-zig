@@ -33,11 +33,33 @@ def _show(ref: str, path: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+def author_identity_findings(base: str, repo: Path | None = None) -> list[str]:
+    """Reject the known fixture identity only in commits introduced by this PR."""
+    process = subprocess.run(
+        ["git", "log", "--format=%H%x09%an%x09%ae", f"{base}..HEAD"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if process.returncode != 0:
+        raise SystemExit(f"git log failed: {process.stderr.strip()}")
+    records = process.stdout
+    findings = []
+    for line in records.splitlines():
+        commit, name, email = line.split("\t", 2)
+        placeholder_email = email.casefold().startswith("test@example.")
+        if name.strip().casefold() == "test" and placeholder_email:
+            findings.append(
+                f"commit {commit[:12]} uses placeholder author identity "
+                f"{name} <{email}>; configure an attributable Git author"
+            )
+    return findings
+
+
 def main() -> int:
     base_ref = os.environ.get("BASE_REF", "origin/main")
     base = _git("merge-base", base_ref, "HEAD").strip()
     changed = [p for p in _git("diff", "--name-only", base, "HEAD").splitlines() if p]
     findings: list[str] = []
+    findings.extend(author_identity_findings(base))
 
     m = manifest_mod.load(Path.cwd())
     is_promotion = os.environ.get("PROMOTION_BOT") == "1"
