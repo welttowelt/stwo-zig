@@ -6,11 +6,11 @@ on:
     paths:
       - "autoresearch/submissions/**"
 
+permissions: {}
+
 concurrency:
   group: autoresearch-promote-${{ github.repository }}
   cancel-in-progress: false
-
-permissions: {}
 
 jobs:
   promote:
