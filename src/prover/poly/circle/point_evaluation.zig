@@ -49,6 +49,18 @@ const PackedQM31 = struct {
     c1: PackedCM31,
 };
 
+const PreparedPackedCM31 = struct {
+    a: PackedM31,
+    b: PackedM31,
+    a_plus_b: PackedM31,
+};
+
+const PreparedPackedQM31 = struct {
+    c0: PreparedPackedCM31,
+    c1: PreparedPackedCM31,
+    c0_plus_c1: PreparedPackedCM31,
+};
+
 inline fn addPackedCM31(lhs: PackedCM31, rhs: PackedCM31) PackedCM31 {
     return .{
         .a = m31.addPacked(lhs.a, rhs.a),
@@ -73,6 +85,48 @@ inline fn mulPackedCM31(lhs: PackedCM31, rhs: PackedCM31) PackedCM31 {
     return .{
         .a = m31.subPacked(ac, bd),
         .b = m31.subPacked(m31.subPacked(cross, ac), bd),
+    };
+}
+
+inline fn preparePackedCM31(value: PackedCM31) PreparedPackedCM31 {
+    return .{
+        .a = value.a,
+        .b = value.b,
+        .a_plus_b = m31.addPacked(value.a, value.b),
+    };
+}
+
+inline fn preparePackedQM31(value: PackedQM31) PreparedPackedQM31 {
+    return .{
+        .c0 = preparePackedCM31(value.c0),
+        .c1 = preparePackedCM31(value.c1),
+        .c0_plus_c1 = preparePackedCM31(addPackedCM31(value.c0, value.c1)),
+    };
+}
+
+inline fn mulPreparedPackedCM31(
+    lhs: PreparedPackedCM31,
+    rhs: PreparedPackedCM31,
+) PackedCM31 {
+    const ac = m31.mulPacked(lhs.a, rhs.a);
+    const bd = m31.mulPacked(lhs.b, rhs.b);
+    const cross = m31.mulPacked(lhs.a_plus_b, rhs.a_plus_b);
+    return .{
+        .a = m31.subPacked(ac, bd),
+        .b = m31.subPacked(m31.subPacked(cross, ac), bd),
+    };
+}
+
+inline fn mulPreparedPackedQM31(
+    lhs: PreparedPackedQM31,
+    rhs: PreparedPackedQM31,
+) PackedQM31 {
+    const ac = mulPreparedPackedCM31(lhs.c0, rhs.c0);
+    const bd = mulPreparedPackedCM31(lhs.c1, rhs.c1);
+    const cross_product = mulPreparedPackedCM31(lhs.c0_plus_c1, rhs.c0_plus_c1);
+    return .{
+        .c0 = addPackedCM31(ac, mulPackedCM31ByR(bd)),
+        .c1 = subPackedCM31(subPackedCM31(cross_product, ac), bd),
     };
 }
 
@@ -130,6 +184,131 @@ inline fn splatQM31(value: QM31) PackedQM31 {
             .b = m31.splatPacked(limbs[3]),
         },
     };
+}
+
+inline fn packQM31(values: [m31.PACK_WIDTH]QM31) PackedQM31 {
+    var packed_value: PackedQM31 = undefined;
+    for (values, 0..) |value, lane| {
+        const limbs = value.toM31Array();
+        packed_value.c0.a[lane] = limbs[0].v;
+        packed_value.c0.b[lane] = limbs[1].v;
+        packed_value.c1.a[lane] = limbs[2].v;
+        packed_value.c1.b[lane] = limbs[3].v;
+    }
+    return packed_value;
+}
+
+inline fn unpackQM31(value: PackedQM31) [m31.PACK_WIDTH]QM31 {
+    var values: [m31.PACK_WIDTH]QM31 = undefined;
+    for (0..m31.PACK_WIDTH) |lane| {
+        values[lane] = QM31.fromU32Unchecked(
+            value.c0.a[lane],
+            value.c0.b[lane],
+            value.c1.a[lane],
+            value.c1.b[lane],
+        );
+    }
+    return values;
+}
+
+inline fn mulPackedQM31ByPackedM31(value: PackedQM31, scalar: PackedM31) PackedQM31 {
+    return .{
+        .c0 = .{
+            .a = m31.mulPacked(value.c0.a, scalar),
+            .b = m31.mulPacked(value.c0.b, scalar),
+        },
+        .c1 = .{
+            .a = m31.mulPacked(value.c1.a, scalar),
+            .b = m31.mulPacked(value.c1.b, scalar),
+        },
+    };
+}
+
+/// Materializes the multilinear subset-product basis induced by `factors`.
+/// Each entry reuses the basis value obtained by clearing its least-significant
+/// set bit, so the complete basis needs exactly one QM31 multiplication per
+/// non-constant entry.
+pub fn fillSubsetProductBasis(factors: []const QM31, out: []QM31) void {
+    std.debug.assert(out.len == (@as(usize, 1) << @intCast(factors.len)));
+    out[0] = QM31.one();
+    const low_log = @min(factors.len, 8);
+    const low_len = @as(usize, 1) << @intCast(low_log);
+    for (out[1..low_len], 1..) |*value, index| {
+        const previous = index & (index - 1);
+        const factor_index: usize = @intCast(@ctz(index));
+        value.* = out[previous].mul(factors[factor_index]);
+    }
+    if (factors.len <= 8) return;
+
+    const block_count = out.len >> 8;
+    var packed_low_values: [256 / m31.PACK_WIDTH]PreparedPackedQM31 = undefined;
+    if (comptime m31.PACK_WIDTH > 1) {
+        for (&packed_low_values, 0..) |*packed_low, low_batch| {
+            var low_values: [m31.PACK_WIDTH]QM31 = undefined;
+            for (0..m31.PACK_WIDTH) |lane| {
+                low_values[lane] = out[low_batch * m31.PACK_WIDTH + lane];
+            }
+            packed_low.* = preparePackedQM31(packQM31(low_values));
+        }
+    }
+    for (1..block_count) |block| {
+        const previous_block = block & (block - 1);
+        const factor_index = 8 + @as(usize, @intCast(@ctz(block)));
+        const high_value = out[previous_block << 8].mul(factors[factor_index]);
+
+        if (comptime m31.PACK_WIDTH > 1) {
+            const packed_high = preparePackedQM31(splatQM31(high_value));
+            for (packed_low_values, 0..) |packed_low, low_batch| {
+                const low_index = low_batch * m31.PACK_WIDTH;
+                const products = unpackQM31(mulPreparedPackedQM31(packed_low, packed_high));
+                for (products, 0..) |product, lane| {
+                    out[(block << 8) + low_index + lane] = product;
+                }
+            }
+        } else {
+            for (0..256) |low_index| {
+                out[(block << 8) + low_index] = out[low_index].mul(high_value);
+            }
+        }
+    }
+}
+
+/// Evaluates one native-width batch against an already materialized basis.
+/// Independent columns occupy packed lanes while each basis value is multiplied
+/// only by base-field coefficients, avoiding a full extension multiplication
+/// per column and coefficient.
+pub inline fn evalBatchWithSubsetProductBasis(
+    coefficient_batches: [m31.PACK_WIDTH][]const M31,
+    basis: []const QM31,
+) [m31.PACK_WIDTH]QM31 {
+    for (coefficient_batches) |coefficients| {
+        std.debug.assert(coefficients.len == basis.len);
+    }
+
+    const zero: PackedM31 = @splat(0);
+    var accumulator = packedQM31FromBase(zero);
+    for (basis, 0..) |basis_value, coefficient_index| {
+        var packed_coefficients: PackedM31 = undefined;
+        for (0..m31.PACK_WIDTH) |lane| {
+            packed_coefficients[lane] = coefficient_batches[lane][coefficient_index].v;
+        }
+        accumulator = addPackedQM31(
+            accumulator,
+            mulPackedQM31ByPackedM31(splatQM31(basis_value), packed_coefficients),
+        );
+    }
+
+    return unpackQM31(accumulator);
+}
+
+/// Scalar tail for `evalBatchWithSubsetProductBasis`.
+pub inline fn evalWithSubsetProductBasis(coefficients: []const M31, basis: []const QM31) QM31 {
+    std.debug.assert(coefficients.len == basis.len);
+    var value = QM31.zero();
+    for (coefficients, basis) |coefficient, basis_value| {
+        value = value.add(basis_value.mulM31(coefficient));
+    }
+    return value;
 }
 
 /// Evaluates one native-width batch of independent coefficient polynomials at

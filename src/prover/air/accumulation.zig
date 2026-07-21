@@ -23,8 +23,20 @@ pub const ColumnRequest = struct {
 pub const ColumnAccumulator = struct {
     random_coeff_powers: []const QM31,
     col: *SecureColumnByCoords,
+    /// A newly allocated zero bucket can accept its first sequential pass as
+    /// direct stores. Any repeated or out-of-order index disables the fast path
+    /// and retains the general additive semantics.
+    next_fresh_index: ?usize,
 
     pub fn accumulate(self: *ColumnAccumulator, index: usize, evaluation: QM31) void {
+        if (self.next_fresh_index) |next_index| {
+            if (index == next_index) {
+                self.col.set(index, evaluation);
+                self.next_fresh_index = next_index + 1;
+                return;
+            }
+            self.next_fresh_index = null;
+        }
         self.col.set(index, self.col.at(index).add(evaluation));
     }
 };
@@ -107,7 +119,8 @@ pub const DomainEvaluationAccumulator = struct {
             if (request.log_size > self.max_log_size) return AccumulationError.InvalidLogSize;
             if (request.n_cols > self.next_power_index) return AccumulationError.NotEnoughCoefficients;
 
-            if (self.sub_accumulations[request.log_size] == null) {
+            const fresh_bucket = self.sub_accumulations[request.log_size] == null;
+            if (fresh_bucket) {
                 self.sub_accumulations[request.log_size] = try SecureColumnByCoords.zeros(
                     self.allocator,
                     try checkedPow2(request.log_size),
@@ -120,6 +133,7 @@ pub const DomainEvaluationAccumulator = struct {
             out[i] = .{
                 .random_coeff_powers = self.random_coeff_powers[start..end],
                 .col = &self.sub_accumulations[request.log_size].?,
+                .next_fresh_index = if (fresh_bucket) 0 else null,
             };
         }
         return out;
@@ -246,12 +260,28 @@ pub const DomainEvaluationAccumulator = struct {
         var constant = QM31.zero();
         for (self.constant_accumulations) |value| constant = constant.add(value);
 
-        var has_nonconstant = false;
-        for (self.sub_accumulations) |maybe_sub| {
+        var nonconstant_count: usize = 0;
+        var only_nonconstant_log_size: usize = 0;
+        for (self.sub_accumulations, 0..) |maybe_sub, log_size| {
             if (maybe_sub != null) {
-                has_nonconstant = true;
-                break;
+                nonconstant_count += 1;
+                only_nonconstant_log_size = log_size;
             }
+        }
+        const has_nonconstant = nonconstant_count != 0;
+
+        // A sole bucket already on the final domain has the exact requested
+        // representation. Transfer its ownership instead of allocating,
+        // zeroing, lifting, and adding into an identical-sized column.
+        if (nonconstant_count == 1 and only_nonconstant_log_size == self.max_log_size) {
+            var out = self.sub_accumulations[only_nonconstant_log_size].?;
+            self.sub_accumulations[only_nonconstant_log_size] = null;
+            if (!constant.eql(QM31.zero())) {
+                for (0..max_size) |position| {
+                    out.set(position, out.at(position).add(constant));
+                }
+            }
+            return out;
         }
 
         var out = if (has_nonconstant)
@@ -445,10 +475,39 @@ test "prover air accumulation: columns API assigns tail coefficient chunks" {
     var col0 = cols[0];
     var col1 = cols[1];
     col0.accumulate(0, QM31.fromU32Unchecked(7, 0, 0, 0));
+    col0.accumulate(0, QM31.fromU32Unchecked(5, 0, 0, 0));
     col1.accumulate(3, QM31.fromU32Unchecked(9, 0, 0, 0));
 
-    try std.testing.expect(col0.col.at(0).eql(QM31.fromU32Unchecked(7, 0, 0, 0)));
+    try std.testing.expect(col0.col.at(0).eql(QM31.fromU32Unchecked(12, 0, 0, 0)));
     try std.testing.expect(col1.col.at(3).eql(QM31.fromU32Unchecked(9, 0, 0, 0)));
+}
+
+test "prover air accumulation: finalize transfers sole max-domain bucket" {
+    const alloc = std.testing.allocator;
+    var acc = try DomainEvaluationAccumulator.init(
+        alloc,
+        QM31.fromU32Unchecked(3, 0, 0, 0),
+        3,
+        1,
+    );
+    defer acc.deinit();
+
+    const cols = try acc.columns(alloc, &.{.{ .log_size = 3, .n_cols = 1 }});
+    defer alloc.free(cols);
+    var column = cols[0];
+    for (0..8) |index| {
+        column.accumulate(index, QM31.fromU32Unchecked(@intCast(index + 1), 0, 0, 0));
+    }
+    const original_ptr = column.col.columns[0].ptr;
+
+    var out = try acc.finalize();
+    defer out.deinit(alloc);
+    try std.testing.expectEqual(original_ptr, out.columns[0].ptr);
+    for (0..8) |index| {
+        try std.testing.expect(out.at(index).eql(
+            QM31.fromU32Unchecked(@intCast(index + 1), 0, 0, 0),
+        ));
+    }
 }
 
 test "prover air accumulation: merge combines sub_accumulations" {
