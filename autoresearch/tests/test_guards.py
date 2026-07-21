@@ -15,7 +15,8 @@ def fake_manifest(guards: dict) -> mock.Mock:
 
 
 GROUP = WorkloadGroup(
-    group_id="native", enabled=True, disabled_reason=None, board="core_cpu",
+    group_id="native", enabled=True, promotion_eligible=True,
+    disabled_reason=None, board="core_cpu",
     build_step="zig build bench", binary="zig-out/bin/bench",
     report_schema="native_proof_v6", workloads=[],
 )
