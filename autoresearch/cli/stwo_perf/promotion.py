@@ -140,7 +140,8 @@ def landing_commit(repo: Path, submission_id: str) -> str:
 
 def claimed_verdict_files(sub_dir: Path) -> list[Path]:
     """A submission's verdicts: the primary verdict.json plus one
-    verdict-<class>.json per additional workload class the change moved."""
+    verdict-<class>.json or verdict-<board>-<class>.json per additional
+    board/class pair the change moved."""
     primary = sub_dir / "verdict.json"
     extras = sorted(sub_dir.glob("verdict-*.json"))
     return [p for p in [primary, *extras] if p.is_file()]
