@@ -334,43 +334,6 @@ fn fillBitReversedCosetCoordinate(
     }
 }
 
-/// Prepares the inverse x-coordinate vector consumed by one line-FRI fold.
-/// Keeping this beside the linear coset walker lets CPU and accelerator
-/// backends share the same O(N) domain traversal and coordinate ordering.
-pub fn prepareLineFoldInverses(
-    x_values: []M31,
-    inv_x_values: []M31,
-    domain: line.LineDomain,
-) !void {
-    if (x_values.len == 0 or
-        x_values.len != inv_x_values.len or
-        !std.math.isPowerOfTwo(x_values.len) or
-        x_values.len > domain.coset().size())
-    {
-        return error.ShapeMismatch;
-    }
-    fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
-    try fields.batchInverseInPlace(M31, x_values, inv_x_values);
-}
-
-/// Prepares the inverse y-coordinate vector consumed by the circle-to-line
-/// FRI fold using the same linear traversal as the core CPU implementation.
-pub fn prepareCircleFoldInverses(
-    py_values: []M31,
-    inv_py_values: []M31,
-    domain: circle_domain.CircleDomain,
-) !void {
-    if (py_values.len == 0 or
-        py_values.len != inv_py_values.len or
-        !std.math.isPowerOfTwo(py_values.len) or
-        py_values.len > domain.half_coset.size())
-    {
-        return error.ShapeMismatch;
-    }
-    fillBitReversedCosetCoordinate(py_values, domain.half_coset, .y);
-    try fields.batchInverseInPlace(M31, py_values, inv_py_values);
-}
-
 pub fn foldLine(
     allocator: std.mem.Allocator,
     eval: []const QM31,
@@ -400,7 +363,8 @@ pub fn foldLineSingleStep(
     const x_values = workspace.x_values[0..folded_values.len];
     const inv_x_values = workspace.inv_x_values[0..folded_values.len];
 
-    try prepareLineFoldInverses(x_values, inv_x_values, domain);
+    fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
+    try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
     var i: usize = 0;
     while (i < folded_values.len) : (i += 1) {
@@ -474,7 +438,8 @@ fn foldLineInPlaceSingleStep(
     const x_values = workspace.x_values[0..folded_len];
     const inv_x_values = workspace.inv_x_values[0..folded_len];
 
-    try prepareLineFoldInverses(x_values, inv_x_values, domain);
+    fillBitReversedCosetCoordinate(x_values, domain.coset(), .x);
+    try fields.batchInverseInPlace(M31, x_values, inv_x_values);
 
     var i: usize = 0;
     while (i < folded_len) : (i += 1) {
@@ -576,7 +541,8 @@ pub fn foldCircleIntoLineWithWorkspace(
     const py_values = workspace.py_values[0..dst.len];
     const inv_py_values = workspace.inv_py_values[0..dst.len];
 
-    try prepareCircleFoldInverses(py_values, inv_py_values, src_domain);
+    fillBitReversedCosetCoordinate(py_values, src_domain.half_coset, .y);
+    try fields.batchInverseInPlace(M31, py_values, inv_py_values);
 
     var i: usize = 0;
     while (i < dst.len) : (i += 1) {
@@ -609,7 +575,8 @@ pub fn foldCircleColumnsIntoLineWithWorkspace(
     const py_values = workspace.py_values[0..dst.len];
     const inv_py_values = workspace.inv_py_values[0..dst.len];
 
-    try prepareCircleFoldInverses(py_values, inv_py_values, src_domain);
+    fillBitReversedCosetCoordinate(py_values, src_domain.half_coset, .y);
+    try fields.batchInverseInPlace(M31, py_values, inv_py_values);
 
     var i: usize = 0;
     while (i < dst.len) : (i += 1) {
