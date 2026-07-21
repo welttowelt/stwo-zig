@@ -26,6 +26,42 @@
         "huge": null
       }
     },
+    "anchor_request_ms": {
+      "core_metal": {
+        "small": null,
+        "wide": null,
+        "deep": null,
+        "xlarge": null,
+        "huge": null
+      }
+    },
+    "anchor_resources": {
+      "core_metal": {
+        "small": null,
+        "wide": null,
+        "deep": null,
+        "xlarge": null,
+        "huge": null
+      }
+    },
+    "metal_calibration": {
+      "schema": "stwo_perf_metal_calibration_freeze_v1",
+      "status": "pending",
+      "board": "core_metal",
+      "epoch": 2,
+      "artifact": "autoresearch/reference/metal-calibration-epoch-2.json",
+      "artifact_sha256": null,
+      "measured_commit": null,
+      "policy_sha256": null,
+      "runtime_identity_sha256": null,
+      "aot_manifest_sha256": null,
+      "aot_metallib_sha256": null,
+      "runtime_mode": "source-jit",
+      "designated_host": {
+        "chip": "Apple M5 Max",
+        "logical_cpu_count": 18
+      }
+    },
     "anchor_note": "Frozen 2026-07-20 on the designated Apple M5 Max judge host (arm64 macOS, 18 CPU cores): the pre-optimization original commit, medians measured same-session by autoresearch/reference/measure_peer_rust.py (reports committed under autoresearch/reference/anchor/). Drift budgets are host-local and active; riscv anchors freeze when that board enables."
   },
   "editable_paths": [

@@ -902,6 +902,7 @@ def paired_rounds(
     proof_sizes_a: list[int] = []
     proof_sizes_b: list[int] = []
     request_ratios: list[float] = []
+    requests_b: list[float] = []
     cross_digest: str | None = None
     cross_proof_bytes: int | None = None
     mechanism_reference: dict | None = None
@@ -1007,6 +1008,7 @@ def paired_rounds(
                 resources_complete = resources_complete and bool(b.resources_complete)
         if a.request_ms and b.request_ms:
             request_ratios.append(b.request_ms / a.request_ms)
+            requests_b.append(b.request_ms)
         ratios.append(b.prove_ms / a.prove_ms)
         a_meds.append(a.prove_ms)
         b_meds.append(b.prove_ms)
@@ -1067,6 +1069,7 @@ def paired_rounds(
     rss_ratio = rss_estimate.ratio if rss_estimate is not None else None
     candidate_resources = {}
     for dimension, values in (
+        ("request_ms", requests_b),
         ("peak_rss_mib", rss_b),
         ("energy_j", energy_b),
         ("proof_bytes", proof_sizes_b),
@@ -1274,6 +1277,11 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
             "measurement_rounds": portfolio["measurement_rounds"],
         },
         "anchor_prove_ms": round(portfolio["b_median_ms_geomean"], 6),
+        "anchor_request_ms": _rounded_candidate_geomean(scores, "request_ms"),
+        "anchor_resources": {
+            name: _rounded_candidate_geomean(scores, name)
+            for name in ("peak_rss_mib", "energy_j", "proof_bytes")
+        },
         "per_workload": {
             score.workload.workload_id: {
                 "rounds": len(score.ratios),
@@ -1297,6 +1305,15 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
             }}},
         },
     }
+
+
+def _rounded_candidate_geomean(
+    scores: list[WorkloadScore], dimension: str,
+) -> float | None:
+    values = [score.candidate_resources.get(dimension) for score in scores]
+    if not values or any(value is None for value in values):
+        return None
+    return round(stats.geometric_mean([float(value) for value in values]), 6)
 
 
 RUST_ORACLE_RELPATH = "tools/stwo-interop-rs/target/release/stwo-interop-rs"
@@ -1706,6 +1723,15 @@ def evaluate(
     evaluates claimed. The judged trust boundary is the HMAC signature applied
     by the judge (signing.py), never this flag alone.
     """
+    if judged and board == "core_metal":
+        from .metal_calibration import CalibrationError, require_frozen
+
+        try:
+            require_frozen(manifest, workload_class)
+        except CalibrationError as exc:
+            raise RunError(
+                f"judged Metal measurement requires a complete calibration: {exc}"
+            ) from exc
     skipped = announce_skipped_groups(manifest)
     workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:

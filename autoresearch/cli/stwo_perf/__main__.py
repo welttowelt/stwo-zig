@@ -133,6 +133,35 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_calibrate_metal(args) -> int:
+    from . import metal_calibration, metal_calibration_runner
+
+    m = manifest_mod.load()
+    try:
+        if args.calibration_cmd == "measure":
+            path = metal_calibration_runner.measure(
+                m, Path(args.aot_bundle), Path(args.out_dir),
+            )
+            print(f"{ansi.OK} complete Metal calibration written to {path}")
+            print("  review, then freeze it with `stwo-perf calibrate-metal freeze`")
+            return 0
+        if args.calibration_cmd == "freeze":
+            path = metal_calibration.freeze(m, Path(args.report))
+            print(f"{ansi.OK} Metal calibration frozen at {path}")
+            print("  commit the artifact, MANIFEST.json, and ledger/epochs.json together")
+            return 0
+        if args.report:
+            metal_calibration.validate_document(
+                json.loads(Path(args.report).read_text(encoding="utf-8")), m,
+            )
+        if args.require_frozen or not args.report:
+            metal_calibration.require_frozen(m)
+        print(f"{ansi.OK} Metal calibration contract valid")
+        return 0
+    except metal_calibration.CalibrationError as exc:
+        return _fail(str(exc))
+
+
 def cmd_submit(args) -> int:
     from . import submitter
     _warn_harness_drift()
@@ -559,6 +588,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="A/A dispersion measurement (both arms = this tree)")
     p.add_argument("--out", help="verdict output path")
 
+    p = sub.add_parser(
+        "calibrate-metal",
+        help="measure, freeze, or validate the epoch-pinned M5 Metal calibration",
+    )
+    calibration = p.add_subparsers(dest="calibration_cmd", required=True)
+    measure = calibration.add_parser("measure", help="run every scored Metal class")
+    measure.add_argument("--aot-bundle", required=True,
+                         help="authenticated stwo-zig-metal-core-aot-v2 bundle")
+    measure.add_argument("--out-dir", required=True,
+                         help="fresh output directory (keep outside the repository)")
+    freeze = calibration.add_parser("freeze", help="install a reviewed calibration")
+    freeze.add_argument("--report", required=True)
+    validate = calibration.add_parser("validate", help="validate report/frozen state")
+    validate.add_argument("--report")
+    validate.add_argument("--require-frozen", action="store_true")
+
     p = sub.add_parser("submit", help="package a submission directory")
     p.add_argument("--slug", required=True)
     p.add_argument("--note-file", required=True)
@@ -703,6 +748,7 @@ HANDLERS = {
     "submission-withdraw": cmd_submission_withdraw, "config": cmd_config,
     "install-workflows": cmd_install_workflows, "feed": cmd_feed,
     "update": cmd_update,
+    "calibrate-metal": cmd_calibrate_metal,
 }
 
 

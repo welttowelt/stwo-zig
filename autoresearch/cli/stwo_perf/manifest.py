@@ -29,6 +29,13 @@ SEARCH_HEALTH_POLICY_KEYS = frozenset({
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
 MAX_COMMAND_TIMEOUT_SECONDS = 7200
 RESOURCE_PROFILES = frozenset(("standard", "large"))
+METAL_CALIBRATION_SCHEMA = "stwo_perf_metal_calibration_freeze_v1"
+METAL_CALIBRATION_FIELDS = frozenset({
+    "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
+    "measured_commit", "policy_sha256", "runtime_identity_sha256",
+    "aot_manifest_sha256", "aot_metallib_sha256", "runtime_mode",
+    "designated_host",
+})
 RISCV_MECHANISM_FIELDS = frozenset({
     "total_steps",
     "n_components",
@@ -371,6 +378,11 @@ def _validate(raw: dict) -> None:
             "groups in manifest_version 2 — wrap the flat triple in a group"
         )
     _validate_classes(registry.get("classes"))
+    if any(
+        isinstance(spec, dict) and spec.get("board") == "core_metal"
+        for spec in registry["groups"].values()
+    ):
+        _validate_metal_calibration(raw["harness"], registry["classes"])
     _validate_search_health_policy(raw["gates_policy"], registry["classes"])
     if not registry["groups"]:
         raise ManifestError("workload_registry.groups is empty")
@@ -594,6 +606,64 @@ def _validate_group_resource_telemetry(
             "Darwin RUSAGE_INFO_V6 lifetime counters before warmups and after "
             "verified samples"
         )
+
+
+def _validate_metal_calibration(harness: object, classes: dict) -> None:
+    if not isinstance(harness, dict):
+        raise ManifestError("harness must be an object")
+    config = harness.get("metal_calibration")
+    if not isinstance(config, dict) or set(config) != METAL_CALIBRATION_FIELDS:
+        raise ManifestError(
+            "harness.metal_calibration has the wrong freeze schema"
+        )
+    if config["schema"] != METAL_CALIBRATION_SCHEMA:
+        raise ManifestError("harness.metal_calibration.schema is unsupported")
+    if config["status"] not in {"pending", "frozen"}:
+        raise ManifestError("harness.metal_calibration.status must be pending or frozen")
+    if config["board"] != "core_metal" or config["runtime_mode"] != "source-jit":
+        raise ManifestError("Metal calibration board/runtime contract mismatch")
+    if type(config["epoch"]) is not int or config["epoch"] <= 0:
+        raise ManifestError("Metal calibration epoch must be a positive integer")
+    artifact = config["artifact"]
+    if (
+        not isinstance(artifact, str) or not artifact.startswith("autoresearch/reference/")
+        or Path(artifact).is_absolute() or ".." in Path(artifact).parts
+    ):
+        raise ManifestError("Metal calibration artifact must be a repository reference path")
+    host = config["designated_host"]
+    if (
+        not isinstance(host, dict) or set(host) != {"chip", "logical_cpu_count"}
+        or not isinstance(host["chip"], str) or not host["chip"].strip()
+        or type(host["logical_cpu_count"]) is not int
+        or host["logical_cpu_count"] <= 0
+    ):
+        raise ManifestError("Metal calibration designated_host is malformed")
+    frozen_fields = (
+        "artifact_sha256", "measured_commit", "policy_sha256",
+        "runtime_identity_sha256", "aot_manifest_sha256", "aot_metallib_sha256",
+    )
+    if config["status"] == "pending":
+        if any(config[field] is not None for field in frozen_fields):
+            raise ManifestError("pending Metal calibration contains frozen evidence")
+    else:
+        for field in frozen_fields:
+            value = config[field]
+            width = 40 if field == "measured_commit" else 64
+            if (
+                not isinstance(value, str) or len(value) != width
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                raise ManifestError(f"frozen Metal calibration has invalid {field}")
+    class_names = list(classes)
+    for field in ("anchor_prove_ms", "anchor_request_ms", "anchor_resources"):
+        anchors = harness.get(field, {}).get("core_metal")
+        if not isinstance(anchors, dict) or list(anchors) != class_names:
+            raise ManifestError(f"harness.{field}.core_metal must cover every class")
+        for name, value in anchors.items():
+            if config["status"] == "pending" and value is not None:
+                raise ManifestError(f"pending Metal calibration has non-null {field}.{name}")
+            if config["status"] == "frozen" and value is None:
+                raise ManifestError(f"frozen Metal calibration has null {field}.{name}")
 
 
 def _validate_group_gates_policy(
