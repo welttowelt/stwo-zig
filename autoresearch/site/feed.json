@@ -3514,16 +3514,88 @@
    },
    "riscv": {
     "board": "riscv",
-    "disabled_reason": "stark-v adapter pending release gate",
+    "disabled_reason": "RF-01 adapter release and BA-03 autoresearch activation pending",
     "enabled": false,
     "report_schema": "riscv_proof_v1",
     "workloads": {
-     "riscv_alu": {
+     "riscv_alu_test": {
       "class": "small",
       "native_unit": "executed instructions"
      },
-     "riscv_fib_small": {
+     "riscv_branch_fib": {
       "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_bubble_sort": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_collatz": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_declared_region": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_fib_iter": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_gcd_euclid": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_jal_jalr": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_keccak_128b": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_mem_ls": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_memcpy_loop": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_multi_shard_addi": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sha2_1024b": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sha2_128b": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sha2_2048b": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sha2_256b": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sha2_512b": {
+      "class": "deep",
+      "native_unit": "executed instructions"
+     },
+     "riscv_shift_logic": {
+      "class": "small",
+      "native_unit": "executed instructions"
+     },
+     "riscv_sieve_primes": {
+      "class": "wide",
+      "native_unit": "executed instructions"
+     },
+     "riscv_xorshift_prng": {
+      "class": "deep",
       "native_unit": "executed instructions"
      }
     }
@@ -3539,14 +3611,14 @@
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "d89f61a5c11e9a39bb44153db15765c44251f733bebf47b45c6b6363bae6e2fd",
+   "autoresearch/MANIFEST.json": "086f5d1c8265b8ef75d4a85349fef0a2c0de4c4f97e75914adf93b80c8762f62",
    "autoresearch/ledger/epochs.json": "268ac6d71b00254ebf1ffefaf2759d3fc7c41094e647ddb664f039a0a4739078",
    "autoresearch/ledger/promotions.tsv": "e62ef6a94908df5bd1ddb2cce70bf0b73980670f74407434b14d470cf61929ac",
    "vectors/reports/benchmark_history/index.json": "c3153ed5d452c67df06dbaf4a45f51f0bd7134306634dbf18480e24fe61e0a71",
    "vectors/reports/benchmark_history/runs/2026-07-21-085853-matrix-v6-6448467f/report.json": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
   },
-  "repo_commit": "975df52cb792",
-  "repo_commit_time": "2026-07-21T12:32:21Z"
+  "repo_commit": "e6a695c49788",
+  "repo_commit_time": "2026-07-21T14:25:49+01:00"
  },
  "references": {
   "peer_rust_scalar": {
