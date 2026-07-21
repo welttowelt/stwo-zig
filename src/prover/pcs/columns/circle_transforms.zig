@@ -302,9 +302,20 @@ const FftEvalWorkItem = struct {
     values: [][]M31,
     domain: prover_circle.CircleDomain,
     twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
+    /// Upper halves are unwritten and mathematically zero (2x extension);
+    /// the worker uses the degenerate-first-layer path.
+    extension: bool = false,
 };
 
 fn fftEvalWorker(item: *const FftEvalWorkItem) void {
+    if (item.extension) {
+        prover_circle.poly.evaluateExtensionBuffersWithTwiddles(
+            item.values,
+            item.domain,
+            item.twiddle_tree,
+        ) catch {};
+        return;
+    }
     prover_circle.poly.evaluateBuffersWithTwiddles(
         item.values,
         item.domain,
@@ -390,16 +401,26 @@ pub fn extendCoefficientColumnsByGroupForBackend(
             const batch_values = try allocator.alloc([]M31, chunk_len);
             errdefer allocator.free(batch_values);
 
+            var batch_extension = chunk_len > 0;
             for (group.indices.items[batch_start .. batch_start + chunk_len], 0..) |idx, bi| {
                 const values = try allocator.alloc(M31, domain_size);
                 const coeff_slice = coeffs[idx].coefficients();
                 @memcpy(values[0..coeff_slice.len], coeff_slice);
-                if (coeff_slice.len < values.len) @memset(values[coeff_slice.len..], M31.zero());
+                if (coeff_slice.len * 2 != values.len) {
+                    batch_extension = false;
+                    if (coeff_slice.len < values.len) @memset(values[coeff_slice.len..], M31.zero());
+                }
                 batch_values[bi] = values;
                 out[idx] = .{
                     .log_size = extended_log_size,
                     .values = values,
                 };
+            }
+            if (!batch_extension) {
+                for (batch_values, group.indices.items[batch_start .. batch_start + chunk_len]) |values, idx| {
+                    const coeff_slice = coeffs[idx].coefficients();
+                    if (coeff_slice.len * 2 == values.len) @memset(values[coeff_slice.len..], M31.zero());
+                }
             }
 
             total_columns += chunk_len;
@@ -409,6 +430,7 @@ pub fn extendCoefficientColumnsByGroupForBackend(
                 .values = batch_values,
                 .domain = domain,
                 .twiddle_tree = twiddle_tree,
+                .extension = batch_extension,
             });
         }
     }
