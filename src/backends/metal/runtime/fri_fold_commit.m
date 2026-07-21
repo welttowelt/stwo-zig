@@ -216,6 +216,7 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
 bool stwo_zig_metal_fri_line_cascade(
     void *runtime_ptr, void *source_ptr, uint32_t source_count,
     const uint32_t *inverse_x, uint32_t inverse_x_count,
+    uint32_t domain_initial_index, uint32_t domain_step_size,
     void *const *coordinate_ptrs, void *final_destination_ptr,
     uint32_t fri_layer_count,
     const uint32_t *leaf_seed, const uint32_t *node_seed,
@@ -223,7 +224,7 @@ bool stwo_zig_metal_fri_line_cascade(
     void **tree_outputs, StwoZigCommandEpochStats *stats,
     char *error_message, size_t error_message_len
 ) {
-    if (runtime_ptr == NULL || source_ptr == NULL || inverse_x == NULL ||
+    if (runtime_ptr == NULL || source_ptr == NULL ||
         coordinate_ptrs == NULL || final_destination_ptr == NULL ||
         leaf_seed == NULL || node_seed == NULL || channel_state == NULL ||
         tree_outputs == NULL || stats == NULL || source_count < 2u ||
@@ -256,9 +257,29 @@ bool stwo_zig_metal_fri_line_cascade(
             return false;
         }
 
-        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_x
-            length:(NSUInteger)inverse_x_count * sizeof(uint32_t)
-            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> inverse_buffer = nil;
+        bool build_inverse_cache = false;
+        if (inverse_x == NULL) {
+            @synchronized(runtime) {
+                if (runtime.friLineInverseCache != nil &&
+                    runtime.friLineInverseCacheSourceCount == source_count &&
+                    runtime.friLineInverseCacheLayerCount == fri_layer_count &&
+                    runtime.friLineInverseCacheInitialIndex == domain_initial_index &&
+                    runtime.friLineInverseCacheStepSize == domain_step_size) {
+                    inverse_buffer = runtime.friLineInverseCache;
+                }
+            }
+            if (inverse_buffer == nil) {
+                inverse_buffer = [runtime.device newBufferWithLength:
+                    (NSUInteger)inverse_x_count * sizeof(uint32_t)
+                    options:MTLResourceStorageModePrivate];
+                build_inverse_cache = true;
+            }
+        } else {
+            inverse_buffer = [runtime.device newBufferWithBytes:inverse_x
+                length:(NSUInteger)inverse_x_count * sizeof(uint32_t)
+                options:MTLResourceStorageModeShared];
+        }
         const uint32_t transcript_state_base = 0u;
         const uint32_t transcript_root_base = 16u;
         const uint32_t transcript_alpha_base = transcript_root_base + fri_layer_count * 8u;
@@ -371,6 +392,27 @@ bool stwo_zig_metal_fri_line_cascade(
             return false;
         }
         const uint32_t disabled_transcript_config[3] = {0u, 0u, 0u};
+        uint64_t compute_encoders = 1u, dispatches = 0u;
+
+        if (build_inverse_cache) {
+            uint32_t domain_count = source_count;
+            uint32_t current_initial = domain_initial_index;
+            uint32_t current_step = domain_step_size;
+            NSUInteger domain_offset = 0u;
+            for (uint32_t stage = 0u; stage < fri_layer_count; ++stage) {
+                uint32_t value_count = domain_count >> 1u;
+                encode_fri_inverse_domain(
+                    runtime, encoder, inverse_buffer, domain_offset, value_count,
+                    current_initial, current_step, 1u
+                );
+                dispatches += 1u;
+                domain_offset += (NSUInteger)value_count * sizeof(uint32_t);
+                domain_count = value_count;
+                current_initial = (current_initial << 1u) & 0x7fffffffu;
+                current_step = (current_step << 1u) & 0x7fffffffu;
+            }
+            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+        }
 
         id<MTLBuffer> initial_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[0];
         StwoZigMetalTree *initial_tree = trees[0];
@@ -390,11 +432,11 @@ bool stwo_zig_metal_fri_line_cascade(
         [encoder dispatchThreads:MTLSizeMake(source_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(initial_width, 1u, 1u)];
         [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+        dispatches += 1u;
 
         id<MTLBuffer> evaluation = initial_source;
         count = source_count;
         NSUInteger inverse_offset = 0u;
-        uint64_t compute_encoders = 1u, dispatches = 1u;
         NSUInteger tail_static_bytes = runtime.parentTailSparse.staticThreadgroupMemoryLength;
         NSUInteger tail_available_bytes = runtime.device.maxThreadgroupMemoryLength > tail_static_bytes
             ? runtime.device.maxThreadgroupMemoryLength - tail_static_bytes : 0u;
@@ -588,6 +630,15 @@ bool stwo_zig_metal_fri_line_cascade(
             return false;
         }
         memcpy(channel_state, completed_state, 10u * sizeof(uint32_t));
+        if (build_inverse_cache) {
+            @synchronized(runtime) {
+                runtime.friLineInverseCache = inverse_buffer;
+                runtime.friLineInverseCacheSourceCount = source_count;
+                runtime.friLineInverseCacheLayerCount = fri_layer_count;
+                runtime.friLineInverseCacheInitialIndex = domain_initial_index;
+                runtime.friLineInverseCacheStepSize = domain_step_size;
+            }
+        }
 
         double gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         *stats = (StwoZigCommandEpochStats){

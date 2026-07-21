@@ -53,19 +53,35 @@ const Tree = runtime.Tree;
 const validDomainPrefixBytes = protocol_mode.validDomainPrefixBytes;
 const resource_plans = @import("resource_plans.zig").ResourcePlans(MetalError);
 const evalArguments = resource_plans.evalArguments;
-
 pub fn foldFriCircle(
     self: *Runtime,
     source: [*]const u32,
     source_count: u32,
-    inverse_y: []const u32,
+    inverse_y: ?[]const u32,
+    domain_initial_index: u32,
+    domain_step_size: u32,
     alpha: [4]u32,
     destination: [*]u32,
 ) MetalError!f64 {
-    if (inverse_y.len != source_count / 2) return MetalError.InvalidColumns;
+    if (inverse_y) |values| {
+        if (values.len != source_count / 2) return MetalError.InvalidColumns;
+    }
     var gpu_ms: f64 = 0;
     var message: [1024]u8 = [_]u8{0} ** 1024;
-    if (!ffi.stwo_zig_metal_fri_fold_circle(self.handle, source, source_count, inverse_y.ptr, &alpha, destination, &gpu_ms, &message, message.len)) {
+    const inverse_ptr = if (inverse_y) |values| values.ptr else null;
+    if (!ffi.stwo_zig_metal_fri_fold_circle(
+        self.handle,
+        source,
+        source_count,
+        inverse_ptr,
+        domain_initial_index,
+        domain_step_size,
+        &alpha,
+        destination,
+        &gpu_ms,
+        &message,
+        message.len,
+    )) {
         std.log.err("Metal FRI circle fold failed: {s}", .{std.mem.sliceTo(&message, 0)});
         return MetalError.CircleTransformFailed;
     }
@@ -154,14 +170,14 @@ pub fn foldFriLineAndCommit(
     };
 }
 
-/// Commits every single-fold line-FRI layer, advances the Blake2s transcript,
-/// and folds to the terminal evaluation in one ordered Metal command buffer.
 pub fn foldFriLineCascade(
     self: *Runtime,
     allocator: std.mem.Allocator,
     source: *anyopaque,
     source_count: u32,
-    inverse_x: []const u32,
+    inverse_x: ?[]const u32,
+    domain_initial_index: u32,
+    domain_step_size: u32,
     coordinates: []const *anyopaque,
     final_destination: *anyopaque,
     leaf_seed: [8]u32,
@@ -177,30 +193,31 @@ pub fn foldFriLineCascade(
     }
     const layer_count = std.math.cast(u32, coordinates.len) orelse return MetalError.InvalidColumns;
     if (source_count >> @intCast(layer_count) == 0) return MetalError.InvalidColumns;
-
     var expected_inverse_count: u64 = 0;
     var count = source_count;
     for (coordinates) |_| {
         count >>= 1;
         expected_inverse_count += count;
     }
-    if (inverse_x.len != expected_inverse_count or inverse_x.len > std.math.maxInt(u32))
-        return MetalError.InvalidColumns;
-
+    if (inverse_x) |values| {
+        if (values.len != expected_inverse_count or values.len > std.math.maxInt(u32))
+            return MetalError.InvalidColumns;
+    }
     const trees = try allocator.alloc(Tree, coordinates.len);
     errdefer allocator.free(trees);
     const handles = try allocator.alloc(?*anyopaque, coordinates.len);
     defer allocator.free(handles);
     @memset(handles, null);
-
     var stats: CommandEpochStats = undefined;
     var message: [1024]u8 = [_]u8{0} ** 1024;
     if (!ffi.stwo_zig_metal_fri_line_cascade(
         self.handle,
         source,
         source_count,
-        inverse_x.ptr,
-        @intCast(inverse_x.len),
+        if (inverse_x) |values| values.ptr else null,
+        @intCast(expected_inverse_count),
+        domain_initial_index,
+        domain_step_size,
         coordinates.ptr,
         final_destination,
         layer_count,
