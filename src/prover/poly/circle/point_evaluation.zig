@@ -311,6 +311,55 @@ pub inline fn evalWithSubsetProductBasis(coefficients: []const M31, basis: []con
     return value;
 }
 
+test "point evaluation: packed high-block subset basis matches scalar products" {
+    const log_size: u32 = 10;
+    const basis_len = @as(usize, 1) << @intCast(log_size);
+    var factors: [log_size]QM31 = undefined;
+    for (&factors, 0..) |*factor, index| {
+        const value: u32 = @intCast(index + 2);
+        factor.* = QM31.fromU32Unchecked(value, value + 17, value + 31, value + 47);
+    }
+
+    const allocator = std.testing.allocator;
+    const basis = try allocator.alloc(QM31, basis_len);
+    defer allocator.free(basis);
+    fillSubsetProductBasis(&factors, basis);
+
+    for (basis, 0..) |actual, index| {
+        var expected = QM31.one();
+        for (factors, 0..) |factor, factor_index| {
+            if ((index & (@as(usize, 1) << @intCast(factor_index))) != 0) {
+                expected = expected.mul(factor);
+            }
+        }
+        try std.testing.expect(expected.eql(actual));
+    }
+}
+
+test "point evaluation: subset basis evaluation crosses packed high-block boundary" {
+    const log_size: u32 = 10;
+    const basis_len = @as(usize, 1) << @intCast(log_size);
+    var factors: [log_size]QM31 = undefined;
+    for (&factors, 0..) |*factor, index| {
+        const value: u32 = @intCast(index * 13 + 5);
+        factor.* = QM31.fromU32Unchecked(value, value + 1, value + 2, value + 3);
+    }
+
+    const allocator = std.testing.allocator;
+    const coefficients = try allocator.alloc(M31, basis_len);
+    defer allocator.free(coefficients);
+    for (coefficients, 0..) |*coefficient, index| {
+        coefficient.* = M31.fromCanonical(@intCast(index * 29 + 7));
+    }
+    const basis = try allocator.alloc(QM31, basis_len);
+    defer allocator.free(basis);
+    fillSubsetProductBasis(&factors, basis);
+
+    const expected = evalAtPointIterative(coefficients, &factors, log_size);
+    const actual = evalWithSubsetProductBasis(coefficients, basis);
+    try std.testing.expect(expected.eql(actual));
+}
+
 /// Evaluates one native-width batch of independent coefficient polynomials at
 /// the same secure-field point. Each polynomial occupies one packed M31 lane;
 /// its carry-style reduction and field-operation order match

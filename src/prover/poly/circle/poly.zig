@@ -570,7 +570,9 @@ test "prover poly circle poly: precomputed folded factors match scalar oracle" {
 
 test "prover poly circle poly: batched point evaluation matches scalar helper" {
     const alloc = std.testing.allocator;
-    const log_size: u32 = 6;
+    // Cross the log-8 boundary where subset-product construction switches to
+    // its packed high-block path.
+    const log_size: u32 = 10;
     const poly_count: usize = m31.PACK_WIDTH + 1;
     const point_count: usize = 7;
 

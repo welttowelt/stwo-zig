@@ -68,14 +68,6 @@ pub const QM31 = struct {
         return .{ self.c0.a, self.c0.b, self.c1.a, self.c1.b };
     }
 
-    inline fn toVec4(self: QM31) m31_mod.Vec4u32 {
-        return .{ self.c0.a.v, self.c0.b.v, self.c1.a.v, self.c1.b.v };
-    }
-
-    inline fn fromVec4(value: m31_mod.Vec4u32) QM31 {
-        return fromU32Unchecked(value[0], value[1], value[2], value[3]);
-    }
-
     /// Combines partial evaluations of base-field components into one QM31 value.
     pub fn fromPartialEvals(evals: [SECURE_EXTENSION_DEGREE]QM31) QM31 {
         var out = evals[0];
@@ -103,7 +95,10 @@ pub const QM31 = struct {
     }
 
     pub inline fn add(lhs: QM31, rhs: QM31) QM31 {
-        return fromVec4(m31_mod.addVec4(lhs.toVec4(), rhs.toVec4()));
+        return .{
+            .c0 = lhs.c0.add(rhs.c0),
+            .c1 = lhs.c1.add(rhs.c1),
+        };
     }
 
     pub inline fn addM31(lhs: QM31, rhs: M31) QM31 {
@@ -114,7 +109,10 @@ pub const QM31 = struct {
     }
 
     pub inline fn sub(lhs: QM31, rhs: QM31) QM31 {
-        return fromVec4(m31_mod.subVec4(lhs.toVec4(), rhs.toVec4()));
+        return .{
+            .c0 = lhs.c0.sub(rhs.c0),
+            .c1 = lhs.c1.sub(rhs.c1),
+        };
     }
 
     pub inline fn subM31(lhs: QM31, rhs: M31) QM31 {
@@ -149,7 +147,10 @@ pub const QM31 = struct {
     }
 
     pub inline fn mulM31(lhs: QM31, rhs: M31) QM31 {
-        return fromVec4(m31_mod.mulVec4(lhs.toVec4(), @splat(rhs.v)));
+        return .{
+            .c0 = lhs.c0.mulM31(rhs),
+            .c1 = lhs.c1.mulM31(rhs),
+        };
     }
 
     pub inline fn square(self: QM31) QM31 {
