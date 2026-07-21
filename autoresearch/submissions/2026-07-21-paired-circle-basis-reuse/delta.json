@@ -2,7 +2,7 @@
   "schema_version": 1,
   "predecessor_commit": "3979c29efd9c",
   "declared_objective": {
-    "board": "core_cpu",
+    "board": "core_metal",
     "workload_class": "wide",
     "dimension": "time"
   },

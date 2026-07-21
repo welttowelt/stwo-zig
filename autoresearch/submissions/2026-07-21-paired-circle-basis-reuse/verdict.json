@@ -6,7 +6,7 @@
   "predecessor_commit": "3979c29efd9c",
   "scope": "s3",
   "declared_objective": {
-    "board": "core_cpu",
+    "board": "core_metal",
     "workload_class": "wide",
     "dimension": "time"
   },
@@ -19,7 +19,7 @@
     "judge_lock_held": false,
     "preflight": {
       "load_ok": true,
-      "load1": 3.31
+      "load1": 2.25
     }
   },
   "gates": {
@@ -37,7 +37,7 @@
     },
     "G4": {
       "pass": true,
-      "detail": "candidate/anchor 0.5810 vs targeted budget x1.02; request ratio 0.9388 vs budget x1.05"
+      "detail": "anchor not frozen; drift budget inactive; request ratio 0.9609 vs budget x1.05"
     },
     "G5": {
       "pass": true,
@@ -46,20 +46,20 @@
   },
   "score": {
     "per_workload": {
-      "wf_log14x32": {
-        "r": 0.933087,
+      "mwf_log14x32": {
+        "r": 0.953307,
         "ci": [
-          0.921148,
-          0.957615
+          0.939288,
+          0.962935
         ],
         "rounds": 15,
-        "a_median_ms": 10.983959,
-        "b_median_ms": 10.257791
+        "a_median_ms": 9.596334,
+        "b_median_ms": 9.198541
       }
     },
-    "R_geomean": 0.933087,
-    "theta": 0.02929,
-    "aa_dispersion": 0.014645,
+    "R_geomean": 0.953307,
+    "theta": 0.01,
+    "aa_dispersion": null,
     "significant": true,
     "neutral": false
   },
@@ -73,7 +73,7 @@
   "guards": {},
   "rust_oracle": [
     {
-      "workload": "wf_log14x32",
+      "workload": "mwf_log14x32",
       "verified": true,
       "artifact_sha256": "d32393fe3b1f9abbc4795d87c3b3316e06111f014ec30f0635f13ec0ff0587f9"
     }
@@ -87,91 +87,91 @@
   "evidence": {
     "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
     "per_workload": {
-      "wf_log14x32": {
+      "mwf_log14x32": {
         "round_ratios": [
-          0.951393,
-          1.005156,
-          0.929037,
-          0.953297,
-          0.926494,
-          0.927057,
-          1.042689,
-          0.934446,
-          0.912278,
-          0.916625,
-          0.928634,
-          0.945386,
-          0.910074,
-          0.674348,
-          0.94028
+          0.872307,
+          0.936933,
+          0.926553,
+          0.972503,
+          0.937385,
+          0.953367,
+          0.974117,
+          0.937455,
+          0.966433,
+          0.957966,
+          0.96956,
+          0.97162,
+          0.952022,
+          0.964807,
+          0.945003
         ],
         "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374",
-        "request_ratio": 0.938838,
+        "request_ratio": 0.960889,
         "report_sha256s": [
-          "9c84113f06edbdd119ad7f37066b57aea1516e8bbd4e95d095318325110f435d",
-          "87e175174065e4930a5f1bc5c0b7557e7ea8a4015208e80ca694eeb9af18acbb",
-          "b3f43d008bdaecd10bd88254288da68b95646ed727fab2e62b234a76f3b3dfa2",
-          "ba91600d4ae7de1ad5b8281dc916e2dac3378cd7e1ae89411b780d5112ad8eb8",
-          "cac0125e7449063b93de05d8bb3a503d5270e34bcfc7a389d760680d584bc98a",
-          "d86bf413ff9b2d5cabdac69472d6edff034dde2213d75f0ec9855fa0e225b8af",
-          "5c1a35018840fe36af828c2bda322753ce0558d714bd6101fb12551148043369",
-          "ee2345d2125b3d7992edf76b78e0039d74ed097ed00d920a0ece027028b2b986",
-          "1931de6c2e243a24425b171e57b048a1c6cfd6d1d4a421a8bdcc83ea0722952c",
-          "c101323b57c7b53ede20a9f7e3b3b74ca1bf314a0cf65f5241e2d8d337072bd6",
-          "0ac0c8694c45326b8743fd2cdc4b9a627f6fbf9ac4648ebfe2fe5f4ea6b16e3c",
-          "881597403c34f9851a201f91d5aa54e23c199f4183da02a3228365e03c38d9ae",
-          "9f612b1ddf799de15c49f90b7fc0f02490020a5f5b706a7330f12ed6035335fa",
-          "c38bf81345eabfaeb28c1be159f1b322634cee856f88ec7a22a9ad3e3e60d9db",
-          "37ba8afd959820fe5b5c591119d498964d5b4e6b42167dc29aa2f8b0afa06f5b",
-          "6c177710b30e735351fd0124613855b141cd80451975d0b41b489b681d1c820f",
-          "0f1077d17e6e049234405bc764e515aed931392bfc1e90a407a88dd2c8af11ba",
-          "fe46a39d3677726bf8e0be16abe24c3ea5dac44b22b59836889a42f70fe150bf",
-          "bfa66ae0a042518603def4c761a27ea2cb7a109dea1e59aa95498a234f8fdcb2",
-          "d48a24e080ab9d509002555fce068b8ce0f487569beb2fc7e61574bde6e990ba",
-          "225d0da211b9b7dc535b8167936a5630b27694650a4088fe66bb4c3847c9a6ea",
-          "783cc4b4491391be7f48e677b6e1d34a99b647ff3709d4d930baf9a7ed1c41d5",
-          "cc1d06035bf891a2cc13ea8668c6526657fcc34de1206b3ec8a52ac0f064c82a",
-          "18407aefb2a113c8806c9f76df5b211e02ad4aaa84d6c3e4d4e83b77edfe65e3",
-          "9ea7b9f506e968356ed61f0d93080815d1a9c4c3e90a50a948179325f0ab2272",
-          "88801c61a1a44f65c002157e66242026ade603bff04c1e13d0a966a1ea995153",
-          "41e229adb78c04e623e0e9414190992c248f32c8fe738b043fa23f4e22aa25cb",
-          "a9f106abed505e2d61bd8531e30ebdc39dd2b599261a2519fab484ef7192aeba",
-          "36ea311d00f273cf0584e903e6de032d95c6ad947edaca029cc515ae787b41b5",
-          "adf16daf2fdeba3f552ed696fdda8d5fde76b8ec63192849524da2a3cc1ade71"
+          "2085553d7571d9637c96f18a5e42dedfffb132abc94691230606b07fec9222c9",
+          "6a0feb7553214522bf4b594f0be565d80cbb34601ebb0876bae39cea441b89a7",
+          "d17f7a13f88e674928c64b3225d702532ec362d43fea62cdacd9479a6070dfd9",
+          "66165be7ef2a3b087e56a26e86b839c330f9b9746605897dfc153aacb699c619",
+          "797bd25e05c2e7d4ce8d854bc4b18b5e466555b07b5f38e065057281f697f441",
+          "b98aaa8e93d7c447ec9d510130f56e01b7da38d12c33c10ef5fdbbbe379374fa",
+          "7b9acf62444ba966a8196e093c4f12a6e8ffe340908b29c101531bafba802a3e",
+          "ac7035b102a72ae1aedf9193ed27de02b0a46ae97a9f364aab5120d7869f527b",
+          "7b62e8c0a1c5d9337b9e39e1bcbe67181c47acc4fe3a4a6dedae750bb96db401",
+          "c92e92bc578095178088b0fcebbf2f1115fa50bd3d30a81f17c7f74ecf0094ae",
+          "e3ecc5299a8afa5e84411d2fde0b358be875661445ab8a2555b74627bac32410",
+          "57d527fa97422de5205b10262f9c12a39c69b4fc61571a2cf9f63fa29ecaa89c",
+          "5c706a69997b29ede2f06dce34eea683ab37ad269c625d0c2a21fc56b264a140",
+          "c60d9ce7f9668d0e3ffdfb56261d9a95e06577602ac533d55c63bae050b6a297",
+          "c85d6691d5a1fcfae3e71c071fda8f401e404608f8a28c15a3daab358f561415",
+          "c8e58e89b471f6aa9c92ebc1f7a1e4ac7b5f7fbaa37d1e32476311fbb7d74f6f",
+          "456ae606158329a91202f084afe8c57a9e0da44c0295531d6386d2d106a4c301",
+          "c081b9d9ddc4752c962bc3acb648154840476b418be97aa202e83b2f55aaa68e",
+          "b2e91dbcc1ceba5da45d062c636986ba6aeda3470001bb4f7ca671e05405b337",
+          "5d616a1c54183f8cd4f8464e51c17039d4a07e65d1adb9eccfb9616aec4ddc53",
+          "35f779851549ae8e144b34655a756d79faab9a40e8bf3df9da1327cb2d11537f",
+          "c37f6a5b497a4f0f87d4c66269aa1c4ddec904bde8800a2f0be56015e1c4729d",
+          "1203ec0d763a82250aee6673209e85ce70db6eb9c4825f818430ffd1d0bf5e38",
+          "c690d9b388e09292b89f7013d854f5b7e4c27575c346fa91c5823d915059ee62",
+          "48b97b8bf2c80c198110edf34fe567f802f79f82be76fb1df0a7e2a2245ae83d",
+          "c03b1251430fec000c3208856c4e0765ccb262efa98a3d1f741dff37f30a3013",
+          "6b140a3f0b64071617c5abfdafb10c923d8085bd51b0fa7bece1b2ee40a94847",
+          "576471d02dd772040193eff0e624a5332a8ab48a5d7a3727307a7c686a67f588",
+          "d817dc5f6edd06bacea8f3f3e93b701c55ef9d57a3ab86a15b1192bae675ba25",
+          "5794c2e4a0ef18f5f8669d17cfcb45f1bee85f0a88907a006742fd036f485ab1"
         ]
       }
     },
     "reports": [
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a1.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b1.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a2.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b2.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a3.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b3.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a4.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b4.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a5.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b5.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a6.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b6.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a7.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b7.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a8.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b8.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a9.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b9.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a10.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b10.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a11.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b11.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a12.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b12.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a13.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b13.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a14.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b14.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.a15.json",
-      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/wf_log14x32.b15.json"
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a1.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b1.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a2.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b2.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a3.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b3.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a4.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b4.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a5.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b5.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a6.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b6.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a7.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b7.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a8.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b8.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a9.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b9.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a10.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b10.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a11.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b11.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a12.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b12.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a13.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b13.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a14.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b14.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.a15.json",
+      "/Users/theodorepender/code/auto-researching/ws-dual-01/autoresearch/.runs/latest/mwf_log14x32.b15.json"
     ]
   }
 }
