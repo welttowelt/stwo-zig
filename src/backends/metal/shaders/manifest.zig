@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 4;
+pub const core_shader_abi: u32 = 5;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
@@ -411,8 +411,8 @@ test "metal shader manifest exactly covers source and runtime exports" {
     }
 }
 
-test "commitment shader bindings match core ABI version 4" {
-    try std.testing.expectEqual(@as(u32, 4), core_shader_abi);
+test "commitment shader bindings match core ABI version 5" {
+    try std.testing.expectEqual(@as(u32, 5), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
         .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
@@ -421,6 +421,7 @@ test "commitment shader bindings match core ABI version 4" {
         .{ .kernel = "stwo_zig_fri_packed_leaves_resident", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_qm31_to_coordinates", .argument = "prefix_bytes [[buffer(5)]]" },
         .{ .kernel = "stwo_zig_fri_fold_line", .argument = "prefix_bytes [[buffer(8)]]" },
+        .{ .kernel = "stwo_zig_quotient_domain_points_resident", .argument = "mode [[buffer(6)]]" },
     };
     for (bindings) |binding| {
         const declaration = try kernelDeclaration(amalgamated_source, binding.kernel);

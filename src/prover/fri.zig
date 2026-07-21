@@ -73,6 +73,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
         last_layer_poly: line.LinePoly,
 
         const Self = @This();
+        const lazy_inverse_workspace = if (@hasDecl(B, "lazyFriFoldInverseWorkspace")) B.lazyFriFoldInverseWorkspace else false;
 
         const FirstLayerProver = struct {
             domain: circle_domain.CircleDomain,
@@ -394,7 +395,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
 
             var fold_circle_workspace = try core_fri.FoldCircleWorkspace.init(
                 allocator,
-                layer_evaluation.len(),
+                if (lazy_inverse_workspace) 0 else layer_evaluation.len(),
             );
             defer fold_circle_workspace.deinit(allocator);
             const folding_alpha = channel.drawSecureFelt();
@@ -427,7 +428,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             if (config.fold_step > 1) {
                 var first_line_workspace = try core_fri.FoldLineWorkspace.init(
                     allocator,
-                    layer_evaluation.len() / 2,
+                    if (lazy_inverse_workspace) 0 else layer_evaluation.len() / 2,
                 );
                 defer first_line_workspace.deinit(allocator);
                 if (comptime @hasDecl(B, "foldLineEvaluationN")) {
@@ -472,7 +473,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             }
             var fold_workspace = try core_fri.FoldLineWorkspace.init(
                 allocator,
-                layer_evaluation.len() / 2,
+                if (lazy_inverse_workspace) 0 else layer_evaluation.len() / 2,
             );
             defer fold_workspace.deinit(allocator);
             const last_layer_log_size = std.math.log2_int(usize, config.lastLayerDomainSize());

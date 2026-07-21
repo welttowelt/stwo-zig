@@ -216,6 +216,8 @@ bool stwo_zig_metal_compute_quotients(
             [domain_encoder setBytes:&domain_log_size length:sizeof(domain_log_size) atIndex:3];
             [domain_encoder setBytes:&domain_initial_index length:sizeof(domain_initial_index) atIndex:4];
             [domain_encoder setBytes:&domain_step_size length:sizeof(domain_step_size) atIndex:5];
+            uint32_t domain_mode = 0u;
+            [domain_encoder setBytes:&domain_mode length:sizeof(domain_mode) atIndex:6];
             NSUInteger domain_width = MIN(runtime.quotientDomainPointsResident.maxTotalThreadsPerThreadgroup,
                                           runtime.quotientDomainPointsResident.threadExecutionWidth * 8u);
             [domain_encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)

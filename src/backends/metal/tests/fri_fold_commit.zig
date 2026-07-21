@@ -21,6 +21,75 @@ const QM31 = qm31.QM31;
 const Hasher = blake2_merkle.Blake2sMerkleHasher;
 const MerkleChannel = blake2_merkle.Blake2sMerkleChannel;
 
+test "metal: resident FRI inverse-y cache matches shifted host domains" {
+    const allocator = std.testing.allocator;
+    var runtime = try runtime_mod.Runtime.init();
+    defer runtime.deinit();
+
+    const destination_log: u32 = 8;
+    const destination_count: usize = @as(usize, 1) << destination_log;
+    const source_count = destination_count << 1;
+    const source = try allocator.alloc(u32, source_count * 4);
+    defer allocator.free(source);
+    for (source, 0..) |*value, index| {
+        value.* = @intCast((index * 97 + 19) % m31.Modulus);
+    }
+    const alpha = [_]u32{ 7, 11, 13, 17 };
+
+    const host_destination = try allocator.alloc(u32, destination_count * 4);
+    defer allocator.free(host_destination);
+    const miss_destination = try allocator.alloc(u32, destination_count * 4);
+    defer allocator.free(miss_destination);
+    const hit_destination = try allocator.alloc(u32, destination_count * 4);
+    defer allocator.free(hit_destination);
+    const coordinates = try allocator.alloc(M31, destination_count);
+    defer allocator.free(coordinates);
+    const inverses = try allocator.alloc(M31, destination_count);
+    defer allocator.free(inverses);
+
+    for ([_]usize{ 12_345, 456_789 }) |initial_index| {
+        const fold_coset = circle.Coset.new(.{ .v = initial_index }, destination_log);
+        for (coordinates, 0..) |*coordinate, index| {
+            const natural = core_utils.bitReverseIndex(index, destination_log);
+            coordinate.* = fold_coset.at(natural).y;
+        }
+        try fields.batchInverseInPlace(M31, coordinates, inverses);
+        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverses));
+        const initial: u32 = @intCast(fold_coset.initial_index.v);
+        const step: u32 = @intCast(fold_coset.step_size.v);
+
+        _ = try runtime.foldFriCircle(
+            source.ptr,
+            source_count,
+            inverse_words,
+            initial,
+            step,
+            alpha,
+            host_destination.ptr,
+        );
+        _ = try runtime.foldFriCircle(
+            source.ptr,
+            source_count,
+            null,
+            initial,
+            step,
+            alpha,
+            miss_destination.ptr,
+        );
+        _ = try runtime.foldFriCircle(
+            source.ptr,
+            source_count,
+            null,
+            initial,
+            step,
+            alpha,
+            hit_destination.ptr,
+        );
+        try std.testing.expectEqualSlices(u32, host_destination, miss_destination);
+        try std.testing.expectEqualSlices(u32, host_destination, hit_destination);
+    }
+}
+
 test "metal: FRI fold and next tree use one submission with CPU parity" {
     const allocator = std.testing.allocator;
     var runtime = try runtime_mod.Runtime.init();
@@ -377,6 +446,8 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
         source.handle,
         source_count,
         inverse_words,
+        0,
+        0,
         coordinate_handles,
         final_destination.handle,
         Hasher.leafSeed(),

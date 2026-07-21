@@ -7,7 +7,7 @@ const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 
 const FoldCoordinate = enum { x, y };
-
+const fri_inverse_cache_min_values: usize = 1 << 13;
 /// Builds the inverse-coordinate vector for a Metal FRI fold with one linear
 /// coset walk. Scattering natural point j to bitReverse(j) is equivalent to
 /// the former per-output indexed reconstruction because bit reversal is an
@@ -77,6 +77,7 @@ pub const MetalCommitBackend = struct {
     /// Materialize the prepared LDE columns once so Metal can consume the
     /// complete tree in a single command buffer.
     pub const preferMonolithicCommit = true;
+    pub const lazyFriFoldInverseWorkspace = true;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
@@ -443,21 +444,28 @@ pub const MetalCommitBackend = struct {
         alpha: @import("stwo_core").fields.qm31.QM31,
         workspace: *@import("stwo_core").fri.FoldCircleWorkspace,
     ) !void {
-        try workspace.ensureCapacity(allocator, dst.len);
-        const py = workspace.py_values[0..dst.len];
-        const inverse_y = workspace.inv_py_values[0..dst.len];
-        try prepareBitReversedFoldInverses(py, inverse_y, src_domain.half_coset, .y);
+        const use_resident_inverse = dst.len >= fri_inverse_cache_min_values;
+        var inverse_words: ?[]const u32 = null;
+        if (!use_resident_inverse) {
+            try workspace.ensureCapacity(allocator, dst.len);
+            const py = workspace.py_values[0..dst.len];
+            const inverse_y = workspace.inv_py_values[0..dst.len];
+            try prepareBitReversedFoldInverses(py, inverse_y, src_domain.half_coset, .y);
+            inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_y));
+        }
         const alpha_coords = alpha.toM31Array();
         const alpha_words = [4]u32{ alpha_coords[0].v, alpha_coords[1].v, alpha_coords[2].v, alpha_coords[3].v };
         const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(src_columns[0].ptr[0 .. src_columns[0].len * 4]));
         const destination_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(dst));
-        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_y));
+        const fold_coset = src_domain.half_coset;
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
         const gpu_ms = try lease.runtime.foldFriCircle(
             source_words.ptr,
             @intCast(src_columns[0].len),
             inverse_words,
+            @intCast(fold_coset.initial_index.v),
+            @intCast(fold_coset.step_size.v),
             alpha_words,
             destination_words.ptr,
         );
@@ -649,20 +657,23 @@ pub const MetalCommitBackend = struct {
         }
         const layer_count: usize = std.math.log2_int(usize, evaluation.len() / last_layer_size);
         if (layer_count == 0 or layer_count >= 31) return null;
-
         const inverse_count = evaluation.len() - last_layer_size;
-        const inverse_values = try allocator.alloc(M31, inverse_count);
-        defer allocator.free(inverse_values);
+        const use_resident_inverse = evaluation.len() >= fri_inverse_cache_min_values;
+        var inverse_values: ?[]M31 = null;
+        if (!use_resident_inverse) inverse_values = try allocator.alloc(M31, inverse_count);
+        defer if (inverse_values) |values| allocator.free(values);
         var current_domain = evaluation.domain();
         var current_count = evaluation.len();
         var inverse_cursor: usize = 0;
         for (0..layer_count) |_| {
             const destination_count = current_count >> 1;
-            try workspace.ensureCapacity(allocator, destination_count);
-            const x = workspace.x_values[0..destination_count];
-            const inverse_x = workspace.inv_x_values[0..destination_count];
-            try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
-            @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
+            if (inverse_values) |values| {
+                try workspace.ensureCapacity(allocator, destination_count);
+                const x = workspace.x_values[0..destination_count];
+                const inverse_x = workspace.inv_x_values[0..destination_count];
+                try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
+                @memcpy(values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
+            }
             inverse_cursor += destination_count;
             current_count = destination_count;
             current_domain = current_domain.double();
@@ -699,7 +710,11 @@ pub const MetalCommitBackend = struct {
             );
         }
         channel_state[8] = channel.n_draws;
-        const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_values));
+        const inverse_words: ?[]const u32 = if (inverse_values) |values|
+            std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(values))
+        else
+            null;
+        const initial_coset = evaluation.domain().coset();
 
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
@@ -708,6 +723,8 @@ pub const MetalCommitBackend = struct {
             source_storage.handle,
             @intCast(evaluation.len()),
             inverse_words,
+            @intCast(initial_coset.initial_index.v),
+            @intCast(initial_coset.step_size.v),
             coordinate_handles,
             terminal_storage.handle,
             H.leafSeed(),

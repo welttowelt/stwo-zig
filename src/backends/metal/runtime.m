@@ -44,6 +44,15 @@
 @property(nonatomic) uint32_t quotientDomainCacheLogSize;
 @property(nonatomic) uint32_t quotientDomainCacheInitialIndex;
 @property(nonatomic) uint32_t quotientDomainCacheStepSize;
+@property(nonatomic, strong) id<MTLBuffer> friCircleInverseCache;
+@property(nonatomic) uint32_t friCircleInverseCacheCount;
+@property(nonatomic) uint32_t friCircleInverseCacheInitialIndex;
+@property(nonatomic) uint32_t friCircleInverseCacheStepSize;
+@property(nonatomic, strong) id<MTLBuffer> friLineInverseCache;
+@property(nonatomic) uint32_t friLineInverseCacheSourceCount;
+@property(nonatomic) uint32_t friLineInverseCacheLayerCount;
+@property(nonatomic) uint32_t friLineInverseCacheInitialIndex;
+@property(nonatomic) uint32_t friLineInverseCacheStepSize;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientDenominatorsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCombineResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCoefficientsResident;
@@ -692,6 +701,29 @@ static void bind_fri_line_kernel(
     [encoder setBuffer:leaf_seed offset:0u atIndex:7];
     [encoder setBytes:&prefix_bytes length:sizeof(prefix_bytes) atIndex:8];
     [encoder setBytes:&prepare_next length:sizeof(prepare_next) atIndex:9];
+}
+
+static void encode_fri_inverse_domain(
+    StwoZigMetalRuntime *runtime, id<MTLComputeCommandEncoder> encoder,
+    id<MTLBuffer> destination, NSUInteger destination_offset,
+    uint32_t value_count, uint32_t initial_index, uint32_t step_size,
+    uint32_t mode
+) {
+    uint32_t log_size = 0u;
+    for (uint32_t count = value_count; count > 1u; count >>= 1u) log_size += 1u;
+    uint32_t destination_words = (uint32_t)(destination_offset / sizeof(uint32_t));
+    [encoder setComputePipelineState:runtime.quotientDomainPointsResident];
+    [encoder setBuffer:destination offset:0u atIndex:0];
+    [encoder setBytes:&destination_words length:sizeof(destination_words) atIndex:1];
+    [encoder setBytes:&value_count length:sizeof(value_count) atIndex:2];
+    [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3];
+    [encoder setBytes:&initial_index length:sizeof(initial_index) atIndex:4];
+    [encoder setBytes:&step_size length:sizeof(step_size) atIndex:5];
+    [encoder setBytes:&mode length:sizeof(mode) atIndex:6];
+    NSUInteger width = MIN(runtime.quotientDomainPointsResident.maxTotalThreadsPerThreadgroup,
+                           runtime.quotientDomainPointsResident.threadExecutionWidth * 8u);
+    [encoder dispatchThreads:MTLSizeMake(value_count, 1u, 1u)
+         threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
 }
 
 #import "runtime/initialization.m"

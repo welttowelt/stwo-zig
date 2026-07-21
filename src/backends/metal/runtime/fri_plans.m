@@ -200,6 +200,7 @@ bool stwo_zig_metal_quotient_combine_prepared(
         [domain setBytes:&output length:sizeof(output) atIndex:1]; [domain setBytes:&rows length:sizeof(rows) atIndex:2];
         [domain setBytes:&log_size length:sizeof(log_size) atIndex:3]; [domain setBytes:&initial length:sizeof(initial) atIndex:4];
         [domain setBytes:&step length:sizeof(step) atIndex:5];
+        uint32_t domain_mode = 0u; [domain setBytes:&domain_mode length:sizeof(domain_mode) atIndex:6];
         NSUInteger domain_width = MIN(runtime.quotientDomainPointsResident.maxTotalThreadsPerThreadgroup, runtime.quotientDomainPointsResident.threadExecutionWidth * 8u);
         [domain dispatchThreads:MTLSizeMake(rows, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(domain_width, 1u, 1u)];
         [domain endEncoding];

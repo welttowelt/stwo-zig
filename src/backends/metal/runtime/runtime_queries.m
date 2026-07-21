@@ -123,10 +123,12 @@ static id<MTLBuffer> alias_shared_buffer(id<MTLDevice> device, void *bytes, size
 
 bool stwo_zig_metal_fri_fold_circle(
     void *runtime_ptr, const uint32_t *source, uint32_t source_count,
-    const uint32_t *inverse_y, const uint32_t *alpha, uint32_t *destination,
+    const uint32_t *inverse_y, uint32_t domain_initial_index,
+    uint32_t domain_step_size, const uint32_t *alpha, uint32_t *destination,
     double *gpu_milliseconds, char *error_message, size_t error_message_len
 ) {
-    if (runtime_ptr == NULL || source == NULL || inverse_y == NULL || alpha == NULL || destination == NULL || source_count < 2u) return false;
+    if (runtime_ptr == NULL || source == NULL || alpha == NULL || destination == NULL ||
+        source_count < 2u || (source_count & (source_count - 1u)) != 0u) return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         uint32_t destination_count = source_count >> 1u;
@@ -137,12 +139,41 @@ bool stwo_zig_metal_fri_fold_circle(
         id<MTLBuffer> destination_buffer = alias_shared_buffer(runtime.device, destination, destination_bytes);
         bool direct_destination = destination_buffer != nil;
         if (destination_buffer == nil) destination_buffer = [runtime.device newBufferWithLength:destination_bytes options:MTLResourceStorageModeShared];
-        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_y length:(size_t)destination_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        id<MTLBuffer> inverse_buffer = nil;
+        bool build_inverse_cache = false;
+        if (inverse_y == NULL) {
+            @synchronized(runtime) {
+                if (runtime.friCircleInverseCache != nil &&
+                    runtime.friCircleInverseCacheCount == destination_count &&
+                    runtime.friCircleInverseCacheInitialIndex == domain_initial_index &&
+                    runtime.friCircleInverseCacheStepSize == domain_step_size) {
+                    inverse_buffer = runtime.friCircleInverseCache;
+                }
+            }
+            if (inverse_buffer == nil) {
+                inverse_buffer = [runtime.device newBufferWithLength:
+                    (NSUInteger)destination_count * sizeof(uint32_t)
+                    options:MTLResourceStorageModePrivate];
+                build_inverse_cache = true;
+            }
+        } else {
+            inverse_buffer = [runtime.device newBufferWithBytes:inverse_y
+                length:(size_t)destination_count * sizeof(uint32_t)
+                options:MTLResourceStorageModeShared];
+        }
         if (source_buffer == nil || destination_buffer == nil || inverse_buffer == nil) {
             write_error(error_message, error_message_len, @"FRI circle fold buffer allocation failed");
             return false;
         }
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        if (build_inverse_cache) {
+            id<MTLComputeCommandEncoder> domain = [command computeCommandEncoder];
+            encode_fri_inverse_domain(
+                runtime, domain, inverse_buffer, 0u, destination_count,
+                domain_initial_index, domain_step_size, 2u
+            );
+            [domain endEncoding];
+        }
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.friFoldCircle];
         [encoder setBuffer:source_buffer offset:0 atIndex:0];
@@ -156,6 +187,14 @@ bool stwo_zig_metal_fri_fold_circle(
         [command commit]; [command waitUntilCompleted];
         if (command.status == MTLCommandBufferStatusError) {
             write_error(error_message, error_message_len, command.error.localizedDescription); return false;
+        }
+        if (build_inverse_cache) {
+            @synchronized(runtime) {
+                runtime.friCircleInverseCache = inverse_buffer;
+                runtime.friCircleInverseCacheCount = destination_count;
+                runtime.friCircleInverseCacheInitialIndex = domain_initial_index;
+                runtime.friCircleInverseCacheStepSize = domain_step_size;
+            }
         }
         if (!direct_destination) memcpy(destination, destination_buffer.contents, destination_bytes);
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;

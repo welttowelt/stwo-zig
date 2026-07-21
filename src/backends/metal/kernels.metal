@@ -530,9 +530,18 @@ kernel void stwo_zig_quotient_domain_points_resident(
     constant uint &log_size [[buffer(3)]],
     constant uint &initial_index [[buffer(4)]],
     constant uint &step_size [[buffer(5)]],
+    constant uint &mode [[buffer(6)]],
     uint row [[thread_position_in_grid]]
 ) {
     if (row >= row_count) return;
+    if (mode != 0u) {
+        uint natural = reverse_bits(row) >> (32u - log_size);
+        ulong global = (ulong)initial_index + (ulong)step_size * natural;
+        CircleM31Value point = circle_pow((uint)(global & 0x7ffffffful));
+        uint coordinate = mode == 1u ? point.x : point.y;
+        arena[destination_offset + row] = m31_inv(coordinate);
+        return;
+    }
     CircleM31Value point = quotient_domain_point(initial_index, step_size, row, row_count, log_size);
     arena[destination_offset + row] = point.x;
     arena[destination_offset + row_count + row] = point.y;
