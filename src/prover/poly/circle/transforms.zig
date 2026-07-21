@@ -20,6 +20,29 @@ pub const PolyError = error{
 /// Preconditions:
 /// - `values.len == domain.size()`.
 /// - `twiddle_tree.root_coset` matches `domain`.
+/// Evaluates a coefficient buffer whose upper half is known to be zero —
+/// the 2x-blowup extension case. The first FFT layer pairs each lower-half
+/// element with a zero (`v ± 0·t = v`), so it degenerates to duplicating the
+/// lower half; the remaining layers are unchanged. Callers skip both the
+/// upper-half zero fill and the first layer's butterflies. Bit-identical to
+/// zero-padding `values` and calling `evaluateBufferWithTwiddles`.
+pub fn evaluateExtensionBufferWithTwiddles(
+    values: []M31,
+    domain: CircleDomain,
+    twiddle_tree: M31TwiddleTree,
+) void {
+    const log_size = domain.logSize();
+    if (log_size <= 2) {
+        const half = values.len / 2;
+        @memset(values[half..], M31.zero());
+        evaluateBufferWithTwiddles(values, domain, twiddle_tree);
+        return;
+    }
+    const half = values.len / 2;
+    @memcpy(values[half..], values[0..half]);
+    evaluateBufferTailLayers(values, domain, twiddle_tree, 1);
+}
+
 pub fn evaluateBufferWithTwiddles(
     values: []M31,
     domain: CircleDomain,
@@ -52,18 +75,45 @@ pub fn evaluateBufferWithTwiddles(
         return;
     }
 
+    evaluateBufferTailLayers(values, domain, twiddle_tree, 0);
+}
+
+/// Runs the forward FFT layer cascade, skipping the first `skip_layers`
+/// (largest-block) layers. `skip_layers = 0` is the full evaluation.
+fn evaluateBufferTailLayers(
+    values: []M31,
+    domain: CircleDomain,
+    twiddle_tree: M31TwiddleTree,
+    skip_layers: u32,
+) void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
+    const fuse_bottom = line_log_size >= 3;
+    var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
-    while (layer_idx > 0) {
+    const stop: u32 = if (fuse_bottom) 2 else 0;
+    while (layer_idx > stop) {
         layer_idx -= 1;
         const depth = line_log_size - 1 - layer_idx;
+        if (skipped < skip_layers) {
+            skipped += 1;
+            continue;
+        }
         const len = @as(usize, 1) << @intCast(depth);
         const start = twiddle_len - (len * 2);
         const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
         for (layer_twiddles, 0..) |twid, h| {
             fft_kernels.fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
         }
+    }
+
+    if (fuse_bottom) {
+        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
+        const t2s = twiddle_tree.twiddles[twiddle_len - (len2 * 2) .. twiddle_len - len2];
+        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
+        const t01s = twiddle_tree.twiddles[twiddle_len - (len1 * 2) .. twiddle_len - len1];
+        fft_kernels.fftBottomThreeLayersForwardM31(values, t2s, t01s);
+        return;
     }
 
     const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
@@ -130,22 +180,32 @@ pub fn interpolateIntoBufferWithTwiddles(
 
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
-    const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-    const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
-    var tw_idx: usize = 0;
-    var first_h: usize = 0;
-    const first_half = coeffs.len / 2;
-    while (first_h < first_half) : (first_h += 4) {
-        const x = first_line_itwiddles[tw_idx];
-        const y = first_line_itwiddles[tw_idx + 1];
-        tw_idx += 2;
-        fft_kernels.fftPairInverseM31(coeffs, first_h, y);
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y.neg());
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x.neg());
-        fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
+    const fuse_bottom = line_log_size >= 3;
+    var layer_idx: u32 = 0;
+    if (fuse_bottom) {
+        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
+        const it2s = twiddle_tree.itwiddles[itwiddle_len - (len2 * 2) .. itwiddle_len - len2];
+        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
+        const it01s = twiddle_tree.itwiddles[itwiddle_len - (len1 * 2) .. itwiddle_len - len1];
+        fft_kernels.fftBottomThreeLayersInverseM31(coeffs, it2s, it01s);
+        layer_idx = 2;
+    } else {
+        const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
+        const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
+        var tw_idx: usize = 0;
+        var first_h: usize = 0;
+        const first_half = coeffs.len / 2;
+        while (first_h < first_half) : (first_h += 4) {
+            const x = first_line_itwiddles[tw_idx];
+            const y = first_line_itwiddles[tw_idx + 1];
+            tw_idx += 2;
+            fft_kernels.fftPairInverseM31(coeffs, first_h, y);
+            fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y.neg());
+            fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x.neg());
+            fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
+        }
     }
 
-    var layer_idx: u32 = 0;
     while (layer_idx < line_log_size) : (layer_idx += 1) {
         const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
@@ -213,26 +273,38 @@ pub fn interpolateBuffersWithTwiddles(
 
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
-    const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
-    const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
-    var tw_idx: usize = 0;
-    var first_h: usize = 0;
-    const first_half = coeffs_batch[0].len / 2;
-    while (first_h < first_half) : (first_h += 4) {
-        const x = first_line_itwiddles[tw_idx];
-        const y = first_line_itwiddles[tw_idx + 1];
-        const y_neg = y.neg();
-        const x_neg = x.neg();
-        tw_idx += 2;
+    const fuse_bottom = line_log_size >= 3;
+    var layer_idx: u32 = 0;
+    if (fuse_bottom) {
+        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
+        const it2s = twiddle_tree.itwiddles[itwiddle_len - (len2 * 2) .. itwiddle_len - len2];
+        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
+        const it01s = twiddle_tree.itwiddles[itwiddle_len - (len1 * 2) .. itwiddle_len - len1];
         for (coeffs_batch) |coeffs| {
-            fft_kernels.fftPairInverseM31(coeffs, first_h, y);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y_neg);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x_neg);
-            fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
+            fft_kernels.fftBottomThreeLayersInverseM31(coeffs, it2s, it01s);
+        }
+        layer_idx = 2;
+    } else {
+        const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
+        const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
+        var tw_idx: usize = 0;
+        var first_h: usize = 0;
+        const first_half = coeffs_batch[0].len / 2;
+        while (first_h < first_half) : (first_h += 4) {
+            const x = first_line_itwiddles[tw_idx];
+            const y = first_line_itwiddles[tw_idx + 1];
+            const y_neg = y.neg();
+            const x_neg = x.neg();
+            tw_idx += 2;
+            for (coeffs_batch) |coeffs| {
+                fft_kernels.fftPairInverseM31(coeffs, first_h, y);
+                fft_kernels.fftPairInverseM31(coeffs, first_h + 1, y_neg);
+                fft_kernels.fftPairInverseM31(coeffs, first_h + 2, x_neg);
+                fft_kernels.fftPairInverseM31(coeffs, first_h + 3, x);
+            }
         }
     }
 
-    var layer_idx: u32 = 0;
     while (layer_idx < line_log_size) : (layer_idx += 1) {
         const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
@@ -292,12 +364,53 @@ pub fn evaluateBuffersWithTwiddles(
         return;
     }
 
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 0);
+}
+
+/// Batched forward evaluation for buffers whose upper halves are known to be
+/// zero (2x-blowup extension). Duplicates each lower half in place of the
+/// first (degenerate) layer, then runs the remaining cascade. Bit-identical
+/// to zero-filling the upper halves and calling
+/// `evaluateBuffersWithTwiddles`.
+pub fn evaluateExtensionBuffersWithTwiddles(
+    values_batch: []const []M31,
+    domain: CircleDomain,
+    twiddle_tree: M31TwiddleTree,
+) PolyError!void {
+    if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
+    if (domain.logSize() <= 2) {
+        for (values_batch) |values| {
+            const half = values.len / 2;
+            @memset(values[half..], M31.zero());
+        }
+        return evaluateBuffersWithTwiddles(values_batch, domain, twiddle_tree);
+    }
+    for (values_batch) |values| {
+        const half = values.len / 2;
+        @memcpy(values[half..], values[0..half]);
+    }
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 1);
+}
+
+fn evaluateBuffersTailLayers(
+    values_batch: []const []M31,
+    domain: CircleDomain,
+    twiddle_tree: M31TwiddleTree,
+    skip_layers: u32,
+) PolyError!void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
+    const fuse_bottom = line_log_size >= 3;
+    var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
-    while (layer_idx > 0) {
+    const stop: u32 = if (fuse_bottom) 2 else 0;
+    while (layer_idx > stop) {
         layer_idx -= 1;
         const depth = line_log_size - 1 - layer_idx;
+        if (skipped < skip_layers) {
+            skipped += 1;
+            continue;
+        }
         const len = @as(usize, 1) << @intCast(depth);
         const start = twiddle_len - (len * 2);
         const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
@@ -306,6 +419,17 @@ pub fn evaluateBuffersWithTwiddles(
                 fft_kernels.fftLayerLoopForwardM31(values, @intCast(layer_idx + 1), h, twid);
             }
         }
+    }
+
+    if (fuse_bottom) {
+        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
+        const t2s = twiddle_tree.twiddles[twiddle_len - (len2 * 2) .. twiddle_len - len2];
+        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
+        const t01s = twiddle_tree.twiddles[twiddle_len - (len1 * 2) .. twiddle_len - len1];
+        for (values_batch) |values| {
+            fft_kernels.fftBottomThreeLayersForwardM31(values, t2s, t01s);
+        }
+        return;
     }
 
     const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);

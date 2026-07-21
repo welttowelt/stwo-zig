@@ -156,6 +156,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
             leaves: []H.Hash,
             log_size: u32,
         ) !Self {
+            _ = log_size;
             var leaves_appended = false;
             errdefer if (!leaves_appended) layer_alloc.free(leaves);
 
@@ -172,25 +173,23 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
             if (leaves.len > 1) {
                 const max_out_len = leaves.len >> 1;
+                const worker_override = merkleWorkerOverride(allocator);
                 var executor: LayerExecutor = undefined;
                 executor.init(
                     max_out_len,
-                    merkleWorkerOverride(allocator),
+                    worker_override,
                     reuseAvailablePool(allocator),
                 );
                 defer executor.deinit();
 
-                var i: usize = 0;
-                while (i < log_size) : (i += 1) {
-                    try layers_bottom_up.ensureUnusedCapacity(allocator, 1);
-                    const next_layer = try LayerOps.buildNextLayer(
-                        layer_alloc,
-                        layers_bottom_up.items[layers_bottom_up.items.len - 1],
-                        &executor,
-                        merkleWorkerOverride(allocator),
-                    );
-                    layers_bottom_up.appendAssumeCapacity(next_layer);
-                }
+                try LayerOps.buildUpperLayersSubtree(
+                    allocator,
+                    layer_alloc,
+                    leaves,
+                    &executor,
+                    worker_override,
+                    &layers_bottom_up,
+                );
             }
 
             const out_layers = try allocator.alloc([]H.Hash, layers_bottom_up.items.len);
@@ -301,23 +300,19 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
             if (leaves.len > 1) {
                 std.debug.assert(std.math.isPowerOfTwo(leaves.len));
-                const max_log_size = std.math.log2_int(usize, leaves.len);
                 const max_out_len = leaves.len >> 1;
                 var executor: LayerExecutor = undefined;
                 executor.init(max_out_len, worker_override, reuse_pool);
                 defer executor.deinit();
 
-                var i: usize = 0;
-                while (i < max_log_size) : (i += 1) {
-                    const prev_idx = layers_bottom_up.items.len - 1;
-                    const next_layer = try LayerOps.buildNextLayer(
-                        layer_alloc,
-                        layers_bottom_up.items[prev_idx],
-                        &executor,
-                        worker_override,
-                    );
-                    try layers_bottom_up.append(allocator, next_layer);
-                }
+                try LayerOps.buildUpperLayersSubtree(
+                    allocator,
+                    layer_alloc,
+                    leaves,
+                    &executor,
+                    worker_override,
+                    &layers_bottom_up,
+                );
             }
 
             const out_layers = try allocator.alloc([]H.Hash, layers_bottom_up.items.len);
