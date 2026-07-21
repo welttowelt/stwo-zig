@@ -86,7 +86,7 @@ fn fillBitReversedDomainCoordinates(
     }
 }
 
-test "metal quotient domain walk matches indexed bit-reversed coordinates" {
+test "metal: quotient domain walk matches indexed bit-reversed coordinates" {
     const allocator = std.testing.allocator;
     const circle = @import("stwo_core").circle;
     const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
