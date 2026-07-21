@@ -9,6 +9,10 @@ bool stwo_zig_metal_compute_quotients(
     const uint32_t *sample_components,
     const uint32_t *linear_terms,
     uint32_t batch_count,
+    bool cache_domain,
+    uint32_t domain_log_size,
+    uint32_t domain_initial_index,
+    uint32_t domain_step_size,
     const uint32_t *domain_x,
     const uint32_t *domain_y,
     uint32_t row_count,
@@ -22,9 +26,12 @@ bool stwo_zig_metal_compute_quotients(
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || views == NULL || sample_components == NULL ||
-        linear_terms == NULL || domain_x == NULL || domain_y == NULL ||
+        linear_terms == NULL || (!cache_domain && (domain_x == NULL || domain_y == NULL)) ||
         output == NULL || row_count == 0u || tree_out == NULL ||
-        (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u))
+        (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u) ||
+        (cache_domain && ((row_count & (row_count - 1u)) != 0u ||
+                          domain_log_size >= 31u ||
+                          row_count != (1u << domain_log_size))))
         return false;
     @autoreleasepool {
         *tree_out = NULL;
@@ -64,12 +71,39 @@ bool stwo_zig_metal_compute_quotients(
         id<MTLBuffer> linear_buffer = [runtime.device newBufferWithBytes:linear_terms
                                                                   length:(NSUInteger)batch_count * 8u * sizeof(uint32_t)
                                                                  options:MTLResourceStorageModeShared];
-        id<MTLBuffer> x_buffer = [runtime.device newBufferWithBytes:domain_x
-                                                             length:(NSUInteger)row_count * sizeof(uint32_t)
-                                                            options:MTLResourceStorageModeShared];
-        id<MTLBuffer> y_buffer = [runtime.device newBufferWithBytes:domain_y
-                                                             length:(NSUInteger)row_count * sizeof(uint32_t)
-                                                            options:MTLResourceStorageModeShared];
+        NSUInteger domain_bytes = (NSUInteger)row_count * sizeof(uint32_t);
+        NSUInteger x_offset = 0u;
+        NSUInteger y_offset = 0u;
+        id<MTLBuffer> x_buffer = nil;
+        id<MTLBuffer> y_buffer = nil;
+        id<MTLBuffer> domain_cache_candidate = nil;
+        bool build_domain_cache = false;
+        if (cache_domain) {
+            // A local strong reference keeps a hit alive if another proof
+            // replaces the one-entry cache after this synchronized lookup.
+            @synchronized(runtime) {
+                if (runtime.quotientDomainCache != nil &&
+                    runtime.quotientDomainCacheRowCount == row_count &&
+                    runtime.quotientDomainCacheLogSize == domain_log_size &&
+                    runtime.quotientDomainCacheInitialIndex == domain_initial_index &&
+                    runtime.quotientDomainCacheStepSize == domain_step_size) {
+                    domain_cache_candidate = runtime.quotientDomainCache;
+                }
+            }
+            if (domain_cache_candidate == nil) {
+                domain_cache_candidate = [runtime.device newBufferWithLength:2u * domain_bytes
+                                                                      options:MTLResourceStorageModeShared];
+                build_domain_cache = true;
+            }
+            x_buffer = domain_cache_candidate;
+            y_buffer = domain_cache_candidate;
+            y_offset = domain_bytes;
+        } else {
+            x_buffer = [runtime.device newBufferWithBytes:domain_x length:domain_bytes
+                                                   options:MTLResourceStorageModeShared];
+            y_buffer = [runtime.device newBufferWithBytes:domain_y length:domain_bytes
+                                                   options:MTLResourceStorageModeShared];
+        }
         size_t output_bytes = (size_t)row_count * 4u * sizeof(uint32_t);
         size_t page_size = (size_t)getpagesize();
         bool direct_output = ((uintptr_t)output % page_size) == 0u && (output_bytes % page_size) == 0u;
@@ -172,6 +206,22 @@ bool stwo_zig_metal_compute_quotients(
         }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        if (build_domain_cache) {
+            id<MTLComputeCommandEncoder> domain_encoder = [command computeCommandEncoder];
+            [domain_encoder setComputePipelineState:runtime.quotientDomainPointsResident];
+            [domain_encoder setBuffer:domain_cache_candidate offset:0u atIndex:0];
+            uint32_t destination_offset = 0u;
+            [domain_encoder setBytes:&destination_offset length:sizeof(destination_offset) atIndex:1];
+            [domain_encoder setBytes:&row_count length:sizeof(row_count) atIndex:2];
+            [domain_encoder setBytes:&domain_log_size length:sizeof(domain_log_size) atIndex:3];
+            [domain_encoder setBytes:&domain_initial_index length:sizeof(domain_initial_index) atIndex:4];
+            [domain_encoder setBytes:&domain_step_size length:sizeof(domain_step_size) atIndex:5];
+            NSUInteger domain_width = MIN(runtime.quotientDomainPointsResident.maxTotalThreadsPerThreadgroup,
+                                          runtime.quotientDomainPointsResident.threadExecutionWidth * 8u);
+            [domain_encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
+                      threadsPerThreadgroup:MTLSizeMake(domain_width, 1u, 1u)];
+            [domain_encoder endEncoding];
+        }
         NSMutableArray<id<MTLBuffer>> *raw_sources = [NSMutableArray array];
         if (gpu_raw_upload) {
             id<MTLBuffer> numerators = [runtime.device newBufferWithLength:(NSUInteger)batch_count * row_count * 4u * sizeof(uint32_t)
@@ -247,8 +297,8 @@ bool stwo_zig_metal_compute_quotients(
             [finalize setBuffer:sample_buffer offset:0 atIndex:1];
             [finalize setBuffer:linear_buffer offset:0 atIndex:2];
             [finalize setBytes:&batch_count length:sizeof(batch_count) atIndex:3];
-            [finalize setBuffer:x_buffer offset:0 atIndex:4];
-            [finalize setBuffer:y_buffer offset:0 atIndex:5];
+            [finalize setBuffer:x_buffer offset:x_offset atIndex:4];
+            [finalize setBuffer:y_buffer offset:y_offset atIndex:5];
             [finalize setBuffer:output_buffer offset:0 atIndex:6];
             [finalize setBytes:&row_count length:sizeof(row_count) atIndex:7];
             NSUInteger finalize_width = MIN(runtime.quotientFinalize.maxTotalThreadsPerThreadgroup,
@@ -266,8 +316,8 @@ bool stwo_zig_metal_compute_quotients(
             [encoder setBuffer:sample_buffer offset:0 atIndex:3];
             [encoder setBuffer:linear_buffer offset:0 atIndex:4];
             [encoder setBytes:&batch_count length:sizeof(batch_count) atIndex:5];
-            [encoder setBuffer:x_buffer offset:0 atIndex:6];
-            [encoder setBuffer:y_buffer offset:0 atIndex:7];
+            [encoder setBuffer:x_buffer offset:x_offset atIndex:6];
+            [encoder setBuffer:y_buffer offset:y_offset atIndex:7];
             [encoder setBuffer:output_buffer offset:0 atIndex:8];
             [encoder setBytes:&row_count length:sizeof(row_count) atIndex:9];
             NSUInteger width = MIN(quotient_pipeline.maxTotalThreadsPerThreadgroup,
@@ -322,6 +372,17 @@ bool stwo_zig_metal_compute_quotients(
             write_error(error_message, error_message_len,
                         command.error.localizedDescription ?: @"Metal quotient execution failed");
             return false;
+        }
+        if (build_domain_cache) {
+            // Publish only completed data. Concurrent misses may duplicate
+            // this bounded computation, but can never observe a partial grid.
+            @synchronized(runtime) {
+                runtime.quotientDomainCache = domain_cache_candidate;
+                runtime.quotientDomainCacheRowCount = row_count;
+                runtime.quotientDomainCacheLogSize = domain_log_size;
+                runtime.quotientDomainCacheInitialIndex = domain_initial_index;
+                runtime.quotientDomainCacheStepSize = domain_step_size;
+            }
         }
         if (resident_output_ptr == NULL && !direct_output)
             memcpy(output, output_buffer.contents, output_bytes);
