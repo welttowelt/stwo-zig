@@ -15,7 +15,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import frontier, ledger, search_health
+from . import frontier, ledger, metrics, search_health
 from .manifest import Manifest
 
 FEED_SCHEMA_VERSION = 3
@@ -227,7 +227,88 @@ def _promotion_scope(manifest: Manifest) -> dict:
     }
 
 
-def _boards(manifest: Manifest, rows: list[ledger.Row], epoch: int) -> dict:
+def _audit_age(repo: Path, base_commit: str) -> dict:
+    try:
+        commits = int(_git(repo, "rev-list", "--count", f"{base_commit}..HEAD"))
+        base_time = int(_git(repo, "show", "-s", "--format=%ct", base_commit))
+        head_time = int(_git(repo, "show", "-s", "--format=%ct", "HEAD"))
+    except (FeedError, ValueError) as exc:
+        return {
+            "base_commit": base_commit,
+            "commits": None,
+            "seconds": None,
+            "unavailable_reason": "audit_base_not_present_in_repository_history",
+        }
+    return {
+        "base_commit": base_commit,
+        "commits": commits,
+        "seconds": max(0, head_time - base_time),
+    }
+
+
+def _audit_state(
+    repo: Path,
+    rows: list[ledger.Row],
+    epoch_spec: dict,
+    board: str,
+    workload_class: str,
+) -> dict:
+    policy = metrics.policy_from_epoch(epoch_spec)
+    state = metrics.audit_projection(
+        rows,
+        int(epoch_spec["epoch"]),
+        board,
+        workload_class,
+        policy=policy,
+    )
+    evidence_total = state.claimed_observations + state.judged_observations
+    coverage = state.neutral_observations
+    return {
+        "effective_score": state.effective_score,
+        "audited_score": state.audited_score,
+        "audited_through": state.audited_through,
+        "audit_age": _audit_age(repo, state.audit_base),
+        "unaudited_tail": {
+            "count": len(state.unaudited_tail),
+            "observation_ids": list(state.unaudited_tail),
+        },
+        "due": {
+            "span": state.span_due,
+            "span_reasons": list(state.span_reasons),
+            "direct": state.direct_due,
+        },
+        "overdue": {
+            "span": state.span_overdue_by > 0,
+            "span_by_observations": state.span_overdue_by,
+            "direct": state.direct_overdue_by > 0,
+            "direct_by_observations": state.direct_overdue_by,
+        },
+        "span_coverage": {
+            "eligible": coverage,
+            "consumed": state.span_consumed,
+            "pending": state.span_pending,
+            "share": state.span_consumed / coverage if coverage else None,
+        },
+        "evidence_share": {
+            "claimed": state.claimed_observations,
+            "judged": state.judged_observations,
+            "claimed_share": (
+                state.claimed_observations / evidence_total if evidence_total else None
+            ),
+            "judged_share": (
+                state.judged_observations / evidence_total if evidence_total else None
+            ),
+        },
+    }
+
+
+def _boards(
+    repo: Path,
+    manifest: Manifest,
+    rows: list[ledger.Row],
+    epoch_spec: dict,
+) -> dict:
+    epoch = int(epoch_spec["epoch"])
     boards: dict = {}
     owned_boards = {group.board for group in manifest.groups()}
     for board in ledger.BOARDS:
@@ -245,6 +326,9 @@ def _boards(manifest: Manifest, rows: list[ledger.Row], epoch: int) -> dict:
             board_frontier[cls] = {
                 "head": view.head.values if view.head else None,
                 "frontier": [r.values for r in view.frontier],
+                "audit": _audit_state(
+                    repo, rows, epoch_spec, board, cls,
+                ),
             }
         boards[board] = {
             "entries": entries,
@@ -550,7 +634,7 @@ def build_feed(manifest: Manifest, allow_dirty: bool = False) -> dict:
             "aa_dispersion": epoch.get("aa_dispersion"),
         },
         "promotion_scope": _promotion_scope(manifest),
-        "boards": _boards(manifest, rows, int(epoch["epoch"])),
+        "boards": _boards(repo, manifest, rows, epoch),
         "search_health": build_search_health(manifest, rows),
         "metal_resident_progress": _metal_progress(latest),
         "latest_matrix": latest,

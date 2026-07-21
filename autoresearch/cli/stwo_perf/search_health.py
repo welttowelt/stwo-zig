@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import statistics
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
@@ -234,6 +234,35 @@ def decide_rounds(
     )
 
 
+def require_audit_power(decision: RoundDecision) -> RoundDecision:
+    """Raise a normal decision to the bounded audit target.
+
+    Audits are sparse correctness-and-credit checkpoints. They always request
+    the configured boost, even when ordinary trailing search evidence is not
+    yet sufficient to trigger automatic boosting. The existing maximum and
+    deadline bounds remain authoritative.
+    """
+    desired = min(
+        decision.configured_rounds + decision.auto_boost_rounds,
+        decision.maximum_rounds,
+    )
+    if decision.deadline_round_limit is not None:
+        desired = min(desired, decision.deadline_round_limit)
+    target = max(decision.target_rounds, desired)
+    if target == decision.target_rounds and decision.auto_boost_applied:
+        return decision
+    return replace(
+        decision,
+        target_rounds=target,
+        auto_boost_applied=target > decision.configured_rounds,
+        auto_boost_reason=(
+            "required_audit_power"
+            if target > decision.configured_rounds
+            else "required_audit_power_deadline_limited"
+        ),
+    )
+
+
 def canonical_sha256(payload: object) -> str:
     encoded = json.dumps(
         payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
@@ -372,6 +401,10 @@ def _validate_decision_dict(decision: dict) -> None:
         valid_reason = median is not None and median < threshold and applied
     elif reason == "trailing_median_below_threshold_deadline_limited":
         valid_reason = median is not None and median < threshold and not applied
+    elif reason == "required_audit_power":
+        valid_reason = applied
+    elif reason == "required_audit_power_deadline_limited":
+        valid_reason = not applied
     else:
         valid_reason = False
     if not valid_reason:

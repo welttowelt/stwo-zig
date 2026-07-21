@@ -1698,6 +1698,7 @@ def evaluate(
     board: str = "core_cpu",
     holdout_seed: int | None = None,
     guards_mode: str = "auto",
+    audit_mode: bool = False,
 ) -> dict:
     """Run the full paired evaluation and assemble a verdict dict.
 
@@ -1748,6 +1749,8 @@ def evaluate(
         )
     except search_health.SearchHealthError as exc:
         raise RunError(f"cannot make search-health round decision: {exc}") from exc
+    if audit_mode:
+        decision = search_health.require_audit_power(decision)
     decision_path = _record_search_health_decision(out_dir, decision)
     measurement_started = time.monotonic()
     class_deadline = (
@@ -1972,6 +1975,8 @@ def evaluate(
             "reports": [p for s in scores for p in s.reports],
         },
     }
+    if audit_mode:
+        verdict["audit_mode"] = True
     return verdict
 
 

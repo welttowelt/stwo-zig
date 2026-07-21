@@ -81,6 +81,31 @@ collision where several cells shared one `judged_at_utc+commit` key.
 The Pareto frontier and anchor-drift budgets are computed from this file by
 `stwo-perf frontier`; nothing else is authoritative.
 
+## Audit production protocol
+
+`python3 -m stwo_perf.audits plan` is the deterministic W2/W3 controller. It
+binds its plan to the exact manifest, epoch, ledger bytes, and candidate HEAD,
+then emits due board/class cells in manifest order. Direct audits take priority
+when both cadences are due. Every runnable item fixes the exact predecessor,
+candidate, span coverage or direct replacement set, `scope=s5`, judged mode,
+the full regression portfolio, the pinned final oracle, and bounded boosted
+measurement power. There is no `guards_mode=none` audit path.
+
+The scheduled/manual `autoresearch-audit` workflow executes at most the
+requested number of items sequentially on the designated M5 judge. The
+self-hosted job receives no signing secret. A hosted signing job checks out the
+same immutable candidate, recomputes due state from authority, validates every
+guard/oracle/power binding, signs the verdict, and materializes the exact v3
+row. Signed bundles are retained on `audit-verdicts` and can be ingested with
+`python3 -m stwo_perf.audits append`.
+
+Append fails closed if HEAD, manifest, epoch, or any ledger byte changed after
+planning. It verifies every signature and row encoding, parses the complete
+prospective ledger, and replays the affected Metrics-v2 score cells before one
+write. A failed span keeps `covers` for diagnosis but consumes nothing. A
+failed direct audit has an empty `credit_replaces`, so it cannot retire credit.
+Null, gate-passing spans consume their observations once with zero score input.
+
 The canonical board suite score compounds only effective `promoted` ratios in
 the current epoch, assigns identity to untouched scored classes, and takes the
 geometric mean over that board's manifest-declared `scored` classes. Changing

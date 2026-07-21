@@ -72,6 +72,27 @@ class DueState:
     direct_audit_replaces: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class AuditProjection:
+    """Public, deterministic state for one board/class audit cell."""
+
+    effective_score: float
+    audited_score: float
+    audited_through: str | None
+    audit_base: str
+    unaudited_tail: tuple[str, ...]
+    span_due: bool
+    span_overdue_by: int
+    span_reasons: tuple[str, ...]
+    direct_due: bool
+    direct_overdue_by: int
+    neutral_observations: int
+    span_consumed: int
+    span_pending: int
+    claimed_observations: int
+    judged_observations: int
+
+
 def _validate_policy(policy: AuditPolicy) -> None:
     if (
         not math.isfinite(policy.shrinkage_lambda)
@@ -383,4 +404,76 @@ def due_state(
         span_point_r=math.exp(point_log),
         direct_audit_due=len(promotions) >= policy.direct_every,
         direct_audit_replaces=direct_replaces,
+    )
+
+
+def audit_projection(
+    rows: list[ledger.Row],
+    epoch: int,
+    board: str,
+    workload_class: str,
+    *,
+    policy: AuditPolicy,
+) -> AuditProjection:
+    """Project score, coverage, evidence share, and cadence from ledger state.
+
+    This intentionally excludes wall-clock and git-graph age. Those are
+    deterministic repository projections layered on by the feed producer.
+    """
+    state = due_state(
+        rows, epoch, board, workload_class, policy=policy,
+    )
+    score = score_class(
+        rows,
+        epoch,
+        board,
+        workload_class,
+        shrinkage_lambda=policy.shrinkage_lambda,
+        audit_anchor_commit=policy.audit_anchor_commit,
+    )
+    class_rows = _class_rows(rows, epoch, board, workload_class)
+    last_direct_index = max(
+        (
+            index for index, row in enumerate(class_rows)
+            if row.evidence_kind == "direct_audit" and _crediting(row)
+        ),
+        default=-1,
+    )
+    post_audit = class_rows[last_direct_index + 1:]
+    promotions = [row for row in post_audit if row.evidence_kind == "promotion"]
+    neutral = [
+        row for row in promotions
+        if row.gates_passed and row.outcome == "neutral"
+    ]
+    consumed = {
+        observation
+        for row in post_audit
+        if row.evidence_kind == "span_audit"
+        and row.gates_passed
+        and row.outcome != "rejected"
+        for observation in row.covers
+    }
+    pending = [row for row in neutral if row.observation_id not in consumed]
+    evidence_rows = [
+        row for row in class_rows
+        if row.evidence_kind in ("promotion", "direct_audit", "span_audit")
+    ]
+    claimed = sum(row.verdict_kind == "claimed" for row in evidence_rows)
+    judged = sum(row.verdict_kind == "judged" for row in evidence_rows)
+    return AuditProjection(
+        effective_score=score.ratio,
+        audited_score=score.audited_ratio,
+        audited_through=score.audited_through,
+        audit_base=score.audited_through or policy.audit_anchor_commit,
+        unaudited_tail=tuple(row.observation_id for row in promotions),
+        span_due=state.span_due,
+        span_overdue_by=max(0, len(pending) - policy.span_every),
+        span_reasons=state.span_reasons,
+        direct_due=state.direct_audit_due,
+        direct_overdue_by=max(0, len(promotions) - policy.direct_every),
+        neutral_observations=len(neutral),
+        span_consumed=len(consumed),
+        span_pending=len(pending),
+        claimed_observations=claimed,
+        judged_observations=judged,
     )

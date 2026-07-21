@@ -40,7 +40,7 @@ Top-level keys:
 | `anchor` | frozen flag, anchor commit, per-class anchor prove-ms |
 | `epoch` | current measurement epoch and A/A dispersion (theta inputs) |
 | `promotion_scope` | v2: the decided benchmark set — manifest class registry (scored, resource, timeout, and sampling policy), workload groups (board, enabled, disabled_reason, per-workload class + native unit), `owned_boards`, `future_boards`, and committed baseline directories. A board in `future_boards` exists only as scoring universe; consumers render it as out-of-scope, never as empty-but-live |
-| `boards` | per scoring board (schema/scoring.md): ledger entries, manifest-owned `scored_classes`, canonical current-epoch `suite_score`, and per-class frontier |
+| `boards` | per scoring board (schema/scoring.md): ledger entries, manifest-owned `scored_classes`, canonical current-epoch `suite_score`, and per-class frontier. Each live class also exposes its Metrics-v2 `audit` projection: effective/audited score, `audited_through`, deterministic commit/time age, unaudited tail, due/overdue state, span coverage, and claimed-versus-judged evidence share |
 | `search_health` | v3: manifest policy plus per board/class availability, trailing summary, latest configured/actual rounds and boost decision, complete-wall measurement hours, credited log-improvement/hour, immutable time series, and trailing decay series; classes come from the manifest and historical rows, not a fixed feed list |
 | `metal_resident_progress` | Board-4 progress metrics while the board is empty (fallbacks/proof, zero-fallback row count) |
 | `latest_matrix` | the newest benchmark-history matrix run: per-row workload identity, headline eligibility, proof parity, and per-lane medians (prove ms, native MHz with its unit, request ms, peak RSS, fallback/dispatch counts) |
@@ -60,6 +60,12 @@ boards are live. Search-health points with `available=false` remain part of the
 time series and must render their `unavailable_reason`, never a fabricated zero.
 Malformed or missing evidence on a v3 `judged` row prevents feed publication;
 legacy v1/v2 rows remain readable and explicitly unavailable.
+
+Audit age is computed from committed Git timestamps and ancestry, never the feed
+producer's wall clock. A fork or generic consumer missing the audit commit
+publishes an explicit unavailable reason and null age, never an invented zero.
+A class with no evidence publishes null coverage/share ratios, not synthetic
+percentages.
 
 Transport: the same document is served identically from the committed file
 (`autoresearch/site/feed.json`, e.g. via GitHub raw) and from a running

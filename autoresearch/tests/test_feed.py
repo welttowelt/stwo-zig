@@ -82,6 +82,25 @@ class FeedTest(unittest.TestCase):
             self.assertEqual(score["classes"], self.feed["boards"][board]["scored_classes"])
             self.assertEqual(score["epoch"], self.feed["epoch"]["number"])
 
+    def test_live_classes_publish_complete_audit_state(self):
+        for board in ("core_cpu", "core_metal", "riscv"):
+            for class_state in self.feed["boards"][board]["frontier_by_class"].values():
+                audit = class_state["audit"]
+                self.assertIn("effective_score", audit)
+                self.assertIn("audited_through", audit)
+                self.assertIn("audit_age", audit)
+                self.assertIn("unaudited_tail", audit)
+                self.assertIn("due", audit)
+                self.assertIn("overdue", audit)
+                self.assertIn("span_coverage", audit)
+                self.assertIn("evidence_share", audit)
+                age = audit["audit_age"]
+                self.assertTrue(
+                    isinstance(age.get("commits"), int)
+                    or age.get("unavailable_reason")
+                    == "audit_base_not_present_in_repository_history"
+                )
+
     def test_empty_boards_render_empty_not_invented(self):
         for board, data in self.feed["boards"].items():
             for entry in data["entries"]:
