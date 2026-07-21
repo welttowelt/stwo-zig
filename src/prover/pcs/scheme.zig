@@ -18,6 +18,7 @@ const prover_fri = @import("../fri.zig");
 const commitment_tree = @import("commitment_tree.zig");
 const circle_transforms = @import("columns/circle_transforms.zig");
 const column_preparation = @import("columns/preparation.zig");
+const deferred_commit = @import("deferred_commit.zig");
 const column_storage = @import("columns/storage.zig");
 const pow_search = @import("proof_of_work.zig");
 const sampled_value_transcript = @import("sampled_value_transcript.zig");
@@ -75,6 +76,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         config: PcsConfig,
         coefficient_retention_policy: CoefficientRetentionPolicy,
         twiddle_source: TwiddleSource,
+        pending_commit: ?deferred_commit.Pending(BackendCommitmentTree),
 
         const Self = @This();
 
@@ -90,10 +92,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 .config = config,
                 .coefficient_retention_policy = .always,
                 .twiddle_source = twiddle_source,
+                .pending_commit = null,
             };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            deferred_commit.discard(self, allocator);
             for (self.trees.items) |*tree| tree.deinit(allocator);
             self.trees.deinit(allocator);
             self.twiddle_source.deinit(allocator);
@@ -169,7 +173,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     self.coefficient_retention_policy,
                 );
                 errdefer prepared.deinit(allocator);
-
                 var tree = try BackendCommitmentTree.initOwnedWithCoefficients(
                     allocator,
                     prepared.columns,
@@ -178,9 +181,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 errdefer tree.deinit(allocator);
                 return self.appendCommittedTree(allocator, tree, channel);
             }
-
-            // Auto-dispatch to streaming path for large column sets
-            // to reduce peak memory by processing in batches.
+            // Auto-dispatch to streaming for large column sets (bounds peak memory).
             const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
             if (owned_columns.len >= streaming_column_threshold and !backend_prefers_monolithic) {
                 return self.commitOwnedStreamingWithRecorder(
@@ -192,6 +193,8 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
             }
 
+            if (deferred_commit.canDeferFirstTree(self, owned_columns) and
+                deferred_commit.trySpawn(B, BackendCommitmentTree, self, allocator, owned_columns)) return;
             errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
             var prepared = try column_preparation.prepareColumnsForCommitOwnedForBackend(
                 B,
@@ -203,7 +206,6 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 recorder,
             );
             errdefer prepared.deinit(allocator);
-
             var merkle_commit_stage = try stage_profile.StageScope.begin(
                 recorder,
                 "merkle_commit",
