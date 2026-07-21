@@ -65,6 +65,25 @@ const Application = struct {
     backends: []const []const u8 = &.{capabilities.backend},
     reason: ?[]const u8 = null,
 
+    pub fn jsonStringify(self: Application, writer: anytype) !void {
+        try writer.beginObject();
+        try writer.objectField("adapter");
+        try writer.write(self.adapter);
+        try writer.objectField("air");
+        try writer.write(self.air);
+        try writer.objectField("status");
+        try writer.write(self.status);
+        try writer.objectField("isa");
+        try writer.write(self.isa);
+        try writer.objectField("backends");
+        try writer.write(self.backends);
+        if (self.reason) |reason| {
+            try writer.objectField("reason");
+            try writer.write(reason);
+        }
+        try writer.endObject();
+    }
+
     fn releaseGated() Application {
         return .{ .status = "release_gated" };
     }
@@ -99,6 +118,11 @@ test "registry exposes exactly the RISC-V CPU capability" {
     );
     try std.testing.expectEqual(@as(usize, 1), root.get("backend_availability").?.object.count());
     try std.testing.expect(root.get("backend_availability").?.object.get("cpu").?.bool);
+    if (capabilities.adapter_release_gated) {
+        const applications = root.get("applications").?.array;
+        try std.testing.expectEqual(@as(usize, 1), applications.items.len);
+        try std.testing.expect(applications.items[0].object.get("reason") == null);
+    }
     const encoded = output.buffered();
     inline for (.{ "metal", "cuda", "cairo", "wide_fibonacci", "poseidon" }) |forbidden| {
         try std.testing.expect(std.mem.indexOf(u8, encoded, forbidden) == null);
