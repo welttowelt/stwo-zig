@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 RUNGS = ("s1", "s2", "s3", "s4", "s5")
@@ -13,6 +13,31 @@ REPORT_SCHEMA_VERSIONS = {
     "native_proof_v6": 6,
     "riscv_proof_v1": 1,
 }
+
+GROUP_GATES_POLICY_LIMITS = {
+    "warmups": (1, 100),
+    "samples_per_round": (1, 32),
+    "min_rounds": (1, 50),
+    "max_rounds": (1, 50),
+}
+WALL_CLOCK_CLASSES = frozenset(("small", "wide", "deep"))
+MAX_GROUP_WALL_CLOCK_SECONDS = 7200
+RISCV_MECHANISM_FIELDS = frozenset({
+    "total_steps",
+    "n_components",
+    "mean_execution_seconds",
+    "mean_witness_seconds",
+    "mean_proving_seconds",
+    "mean_verification_seconds",
+    "statement_sha256",
+    "transcript_state_blake2s",
+})
+RISCV_STABLE_MECHANISM_FIELDS = frozenset({
+    "total_steps",
+    "n_components",
+    "statement_sha256",
+    "transcript_state_blake2s",
+})
 
 
 class ManifestError(RuntimeError):
@@ -38,6 +63,10 @@ class WorkloadGroup:
     binary: str
     report_schema: str
     workloads: list[Workload]
+    gates_policy: dict = field(default_factory=dict)
+    holdout_generator: dict = field(default_factory=dict)
+    correctness_oracle: dict = field(default_factory=dict)
+    mechanism_telemetry: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -56,6 +85,19 @@ class Manifest:
     @property
     def gates(self) -> dict:
         return dict(self.raw["gates_policy"])
+
+    def gates_for_group(self, group_id: str) -> dict:
+        """Global gate policy with one group's bounded measurement overrides."""
+        policy = self.gates
+        override = self.group(group_id).gates_policy
+        for key, value in override.items():
+            if key == "wall_clock_cap_seconds":
+                caps = dict(policy.get(key, {}))
+                caps.update(value)
+                policy[key] = caps
+            else:
+                policy[key] = value
+        return policy
 
     @property
     def qualification_policy(self) -> dict:
@@ -81,6 +123,10 @@ class Manifest:
                     Workload(wid, w["class"], w["args"], w["native_unit"], gid)
                     for wid, w in spec["workloads"].items()
                 ],
+                gates_policy=dict(spec.get("gates_policy", {})),
+                holdout_generator=dict(spec.get("holdout_generator", {})),
+                correctness_oracle=dict(spec.get("correctness_oracle", {})),
+                mechanism_telemetry=dict(spec.get("mechanism_telemetry", {})),
             ))
         return out
 
@@ -230,6 +276,168 @@ def _validate(raw: dict) -> None:
             raise ManifestError(
                 f"workload group {gid} has unsupported report_schema: {report_schema!r}"
             )
+        _validate_group_gates_policy(
+            gid, spec.get("gates_policy", {}), raw["gates_policy"]
+        )
+        if not isinstance(spec.get("correctness_oracle", {}), dict):
+            raise ManifestError(
+                f"workload group {gid}: correctness_oracle must be an object"
+            )
+        _validate_group_mechanism_telemetry(
+            gid, report_schema, spec.get("mechanism_telemetry", {})
+        )
+        if not isinstance(spec["workloads"], dict) or not spec["workloads"]:
+            raise ManifestError(f"workload group {gid}: workloads must be a non-empty object")
         for wid, w in spec["workloads"].items():
+            if not isinstance(w, dict):
+                raise ManifestError(f"workload {gid}/{wid} must be an object")
             if w.get("class") not in ("small", "wide", "deep"):
                 raise ManifestError(f"workload {gid}/{wid} has invalid class")
+        _validate_group_holdout_generator(
+            gid, spec.get("holdout_generator", {}), spec["workloads"]
+        )
+
+
+def _validate_group_mechanism_telemetry(
+    gid: str, report_schema: str, telemetry: object,
+) -> None:
+    if not isinstance(telemetry, dict):
+        raise ManifestError(f"workload group {gid}: mechanism_telemetry must be an object")
+    if report_schema != "riscv_proof_v1":
+        return
+    if set(telemetry) != {"fail_closed", "required_fields"}:
+        raise ManifestError(
+            f"workload group {gid}: RISC-V mechanism_telemetry requires exactly "
+            "fail_closed and required_fields"
+        )
+    if telemetry["fail_closed"] is not True:
+        raise ManifestError(
+            f"workload group {gid}: RISC-V mechanism telemetry must fail closed"
+        )
+    fields = telemetry["required_fields"]
+    if (not isinstance(fields, list) or not fields or
+            any(not isinstance(field, str) for field in fields) or
+            len(fields) != len(set(fields))):
+        raise ManifestError(
+            f"workload group {gid}: mechanism required_fields must be a unique non-empty list"
+        )
+    unknown = sorted(set(fields) - RISCV_MECHANISM_FIELDS)
+    if unknown:
+        raise ManifestError(
+            f"workload group {gid}: unsupported mechanism field(s): " + ", ".join(unknown)
+        )
+    missing = sorted(RISCV_STABLE_MECHANISM_FIELDS - set(fields))
+    if missing:
+        raise ManifestError(
+            f"workload group {gid}: mechanism telemetry omits stable field(s): "
+            + ", ".join(missing)
+        )
+
+
+def _validate_group_gates_policy(gid: str, override: object, global_policy: dict) -> None:
+    if not isinstance(override, dict):
+        raise ManifestError(f"workload group {gid}: gates_policy must be an object")
+    allowed = set(GROUP_GATES_POLICY_LIMITS) | {"wall_clock_cap_seconds", "note"}
+    unknown = sorted(set(override) - allowed)
+    if unknown:
+        raise ManifestError(
+            f"workload group {gid}: unsupported gates_policy override(s): "
+            + ", ".join(unknown)
+        )
+    if "note" in override and (
+        not isinstance(override["note"], str) or not override["note"].strip()
+    ):
+        raise ManifestError(f"workload group {gid}: gates_policy.note must be non-empty")
+    for key, (minimum, maximum) in GROUP_GATES_POLICY_LIMITS.items():
+        if key not in override:
+            continue
+        value = override[key]
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ManifestError(
+                f"workload group {gid}: gates_policy.{key} must be an integer "
+                f"in [{minimum}, {maximum}]"
+            )
+    caps = override.get("wall_clock_cap_seconds", {})
+    if not isinstance(caps, dict):
+        raise ManifestError(
+            f"workload group {gid}: gates_policy.wall_clock_cap_seconds must be an object"
+        )
+    unknown_classes = sorted(set(caps) - WALL_CLOCK_CLASSES)
+    if unknown_classes:
+        raise ManifestError(
+            f"workload group {gid}: unsupported wall-clock class(es): "
+            + ", ".join(unknown_classes)
+        )
+    for workload_class, value in caps.items():
+        if type(value) is not int or not 1 <= value <= MAX_GROUP_WALL_CLOCK_SECONDS:
+            raise ManifestError(
+                f"workload group {gid}: wall-clock cap for {workload_class} must be "
+                f"an integer in [1, {MAX_GROUP_WALL_CLOCK_SECONDS}]"
+            )
+    merged = dict(global_policy)
+    merged.update({key: value for key, value in override.items()
+                   if key != "wall_clock_cap_seconds"})
+    if "min_rounds" in merged and "max_rounds" in merged:
+        if merged["min_rounds"] > merged["max_rounds"]:
+            raise ManifestError(
+                f"workload group {gid}: gates_policy min_rounds exceeds max_rounds"
+            )
+
+
+def _validate_group_holdout_generator(
+    gid: str, generator: object, workloads: dict,
+) -> None:
+    if not isinstance(generator, dict):
+        raise ManifestError(f"workload group {gid}: holdout_generator must be an object")
+    if not generator:
+        return
+    if set(generator) != {"strategy", "pools"}:
+        raise ManifestError(
+            f"workload group {gid}: holdout_generator requires exactly strategy and pools"
+        )
+    if generator["strategy"] != "seeded_workload_pool_v1":
+        raise ManifestError(
+            f"workload group {gid}: unsupported holdout strategy "
+            f"{generator['strategy']!r}"
+        )
+    pools = generator["pools"]
+    if not isinstance(pools, dict) or not pools:
+        raise ManifestError(f"workload group {gid}: holdout pools must be a non-empty object")
+    unknown_classes = sorted(set(pools) - WALL_CLOCK_CLASSES)
+    if unknown_classes:
+        raise ManifestError(
+            f"workload group {gid}: unsupported holdout class(es): "
+            + ", ".join(unknown_classes)
+        )
+    for workload_class, ids in pools.items():
+        if (not isinstance(ids, list) or not ids or
+                any(not isinstance(item, str) or not item for item in ids)):
+            raise ManifestError(
+                f"workload group {gid}: holdout pool {workload_class} must be "
+                "a non-empty list of workload IDs"
+            )
+        if len(ids) != len(set(ids)):
+            raise ManifestError(
+                f"workload group {gid}: holdout pool {workload_class} has duplicate IDs"
+            )
+        primary_id = next(
+            (workload_id for workload_id, workload in workloads.items()
+             if workload.get("class") == workload_class),
+            None,
+        )
+        if primary_id is None or not any(workload_id != primary_id for workload_id in ids):
+            raise ManifestError(
+                f"workload group {gid}: holdout pool {workload_class} must contain "
+                "a workload different from the primary workload"
+            )
+        for workload_id in ids:
+            workload = workloads.get(workload_id)
+            if not isinstance(workload, dict):
+                raise ManifestError(
+                    f"workload group {gid}: unknown holdout workload {workload_id!r}"
+                )
+            if workload.get("class") != workload_class:
+                raise ManifestError(
+                    f"workload group {gid}: holdout workload {workload_id!r} is not "
+                    f"class {workload_class}"
+                )

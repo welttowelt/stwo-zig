@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import platform
+import re
 import shlex
 import subprocess
 import time
@@ -25,6 +27,7 @@ from pathlib import Path
 from . import ledger, stats
 from .manifest import (
     REPORT_SCHEMA_VERSIONS,
+    RISCV_STABLE_MECHANISM_FIELDS,
     Manifest,
     ManifestError,
     Workload,
@@ -45,6 +48,7 @@ class ArmResult:
     report_path: str
     proof_digest: str | None = None
     request_ms: float | None = None
+    mechanism: dict | None = None
 
 
 @dataclass
@@ -60,6 +64,7 @@ class WorkloadScore:
     proof_digest: str | None = None
     request_ratio: float | None = None
     report_sha256s: list[str] = field(default_factory=list)
+    mechanism_verified: bool | None = None
 
 
 def _run(cmd: str, cwd: Path, timeout: int) -> str:
@@ -103,6 +108,64 @@ def build_arm(arm_root: Path, manifest: Manifest, timeout: int = 900,
         _run(group.build_step, arm_root, timeout)
 
 
+def _riscv_admission_state(arm_root: Path) -> tuple[str, str, bool]:
+    capability_path = arm_root / "src/products/riscv_cpu/capabilities.zig"
+    artifact_path = arm_root / "src/interop/riscv_artifact.zig"
+    try:
+        capability_source = capability_path.read_text(encoding="utf-8")
+        artifact_source = artifact_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RunError(f"cannot read typed RISC-V admission state: {exc}") from exc
+    capabilities = re.findall(
+        r"^pub const adapter_release_gated = (true|false);$",
+        capability_source,
+        flags=re.MULTILINE,
+    )
+    statuses = re.findall(
+        r'^pub const RELEASE_STATUS = "([^"]+)";$',
+        artifact_source,
+        flags=re.MULTILINE,
+    )
+    if len(capabilities) != 1 or len(statuses) != 1:
+        raise RunError("RISC-V admission state is missing or ambiguous")
+    state = (capabilities[0], statuses[0])
+    if state == ("false", "not_release_gated"):
+        return "--experimental", "not_release_gated", True
+    if state == ("true", "release_gated"):
+        return "", "release_gated", False
+    raise RunError(
+        "RISC-V capability and artifact release states disagree "
+        f"(adapter_release_gated={state[0]}, RELEASE_STATUS={state[1]!r})"
+    )
+
+
+def _format_workload_args(
+    arm_root: Path,
+    group: WorkloadGroup,
+    workload: Workload,
+    warmups: int,
+    samples: int,
+) -> str:
+    admission = ""
+    if group.report_schema == "riscv_proof_v1":
+        if "{admission}" not in workload.args:
+            raise RunError(
+                f"{workload.workload_id}: RISC-V workload command lacks "
+                "the required {admission} token"
+            )
+        admission = _riscv_admission_state(arm_root)[0]
+    try:
+        return workload.args.format(
+            warmups=warmups,
+            samples=samples,
+            admission=admission,
+        )
+    except (KeyError, IndexError, ValueError) as exc:
+        raise RunError(
+            f"{workload.workload_id}: invalid workload command template: {exc}"
+        ) from exc
+
+
 def bench_once(
     arm_root: Path,
     manifest: Manifest,
@@ -119,51 +182,325 @@ def bench_once(
             f"group {group.group_id}: bench binary not found at {binary} — "
             f"build it first ({group.build_step}); refusing to fabricate measurements"
         )
-    args = workload.args.format(warmups=warmups, samples=samples)
-    stdout = _run(f"{binary} {args}", arm_root, timeout=1200)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    proof_path = None
+    if group.report_schema == "riscv_proof_v1":
+        proof_path = (out_dir / f"{workload.workload_id}.{tag}.proof.json").resolve()
+    args = _format_workload_args(
+        arm_root, group, workload, warmups, samples,
+    )
+    extra = f" --proof-out {shlex.quote(str(proof_path))}" if proof_path else ""
+    stdout = _run(f"{binary} {args}{extra}", arm_root, timeout=1200)
     try:
-        report = json.loads(stdout)
-    except json.JSONDecodeError as exc:
+        report = _load_json_object(stdout, "bench report")
+    except (json.JSONDecodeError, ValueError) as exc:
         raise RunError(
             f"{workload.workload_id}: bench emitted non-JSON output "
             f"(first 200 chars: {stdout[:200]!r})"
         ) from exc
-    if not isinstance(report, dict):
-        raise RunError(f"{workload.workload_id}: bench report root must be a JSON object")
-    expected_schema = REPORT_SCHEMA_VERSIONS[group.report_schema]
-    actual_schema = report.get("schema_version")
-    if type(actual_schema) is not int or actual_schema != expected_schema:
+    out_path = out_dir / f"{workload.workload_id}.{tag}.json"
+    try:
+        if group.report_schema == "native_proof_v6":
+            result = _parse_native_report(report, group, workload, samples, out_path)
+        elif group.report_schema == "riscv_proof_v1":
+            assert proof_path is not None
+            result = _parse_riscv_report(
+                report, group, workload, warmups, samples, out_path, proof_path, arm_root,
+            )
+        else:  # Manifest validation owns the supported schema set.
+            raise RunError(
+                f"{workload.workload_id}: unsupported report schema "
+                f"{group.report_schema!r}"
+            )
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise RunError(
+            f"{workload.workload_id}: malformed {group.report_schema} report: {exc}"
+        ) from exc
+    out_path.write_text(json.dumps(report, indent=1))
+    return result
+
+
+def _load_json_object(raw: str, label: str) -> dict:
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label} has duplicate field {key!r}")
+            result[key] = value
+        return result
+
+    value = json.loads(raw, object_pairs_hook=unique_object)
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} root must be a JSON object")
+    return value
+
+
+def _finite_number(value: object, field_name: str, *, positive: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number")
+    result = float(value)
+    if not math.isfinite(result) or (positive and result <= 0) or result < 0:
+        qualifier = "a positive finite number" if positive else "a finite non-negative number"
+        raise ValueError(f"{field_name} must be {qualifier}")
+    return result
+
+
+def _sha256_hex(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError(f"{field_name} must be canonical lowercase SHA-256 hex")
+    return value
+
+
+def _commit_hex(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise ValueError(f"{field_name} must be a full lowercase Git commit")
+    return value
+
+
+def _parse_native_report(
+    report: dict,
+    group: WorkloadGroup,
+    workload: Workload,
+    samples: int,
+    out_path: Path,
+) -> ArmResult:
+    expected = REPORT_SCHEMA_VERSIONS[group.report_schema]
+    actual = report.get("schema_version")
+    if type(actual) is not int or actual != expected:
         raise RunError(
             f"{workload.workload_id}: group {group.group_id} expected "
-            f"{group.report_schema} (schema_version={expected_schema}), got "
-            f"schema_version={actual_schema!r}"
+            f"{group.report_schema} (schema_version={expected}), got "
+            f"schema_version={actual!r}"
         )
-    out_path = out_dir / f"{workload.workload_id}.{tag}.json"
-    out_path.write_text(json.dumps(report, indent=1))
-    timing = report["timing"]["prove_seconds"]
+    timing = report["timing"]
     proof = report["proof"]
-    rss = _peak_rss_mib(report)
-    samples_meta = proof.get("samples") or []
-    digest = samples_meta[0].get("sha256") if samples_meta else None
-    request = report["timing"].get("request_seconds")
-    request_ms = (
-        float(request["median"]) * 1000.0
-        if isinstance(request, dict) and request.get("median") is not None
-        else None
-    )
+    if not isinstance(timing, dict) or not isinstance(proof, dict):
+        raise ValueError("timing and proof must be objects")
+    verified = proof.get("verified_samples")
+    if type(verified) is not int or verified != samples:
+        raise ValueError(f"proof.verified_samples must equal requested samples ({samples})")
+    identical = proof.get("all_samples_byte_identical")
+    if type(identical) is not bool:
+        raise ValueError("proof.all_samples_byte_identical must be a boolean")
+    sample_meta = proof.get("samples")
+    if not isinstance(sample_meta, list) or len(sample_meta) != samples:
+        raise ValueError(f"proof.samples must contain exactly {samples} entries")
+    digests = {
+        _sha256_hex(item.get("sha256") if isinstance(item, dict) else None,
+                    "proof.samples[].sha256")
+        for item in sample_meta
+    }
+    if len(digests) != 1:
+        raise ValueError("proof.samples contain different proof digests")
+    prove = timing.get("prove_seconds")
+    if not isinstance(prove, dict):
+        raise ValueError("timing.prove_seconds must be an object")
+    request = timing.get("request_seconds")
+    request_ms = None
+    if request is not None:
+        if not isinstance(request, dict):
+            raise ValueError("timing.request_seconds must be an object")
+        request_ms = _finite_number(
+            request.get("median"), "timing.request_seconds.median", positive=True,
+        ) * 1000.0
     return ArmResult(
-        prove_ms=float(timing["median"]) * 1000.0,
-        proof_verified=int(proof.get("verified_samples", 0)),
-        byte_identical=bool(proof.get("all_samples_byte_identical", False)),
-        peak_rss_mib=rss,
+        prove_ms=_finite_number(
+            prove.get("median"), "timing.prove_seconds.median", positive=True,
+        ) * 1000.0,
+        proof_verified=verified,
+        byte_identical=identical and len(digests) == 1,
+        peak_rss_mib=_peak_rss_mib(report),
         report_path=str(out_path),
-        proof_digest=digest,
+        proof_digest=next(iter(digests)),
         request_ms=request_ms,
     )
 
 
+def _parse_riscv_report(
+    report: dict,
+    group: WorkloadGroup,
+    workload: Workload,
+    warmups: int,
+    samples: int,
+    out_path: Path,
+    proof_path: Path,
+    arm_root: Path,
+) -> ArmResult:
+    expected_fields = {
+        "schema", "release_status", "mode", "experimental", "profiled",
+        "warmups", "samples", "verified_samples", "total_steps", "n_components",
+        "throughput_numerator", "median_seconds", "throughput_mhz",
+        "mean_execution_seconds", "mean_witness_seconds", "mean_proving_seconds",
+        "mean_verification_seconds", "sample_seconds", "statement_sha256",
+        "transcript_state_blake2s", "implementation_commit", "implementation_dirty",
+        "executable_sha256", "artifact_sha256", "proof_path",
+    }
+    if set(report) != expected_fields:
+        raise ValueError(
+            "report fields differ: "
+            f"missing={sorted(expected_fields - set(report))} "
+            f"unknown={sorted(set(report) - expected_fields)}"
+        )
+    if report.get("schema") != group.report_schema:
+        raise RunError(
+            f"{workload.workload_id}: group {group.group_id} expected "
+            f"schema={group.report_schema!r}, got {report.get('schema')!r}"
+        )
+    _admission, expected_status, expected_experimental = _riscv_admission_state(arm_root)
+    if (report.get("release_status"), report.get("experimental")) != (
+        expected_status, expected_experimental,
+    ):
+        raise ValueError("RISC-V report does not match the typed admission phase")
+    if report.get("mode") != "bench" or report.get("profiled") is not False:
+        raise ValueError("RISC-V report must be an unprofiled bench run")
+    if type(report.get("warmups")) is not int or report["warmups"] != warmups:
+        raise ValueError(f"warmups must equal requested warmups ({warmups})")
+    reported_samples = report.get("samples")
+    verified = report.get("verified_samples")
+    if type(reported_samples) is not int or reported_samples != samples:
+        raise ValueError(f"samples must equal requested samples ({samples})")
+    if type(verified) is not int or verified != samples:
+        raise ValueError(f"verified_samples must equal requested samples ({samples})")
+    sample_seconds = report.get("sample_seconds")
+    if not isinstance(sample_seconds, list) or len(sample_seconds) != samples:
+        raise ValueError(f"sample_seconds must contain exactly {samples} entries")
+    parsed_samples = [
+        _finite_number(value, "sample_seconds[]", positive=True)
+        for value in sample_seconds
+    ]
+    median_seconds = _finite_number(
+        report.get("median_seconds"), "median_seconds", positive=True,
+    )
+    expected_median = sorted(parsed_samples)[len(parsed_samples) // 2]
+    if not math.isclose(median_seconds, expected_median, rel_tol=1e-12, abs_tol=1e-15):
+        raise ValueError("median_seconds does not match sample_seconds")
+    if report.get("throughput_numerator") != "vm_steps":
+        raise ValueError("throughput_numerator must equal 'vm_steps'")
+    throughput = _finite_number(
+        report.get("throughput_mhz"), "throughput_mhz", positive=True,
+    )
+    for field_name in ("total_steps", "n_components"):
+        value = report.get(field_name)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{field_name} must be a positive integer")
+    expected_throughput = report["total_steps"] / median_seconds / 1_000_000.0
+    if not math.isclose(throughput, expected_throughput, rel_tol=1e-12, abs_tol=1e-15):
+        raise ValueError("throughput_mhz is inconsistent with steps and median")
+    for field_name in (
+        "mean_execution_seconds", "mean_witness_seconds",
+        "mean_proving_seconds", "mean_verification_seconds",
+    ):
+        _finite_number(
+            report.get(field_name), field_name,
+            positive=field_name == "mean_proving_seconds",
+        )
+    _sha256_hex(report.get("statement_sha256"), "statement_sha256")
+    _sha256_hex(report.get("transcript_state_blake2s"), "transcript_state_blake2s")
+    _commit_hex(report.get("implementation_commit"), "implementation_commit")
+    if type(report.get("implementation_dirty")) is not bool:
+        raise ValueError("implementation_dirty must be a boolean")
+    _sha256_hex(report.get("executable_sha256"), "executable_sha256")
+    if report.get("proof_path") != str(proof_path):
+        raise ValueError("proof_path does not bind the requested retained artifact")
+    if not proof_path.is_file():
+        raise ValueError("bench did not retain the requested RISC-V proof artifact")
+    artifact_bytes = proof_path.read_bytes()
+    expected_artifact_digest = _sha256_hex(
+        report.get("artifact_sha256"), "artifact_sha256",
+    )
+    if hashlib.sha256(artifact_bytes).hexdigest() != expected_artifact_digest:
+        raise ValueError("artifact_sha256 does not match the retained artifact")
+    artifact = _load_json_object(artifact_bytes.decode("utf-8"), "RISC-V proof artifact")
+    artifact_fields = {
+        "artifact_kind", "schema_version", "exchange_mode", "release_status",
+        "generator", "air", "backend", "protocol", "source", "provenance",
+        "pcs_config", "statement", "interaction_claim", "proof_bytes_hex",
+    }
+    if set(artifact) != artifact_fields:
+        raise ValueError(
+            "retained artifact fields differ: "
+            f"missing={sorted(artifact_fields - set(artifact))} "
+            f"unknown={sorted(set(artifact) - artifact_fields)}"
+        )
+    required = {
+        "artifact_kind": "stwo_riscv_proof",
+        "schema_version": 3,
+        "exchange_mode": "riscv_proof_json_wire_v3",
+        "release_status": expected_status,
+        "generator": "zig",
+        "air": "stark_v_rv32im",
+        "backend": "cpu",
+    }
+    for field_name, expected in required.items():
+        if artifact.get(field_name) != expected:
+            raise ValueError(
+                f"retained artifact {field_name} must equal {expected!r}"
+            )
+    if artifact.get("protocol") not in ("functional", "secure"):
+        raise ValueError("retained artifact protocol is unsupported")
+    source = artifact.get("source")
+    if not isinstance(source, dict) or set(source) != {"elf_sha256", "input_sha256"}:
+        raise ValueError("retained artifact source is not canonical")
+    _sha256_hex(source.get("elf_sha256"), "artifact.source.elf_sha256")
+    _sha256_hex(source.get("input_sha256"), "artifact.source.input_sha256")
+    provenance = artifact.get("provenance")
+    provenance_fields = {
+        "oracle_repository", "oracle_commit", "implementation_repository",
+        "implementation_commit", "implementation_dirty", "witness_layout_sha256",
+    }
+    if not isinstance(provenance, dict) or set(provenance) != provenance_fields:
+        raise ValueError("retained artifact provenance is not canonical")
+    if (
+        provenance.get("oracle_repository") != "https://github.com/ClementWalter/stark-v"
+        or provenance.get("oracle_commit") != "d478f783055aa0d73a93768a433a3c6c31c91d1c"
+        or provenance.get("implementation_repository")
+        != "https://github.com/teddyjfpender/stwo-zig"
+        or provenance.get("implementation_commit") != report["implementation_commit"]
+        or provenance.get("implementation_dirty") is not report["implementation_dirty"]
+    ):
+        raise ValueError("retained artifact provenance does not bind the report")
+    _sha256_hex(
+        provenance.get("witness_layout_sha256"),
+        "artifact.provenance.witness_layout_sha256",
+    )
+    for field_name in ("pcs_config", "statement", "interaction_claim"):
+        if not isinstance(artifact.get(field_name), dict):
+            raise ValueError(f"retained artifact {field_name} must be an object")
+    proof_hex = artifact.get("proof_bytes_hex")
+    if not isinstance(proof_hex, str) or not proof_hex or len(proof_hex) % 2:
+        raise ValueError("proof_bytes_hex must be non-empty even-length lowercase hex")
+    try:
+        proof_bytes = bytes.fromhex(proof_hex)
+    except ValueError as exc:
+        raise ValueError("proof_bytes_hex is not hexadecimal") from exc
+    if proof_bytes.hex() != proof_hex:
+        raise ValueError("proof_bytes_hex is not canonical lowercase hex")
+    mechanism = {}
+    for field_name in group.mechanism_telemetry.get("required_fields", []):
+        # Every supported mechanism field was type/canonical validated above.
+        mechanism[field_name] = report[field_name]
+    return ArmResult(
+        prove_ms=_finite_number(
+            report.get("mean_proving_seconds"), "mean_proving_seconds", positive=True,
+        ) * 1000.0,
+        proof_verified=verified,
+        # The RISC-V bench aborts before reporting if sample artifacts differ.
+        byte_identical=True,
+        peak_rss_mib=None,
+        report_path=str(out_path),
+        proof_digest=hashlib.sha256(proof_bytes).hexdigest(),
+        request_ms=_finite_number(
+            median_seconds, "median_seconds", positive=True,
+        ) * 1000.0,
+        mechanism=mechanism,
+    )
+
+
 def _peak_rss_mib(report: dict) -> float | None:
-    rss = report.get("resources", {}).get("peak_rss_kib")
+    resources = report.get("resources", {})
+    if not isinstance(resources, dict):
+        raise ValueError("resources must be an object")
+    rss = resources.get("peak_rss_kib")
     if isinstance(rss, dict):
         rss = rss.get("median")
     return float(rss) / 1024.0 if rss else None
@@ -196,6 +533,9 @@ def paired_rounds(
     rss_b: list[float] = []
     request_ratios: list[float] = []
     cross_digest: str | None = None
+    mechanism_reference: dict | None = None
+    mechanism_verified: bool | None = None
+    group = manifest.group(workload.group_id)
 
     round_no = 0
     while round_no < max_rounds:
@@ -230,6 +570,29 @@ def paired_rounds(
                 f"{workload.workload_id}: proof digest changed between rounds — "
                 f"nondeterministic proof bytes"
             )
+        if group.report_schema == "riscv_proof_v1":
+            if a.mechanism is None or b.mechanism is None:
+                raise RunError(
+                    f"{workload.workload_id}: RISC-V mechanism telemetry is absent"
+                )
+            stable_a = {
+                key: a.mechanism.get(key) for key in RISCV_STABLE_MECHANISM_FIELDS
+            }
+            stable_b = {
+                key: b.mechanism.get(key) for key in RISCV_STABLE_MECHANISM_FIELDS
+            }
+            if stable_a != stable_b:
+                raise RunError(
+                    f"{workload.workload_id}: semantic mechanism telemetry differs "
+                    f"across A/B in round {round_no}"
+                )
+            if mechanism_reference is not None and stable_b != mechanism_reference:
+                raise RunError(
+                    f"{workload.workload_id}: semantic mechanism telemetry changed "
+                    "between rounds"
+                )
+            mechanism_reference = stable_b
+            mechanism_verified = True
         if a.request_ms and b.request_ms:
             request_ratios.append(b.request_ms / a.request_ms)
         ratios.append(b.prove_ms / a.prove_ms)
@@ -273,6 +636,7 @@ def paired_rounds(
         report_sha256s=[
             hashlib.sha256(Path(rp).read_bytes()).hexdigest() for rp in reports
         ],
+        mechanism_verified=mechanism_verified,
     )
 
 
@@ -337,6 +701,37 @@ def draw_holdout(manifest: Manifest, workload_class: str, seed: int,
     """Seeded jittered hold-out inside class bounds (playbook F.7)."""
     import random
 
+    group = manifest.group_for_board(board)
+    group_generator = group.holdout_generator
+    if group_generator.get("strategy") == "seeded_workload_pool_v1":
+        candidates = [
+            workload for workload in group.workloads
+            if workload.workload_class == workload_class
+        ]
+        if not candidates:
+            return None
+        primary = candidates[0]
+        by_id = {workload.workload_id: workload for workload in candidates}
+        pool_ids = group_generator.get("pools", {}).get(workload_class, [])
+        pool = [
+            by_id[workload_id]
+            for workload_id in pool_ids
+            if workload_id in by_id and workload_id != primary.workload_id
+        ]
+        if not pool:
+            raise RunError(
+                f"group {group.group_id}: holdout pool for {workload_class} "
+                "has no workload different from the primary workload"
+            )
+        selected = random.Random(seed).choice(pool)
+        return Workload(
+            f"holdout_{selected.workload_id}",
+            workload_class,
+            selected.args,
+            selected.native_unit,
+            selected.group_id,
+        )
+
     gen = manifest.raw["workload_registry"].get("holdout_generator", {})
     bounds = gen.get(workload_class)
     if not bounds:
@@ -375,9 +770,10 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
             f"no enabled workloads registered for board {board}, class {workload_class}"
         )
     workload = workloads[0]
+    policy = manifest.gates_for_group(workload.group_id)
     build_arm(repo_root, manifest, groups=[manifest.group(workload.group_id)])
     score = paired_rounds(repo_root, repo_root, manifest, workload,
-                          manifest.gates, out_dir)
+                          policy, out_dir)
     half_width = (score.ci[1] - score.ci[0]) / 2.0
     return {
         "workload_class": workload_class,
@@ -399,9 +795,28 @@ RUST_ORACLE_TOOLCHAIN = "nightly-2025-07-14"
 
 def rust_oracle_check(candidate_root: Path, manifest: Manifest,
                       workload: Workload, out_dir: Path) -> dict:
-    """One pinned-Rust verification per scored workload: the candidate emits a
-    proof artifact and the parity oracle must accept it. Fail-closed when the
-    policy requires the oracle and it cannot run."""
+    """Dispatch one scored workload to its group's pinned correctness oracle."""
+    group = manifest.group(workload.group_id)
+    if group.report_schema == "native_proof_v6":
+        return _native_rust_oracle_check(
+            candidate_root, group, workload, out_dir,
+        )
+    if group.report_schema == "riscv_proof_v1":
+        return _riscv_stark_v_oracle_check(
+            candidate_root, group, workload, out_dir,
+        )
+    raise RunError(
+        f"{workload.workload_id}: no correctness oracle for "
+        f"{group.report_schema!r}"
+    )
+
+
+def _native_rust_oracle_check(
+    candidate_root: Path,
+    group: WorkloadGroup,
+    workload: Workload,
+    out_dir: Path,
+) -> dict:
     oracle = candidate_root / RUST_ORACLE_RELPATH
     if not oracle.is_file():
         _run(
@@ -409,12 +824,13 @@ def rust_oracle_check(candidate_root: Path, manifest: Manifest,
             f"--manifest-path tools/stwo-interop-rs/Cargo.toml",
             candidate_root, timeout=1200,
         )
-    group = manifest.group(workload.group_id)
     binary = candidate_root / group.binary
     artifact = out_dir / f"{workload.workload_id}.oracle-artifact.json"
-    args = workload.args.format(warmups=0, samples=1)
-    _run(f"{binary} {args} --proof-artifact-out {artifact}", candidate_root,
-         timeout=600)
+    args = _format_workload_args(candidate_root, group, workload, 0, 1)
+    command = shlex.join([
+        str(binary), *shlex.split(args), "--proof-artifact-out", str(artifact),
+    ])
+    _run(command, candidate_root, timeout=600)
     if not artifact.is_file():
         raise RunError(
             f"{workload.workload_id}: bench did not write the oracle artifact"
@@ -424,8 +840,180 @@ def rust_oracle_check(candidate_root: Path, manifest: Manifest,
     return {
         "workload": workload.workload_id,
         "verified": True,
+        "oracle": "pinned-rust-stwo",
         "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
     }
+
+
+def _riscv_stark_v_oracle_check(
+    candidate_root: Path,
+    group: WorkloadGroup,
+    workload: Workload,
+    out_dir: Path,
+) -> dict:
+    oracle_policy = group.correctness_oracle
+    pinned_commit = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
+    if (oracle_policy.get("authority"), oracle_policy.get("commit")) != (
+        "stark-v", pinned_commit,
+    ):
+        raise RunError(
+            f"{workload.workload_id}: RISC-V group is not bound to the pinned "
+            "Stark-V correctness authority"
+        )
+    anchor_raw = os.environ.get("STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT")
+    if not anchor_raw:
+        raise RunError(
+            f"{workload.workload_id}: "
+            "STWO_ZIG_RISCV_RELEASE_ANCHOR_RECEIPT is required; "
+            "autoresearch never produces the expensive CP-11 anchor"
+        )
+    anchor = Path(anchor_raw).expanduser().resolve()
+    if not anchor.is_file():
+        raise RunError(
+            f"{workload.workload_id}: RISC-V release anchor is not a file: {anchor}"
+        )
+    try:
+        anchor_bytes = anchor.read_bytes()
+        payload = _load_json_object(
+            anchor_bytes.decode("utf-8"), "Stark-V release anchor",
+        )
+        anchor_candidate = _commit_hex(
+            payload.get("candidate_commit"), "anchor candidate_commit",
+        )
+        oracle = payload.get("oracle")
+        if payload.get("schema") != "riscv-oracle-receipt-v2":
+            raise ValueError("unexpected receipt schema")
+        if payload.get("verdict") != "PASS":
+            raise ValueError("release anchor verdict is not PASS")
+        if not isinstance(oracle, dict) or oracle.get("commit") != pinned_commit:
+            raise ValueError("receipt is not bound to the pinned Stark-V revision")
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RunError(
+            f"{workload.workload_id}: invalid pinned Stark-V release anchor: {exc}"
+        ) from exc
+    validator = candidate_root / "scripts" / "riscv_release_evidence.py"
+    if not validator.is_file():
+        raise RunError(f"missing immutable RISC-V anchor validator: {validator}")
+    _run(
+        shlex.join([
+            "python3", str(validator), "--receipt", str(anchor),
+            "--candidate", anchor_candidate, "--at-receipt-time",
+        ]),
+        candidate_root,
+        timeout=600,
+    )
+    try:
+        if anchor.read_bytes() != anchor_bytes:
+            raise ValueError("release anchor changed during validation")
+        report_path, proof_path = _latest_riscv_candidate_artifact(out_dir, workload)
+        report = _load_json_object(
+            report_path.read_text(encoding="utf-8"), "candidate RISC-V bench report",
+        )
+        artifact_bytes = proof_path.read_bytes()
+        if report.get("proof_path") != str(proof_path):
+            raise ValueError("candidate report does not bind the retained proof path")
+        if _sha256_hex(
+            report.get("artifact_sha256"), "candidate artifact_sha256",
+        ) != hashlib.sha256(artifact_bytes).hexdigest():
+            raise ValueError("candidate report does not bind the retained proof bytes")
+        artifact = _load_json_object(
+            artifact_bytes.decode("utf-8"), "candidate RISC-V proof artifact",
+        )
+        statement_digest = _sha256_hex(
+            report.get("statement_sha256"), "candidate statement_sha256",
+        )
+        proof_hex = artifact.get("proof_bytes_hex")
+        if (not isinstance(proof_hex, str) or not proof_hex or
+                bytes.fromhex(proof_hex).hex() != proof_hex):
+            raise ValueError("candidate proof bytes are not canonical hex")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RunError(
+            f"{workload.workload_id}: invalid retained candidate artifact: {exc}"
+        ) from exc
+
+    binary = candidate_root / group.binary
+    if not binary.is_file():
+        raise RunError(f"missing RISC-V candidate verifier: {binary}")
+    verify_raw = _run(
+        shlex.join([
+            str(binary), "verify", "--artifact", str(proof_path),
+            "--protocol", str(artifact.get("protocol")),
+            "--expect-statement-digest", statement_digest,
+        ]),
+        candidate_root,
+        timeout=1200,
+    )
+    try:
+        verified = _validate_riscv_verify_receipt(
+            verify_raw, report, artifact, proof_hex,
+        )
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RunError(
+            f"{workload.workload_id}: invalid retained-artifact verification: {exc}"
+        ) from exc
+    return {
+        "workload": workload.workload_id,
+        "verified": True,
+        "oracle": "pinned-stark-v-release-anchor",
+        "oracle_commit": oracle["commit"],
+        "anchor_candidate": anchor_candidate,
+        "anchor_receipt_sha256": hashlib.sha256(anchor_bytes).hexdigest(),
+        "artifact_sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+        "proof_sha256": verified["proof_sha256"],
+    }
+
+
+def _latest_riscv_candidate_artifact(
+    out_dir: Path, workload: Workload,
+) -> tuple[Path, Path]:
+    pattern = re.compile(rf"^{re.escape(workload.workload_id)}\.b([1-9][0-9]*)\.json$")
+    reports = []
+    if out_dir.is_dir():
+        for path in out_dir.iterdir():
+            match = pattern.fullmatch(path.name)
+            if match and path.is_file():
+                reports.append((int(match.group(1)), path.resolve()))
+    if not reports:
+        raise ValueError("no retained candidate RISC-V benchmark report")
+    _round_no, report_path = max(reports)
+    proof_path = report_path.with_suffix(".proof.json")
+    if not proof_path.is_file():
+        raise ValueError(f"missing retained candidate proof: {proof_path}")
+    return report_path, proof_path
+
+
+def _validate_riscv_verify_receipt(
+    raw: str, report: dict, artifact: dict, proof_hex: str,
+) -> dict:
+    receipt = _load_json_object(raw, "RISC-V verification receipt")
+    expected_fields = {
+        "schema", "status", "artifact_kind", "artifact_schema_version",
+        "release_status", "security_policy", "statement_sha256", "proof_bytes",
+        "proof_sha256", "transcript_state_blake2s", "implementation_commit",
+        "implementation_dirty", "executable_sha256",
+    }
+    if set(receipt) != expected_fields:
+        raise ValueError("RISC-V verification receipt fields differ")
+    proof_bytes = bytes.fromhex(proof_hex)
+    expected = {
+        "schema": "riscv_verify_v1",
+        "status": "verified",
+        "artifact_kind": artifact.get("artifact_kind"),
+        "artifact_schema_version": artifact.get("schema_version"),
+        "release_status": artifact.get("release_status"),
+        "security_policy": artifact.get("protocol"),
+        "statement_sha256": report.get("statement_sha256"),
+        "proof_bytes": len(proof_bytes),
+        "proof_sha256": hashlib.sha256(proof_bytes).hexdigest(),
+        "transcript_state_blake2s": report.get("transcript_state_blake2s"),
+        "implementation_commit": report.get("implementation_commit"),
+        "implementation_dirty": report.get("implementation_dirty"),
+        "executable_sha256": report.get("executable_sha256"),
+    }
+    for field_name, value in expected.items():
+        if receipt.get(field_name) != value or type(receipt.get(field_name)) is not type(value):
+            raise ValueError(f"verification receipt {field_name} differs")
+    return receipt
 
 
 def guard_registry(manifest: Manifest) -> dict:
@@ -525,13 +1113,16 @@ def evaluate(
     evaluates claimed. The judged trust boundary is the HMAC signature applied
     by the judge (signing.py), never this flag alone.
     """
-    policy = manifest.gates
     skipped = announce_skipped_groups(manifest)
     workloads = _board_workloads(manifest, board, workload_class)
     if not workloads:
         raise RunError(
             f"no enabled workloads registered for board {board}, class {workload_class}"
         )
+    group_ids = {workload.group_id for workload in workloads}
+    if len(group_ids) != 1:
+        raise RunError(f"board {board} selected workloads from multiple groups")
+    policy = manifest.gates_for_group(next(iter(group_ids)))
 
     dispersion = ledger.aa_dispersion(repo_root, board, workload_class)
     th = stats.theta(dispersion, float(policy["theta_floor"]), float(policy["dispersion_multiplier"]))
@@ -626,6 +1217,7 @@ def evaluate(
                     "rounds": len(s.ratios),
                     "a_median_ms": round(s.a_median_ms, 6),
                     "b_median_ms": round(s.b_median_ms, 6),
+                    "mechanism_verified": s.mechanism_verified,
                 }
                 for s in scores
             },
@@ -653,6 +1245,7 @@ def evaluate(
                     "proof_digest": s.proof_digest,
                     "request_ratio": round(s.request_ratio, 6) if s.request_ratio else None,
                     "report_sha256s": s.report_sha256s,
+                    "mechanism_verified": s.mechanism_verified,
                 }
                 for s in scores
             },
@@ -668,16 +1261,16 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
     oracle_results = oracle_results or []
     # Per-round verification, per-round CROSS-ARM digest equality, and digest
     # constancy are enforced in paired_rounds (a violation raises, so reaching
-    # here means they held); the pinned-Rust oracle results land in the detail.
+    # here means they held); pinned correctness-oracle results land in the detail.
     g1_ok = True
     if bool(policy.get("require_rust_oracle", False)):
         g1_ok = len(oracle_results) == len(scores) and all(
             o.get("verified") for o in oracle_results
         )
     oracle_note = (
-        f"; pinned Rust oracle verified {sum(1 for o in oracle_results if o.get('verified'))}/{len(scores)} workloads"
+        f"; pinned correctness oracle verified {sum(1 for o in oracle_results if o.get('verified'))}/{len(scores)} workloads"
         if policy.get("require_rust_oracle", False)
-        else "; rust oracle not required by policy"
+        else "; correctness oracle not required by policy"
     )
     # Submission and note additions are the point of a submission PR; they are
     # not locked-path violations (mirrors validate_action's carve-out).
@@ -697,6 +1290,21 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
         g2_detail = "no locked path touched"
     if strays:
         g2_detail += f"; outside editable set: {strays[:5]}"
+
+    riscv_scores = [
+        score for score in scores
+        if manifest.group(score.workload.group_id).report_schema == "riscv_proof_v1"
+    ]
+    if riscv_scores:
+        g3_ok = all(score.mechanism_verified is True for score in riscv_scores)
+        g3_detail = (
+            "RISC-V mechanism telemetry present, canonical, and semantically stable "
+            f"for {sum(score.mechanism_verified is True for score in riscv_scores)}/"
+            f"{len(riscv_scores)} workloads"
+        )
+    else:
+        g3_ok = True
+        g3_detail = "native mechanism telemetry policy unchanged"
 
     # G4: anchor drift budgets, charged against the frozen anchor (never the
     # predecessor). Inactive until the anchor is frozen — G5 blocks judged then.
@@ -753,7 +1361,7 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
     return {
         "G1": {"pass": g1_ok, "detail": "every timed sample verified; cross-arm proof digests byte-identical per round" + oracle_note},
         "G2": {"pass": g2_ok, "detail": g2_detail},
-        "G3": {"pass": True, "detail": "mechanism binding recorded in note; telemetry wiring pending (F.8 item 2)"},
+        "G3": {"pass": g3_ok, "detail": g3_detail},
         "G4": {"pass": g4_ok, "detail": g4_detail},
         "G5": {"pass": env_ok, "detail": env_detail},
     }
