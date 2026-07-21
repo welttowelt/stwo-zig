@@ -185,6 +185,33 @@ pub fn Operations(comptime H: type) type {
         }
 
         fn buildLeavesBatchedRange4(ctx: *const BatchedLeafRangeCtx) void {
+            if (comptime @hasDecl(H, "supportsColumnMajorLeafHash4") and
+                H.supportsColumnMajorLeafHash4 and
+                @hasDecl(H, "hashColumnMajorLeavesWithSeed4"))
+            {
+                const seed = H.leafSeed();
+                var position = ctx.start;
+                while (position + 4 <= ctx.end) : (position += 4) {
+                    const hashes = H.hashColumnMajorLeavesWithSeed4(
+                        seed,
+                        ctx.sorted_columns,
+                        ctx.max_log_size,
+                        position,
+                    );
+                    inline for (0..4) |lane| ctx.out[position + lane] = hashes[lane];
+                }
+                while (position < ctx.end) : (position += 1) {
+                    var hasher = ctx.seed_hasher;
+                    for (ctx.sorted_columns) |column| {
+                        const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                        const source_index = ((position >> shift_amt) << 1) + (position & 1);
+                        hasher.updateLeaf(column.values[source_index .. source_index + 1]);
+                    }
+                    ctx.out[position] = hasher.finalize();
+                }
+                return;
+            }
+
             const scratch = ctx.scratch orelse {
                 buildLeavesBatchedRangeScalar(ctx);
                 return;

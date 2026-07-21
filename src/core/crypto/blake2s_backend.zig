@@ -365,6 +365,71 @@ pub const Blake2sHasher = struct {
         return parallelStatesToDigests(&states);
     }
 
+    /// Hashes four equal-length messages supplied as canonical little-endian
+    /// words without first materializing four contiguous byte strings.
+    ///
+    /// `reader.readWord4(word_index)` must return the next little-endian u32
+    /// message word for all four lanes.
+    pub fn hashEqualWordsFromSeed4WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        word_count: usize,
+        reader: anytype,
+    ) [4]Blake2sHash {
+        std.debug.assert(word_count > 0);
+        std.debug.assert(word_count <= (std.math.maxInt(u32) - 64) / 4);
+
+        if (selectBackend(mode).effective == .scalar) {
+            var out: [4]Blake2sHash = undefined;
+            for (&out, 0..) |*digest, lane| {
+                var hasher = Self.initWithMode(.scalar);
+                hasher.h = seed;
+                hasher.t0 = 64;
+
+                var at: usize = 0;
+                while (at < word_count) {
+                    const chunk_words = @min(@as(usize, 16), word_count - at);
+                    var block: [64]u8 = undefined;
+                    for (0..chunk_words) |word| {
+                        const byte_start = word * @sizeOf(u32);
+                        const lane_words = reader.readWord4(at + word);
+                        writeU32Le(
+                            block[byte_start .. byte_start + @sizeOf(u32)],
+                            lane_words[lane],
+                        );
+                    }
+                    hasher.update(block[0 .. chunk_words * @sizeOf(u32)]);
+                    at += chunk_words;
+                }
+                digest.* = hasher.finalize();
+            }
+            return out;
+        }
+
+        var states: [8]V4 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
+
+        var at: usize = 0;
+        var counter: u32 = 64;
+        while (at + 16 < word_count) : (at += 16) {
+            var messages: [16]V4 = undefined;
+            for (0..16) |word| {
+                messages[word] = @bitCast(reader.readWord4(at + word));
+            }
+            counter +%= 64;
+            compressParallel4(&states, &messages, counter, 0, 0);
+        }
+
+        const remaining = word_count - at;
+        var final_messages = [_]V4{@splat(0)} ** 16;
+        for (0..remaining) |word| {
+            final_messages[word] = @bitCast(reader.readWord4(at + word));
+        }
+        counter +%= @intCast(remaining * @sizeOf(u32));
+        compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
+        return parallelStatesToDigests(&states);
+    }
+
     fn addCounter(self: *Self, inc: u32) void {
         const sum: u64 = @as(u64, self.t0) + @as(u64, inc);
         self.t0 = @truncate(sum);
@@ -795,6 +860,57 @@ test "blake2s backend: four-way equal messages match seeded scalar stream" {
             @memcpy(payload[64..], message[0..]);
             const expected = Blake2sHasher.hash(payload[0..]);
             try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
+        }
+    }
+}
+
+test "blake2s backend: four-way word reader matches packed messages" {
+    var prng = std.Random.DefaultPrng.init(0x776f_7264_345f_6c65);
+    var prefix: [64]u8 = undefined;
+    prng.random().bytes(prefix[0..]);
+    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
+
+    inline for (.{ @as(usize, 1), @as(usize, 16), @as(usize, 17), @as(usize, 33) }) |word_count| {
+        var words: [4][word_count]u32 = undefined;
+        var storage: [4][word_count * @sizeOf(u32)]u8 = undefined;
+        var messages: [4][]const u8 = undefined;
+        for (&words, 0..) |*lane_words, lane| {
+            for (lane_words, 0..) |*word, word_index| {
+                word.* = prng.random().int(u32);
+                const byte_start = word_index * @sizeOf(u32);
+                writeU32Le(
+                    storage[lane][byte_start .. byte_start + @sizeOf(u32)],
+                    word.*,
+                );
+            }
+            messages[lane] = storage[lane][0..];
+        }
+
+        const Reader = struct {
+            words: *const [4][word_count]u32,
+
+            pub inline fn readWord4(reader: @This(), word_index: usize) [4]u32 {
+                return .{
+                    reader.words[0][word_index],
+                    reader.words[1][word_index],
+                    reader.words[2][word_index],
+                    reader.words[3][word_index],
+                };
+            }
+        };
+        const reader = Reader{ .words = &words };
+
+        inline for (.{ BackendMode.scalar, BackendMode.simd }) |mode| {
+            const packed_hashes = Blake2sHasher.hashEqualFromSeed4WithMode(mode, seed, &messages);
+            const direct = Blake2sHasher.hashEqualWordsFromSeed4WithMode(
+                mode,
+                seed,
+                word_count,
+                reader,
+            );
+            for (0..4) |lane| {
+                try std.testing.expectEqualSlices(u8, packed_hashes[lane][0..], direct[lane][0..]);
+            }
         }
     }
 }

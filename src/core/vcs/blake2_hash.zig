@@ -203,6 +203,24 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return out;
         }
 
+        pub fn hashEqualWordsFromSeed4WithMode(
+            mode: BackendMode,
+            seed: Fixed64Seed,
+            word_count: usize,
+            reader: anytype,
+        ) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashEqualWordsFromSeed4WithMode(
+                mode,
+                seed,
+                word_count,
+                reader,
+            );
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
         pub fn concatAndHash(v1: Blake2sHash, v2: Blake2sHash) Blake2sHash {
             var payload: [64]u8 = undefined;
             @memcpy(payload[0..32], v1[0..]);
