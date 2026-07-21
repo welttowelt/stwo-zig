@@ -8,9 +8,13 @@ from stwo_perf import runner  # noqa: E402
 from stwo_perf.manifest import Workload, WorkloadGroup  # noqa: E402
 
 
-def fake_manifest(guards: dict) -> mock.Mock:
+def fake_manifest(guards: dict, ci_level: float = 0.95) -> mock.Mock:
     m = mock.Mock()
-    m.raw = {"workload_registry": {"guards": guards}}
+    m.raw = {
+        "gates_policy": {"ci_level": ci_level},
+        "workload_registry": {"guards": guards},
+    }
+    m.gates = {"ci_level": ci_level}
     return m
 
 
@@ -87,6 +91,30 @@ class CrossArmDigestTest(unittest.TestCase):
                 runner.paired_rounds(
                     Path("/a"), Path("/b"), mock.Mock(), workload, policy, Path("/tmp")
                 )
+
+
+class GuardPolicyTest(unittest.TestCase):
+    def test_guards_inherit_manifest_ci_level(self):
+        workload = Workload(
+            "guard_blake", "guard", "--example blake", "rounds", "native",
+        )
+        score = mock.Mock(
+            r=0.95,
+            ci=(0.90, 0.99),
+            ratios=[0.95],
+            proof_digest="a" * 64,
+        )
+        with mock.patch.object(runner, "paired_rounds", return_value=score) as paired:
+            result = runner.run_guards(
+                Path("/a"),
+                Path("/b"),
+                fake_manifest(GUARDS, ci_level=0.91),
+                [workload],
+                Path("/tmp"),
+            )
+
+        self.assertTrue(result["guard_blake"]["pass"])
+        self.assertEqual(paired.call_args.args[4]["ci_level"], 0.91)
 
 
 class GateFoldingTest(unittest.TestCase):

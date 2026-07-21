@@ -1637,6 +1637,7 @@ def run_guards(a_root: Path, b_root: Path, manifest: Manifest,
         "theta_floor": max(budget - 1.0, 0.01),
         "wall_clock_cap_seconds": {"guard": 300},
         "command_timeout_seconds": 300,
+        "ci_level": float(manifest.gates["ci_level"]),
     }
     extra = int(policy.get("inconclusive_extra_rounds", 4))
     results: dict[str, dict] = {}
