@@ -441,6 +441,10 @@ pub fn extendCoefficientColumnsByGroupForBackend(
         total_columns >= 4;
 
     if (comptime @hasDecl(B, "evaluateCircleBuffers")) {
+        // The CPU extension transform treats an unwritten upper half as
+        // implicit zero. Generic backend hooks receive ordinary full buffers,
+        // so materialize that invariant before they can read or upload them.
+        materializeBackendExtensionZeros(work_items.items);
         for (work_items.items) |*item| {
             try B.evaluateCircleBuffers(allocator, item.values, item.domain, item.twiddle_tree);
         }
@@ -465,6 +469,15 @@ pub fn extendCoefficientColumnsByGroupForBackend(
     }
 
     return out;
+}
+
+fn materializeBackendExtensionZeros(work_items: []const FftEvalWorkItem) void {
+    for (work_items) |item| {
+        if (!item.extension) continue;
+        for (item.values) |values| {
+            @memset(values[values.len / 2 ..], M31.zero());
+        }
+    }
 }
 
 fn interpolateSingleCoefficientColumn(
@@ -602,4 +615,23 @@ test "circle transforms: CPU FFT batch exposes one task per worker" {
         @as(usize, 16),
         preferredCpuFftBatchLenForWorkers(16, 64, 2),
     );
+}
+
+test "circle transforms: backend extension buffers materialize implicit zeros" {
+    const allocator = std.testing.allocator;
+    const values = try allocator.alloc(M31, 16);
+    defer allocator.free(values);
+    @memset(values, M31.fromCanonical(0x5a5a));
+
+    var slices = [_][]M31{values};
+    const items = [_]FftEvalWorkItem{.{
+        .values = slices[0..],
+        .domain = canonic.CanonicCoset.new(4).circleDomain(),
+        .twiddle_tree = undefined,
+        .extension = true,
+    }};
+    materializeBackendExtensionZeros(items[0..]);
+
+    for (values[0..8]) |value| try std.testing.expectEqual(M31.fromCanonical(0x5a5a), value);
+    for (values[8..]) |value| try std.testing.expectEqual(M31.zero(), value);
 }
