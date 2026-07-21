@@ -14,6 +14,9 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from native_proof_matrix_lib.model import RUST_ORACLE_SHA256
 from scripts.tests.native_proof_matrix_support import (

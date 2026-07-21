@@ -235,6 +235,21 @@ function renderWorkloadDetail(run) {
   appendDefinition(metrics, "Committed cells", row.workload.committed_trace_cells.toLocaleString());
   appendDefinition(metrics, "Proof size", `${(row.proof.bytes / 1024).toFixed(1)} KiB`);
   appendDefinition(metrics, "Rust oracle", `verified @ ${shortCommit(row.proof.rust_upstream_commit)}`);
+  ["cpu", "metal"].forEach((laneName) => {
+    const resources = row.lanes[laneName].request_resources;
+    if (!resources?.complete) return;
+    const requests = resources.measured_warmups + resources.measured_samples;
+    const footprint = resources.lifetime_peak_physical_footprint_bytes / (1024 * 1024);
+    const energy = resources.energy_nj / requests / 1e9;
+    const instructions = resources.instructions / requests / 1e6;
+    const cycles = resources.cycles / requests / 1e6;
+    const label = laneName === "cpu" ? "CPU batch" : "Metal batch";
+    appendDefinition(
+      metrics,
+      label,
+      `${footprint.toFixed(1)} MiB · ${energy.toFixed(3)} J/request · ${instructions.toFixed(1)}M inst · ${cycles.toFixed(1)}M cycles`,
+    );
+  });
   detail.append(metrics);
   const digest = element("span", "proof-digest", `proof ${row.proof.sha256}`);
   digest.title = row.proof.sha256;
@@ -248,9 +263,16 @@ function percentChange(current, baseline) {
 function renderHistory() {
   const current = selectedRun();
   const position = state.catalog.runs.findIndex((run) => run.id === current.id);
-  const baseline = state.catalog.runs[position + 1] || null;
+  const currentSuite = current.rows
+    .map((row) => `${row.descriptor_sha256}:${row.headline_eligible}`)
+    .join(":");
+  const baseline = state.catalog.runs.slice(position + 1).find(
+    (run) => run.rows
+      .map((row) => `${row.descriptor_sha256}:${row.headline_eligible}`)
+      .join(":") === currentSuite,
+  ) || null;
   const summary = clear(document.getElementById("history-summary"));
-  summary.append(element("p", "eyebrow", baseline ? "Against preceding formal run" : "Earliest formal run"));
+  summary.append(element("p", "eyebrow", baseline ? "Observed against preceding same-suite run" : "No same-suite predecessor"));
   summary.append(element("h2", "", baseline ? `${shortCommit(current.revision.git_commit)} vs ${shortCommit(baseline.revision.git_commit)}` : shortCommit(current.revision.git_commit)));
   const comparisons = [
     ["CPU median MHz", "median_cpu_mhz", true],
