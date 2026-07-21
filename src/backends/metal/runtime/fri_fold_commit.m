@@ -370,10 +370,27 @@ bool stwo_zig_metal_fri_line_cascade(
             return false;
         }
 
+        id<MTLBuffer> initial_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[0];
+        StwoZigMetalTree *initial_tree = trees[0];
+        [encoder setComputePipelineState:runtime.friCoordinatesAndLeaves];
+        [encoder setBuffer:initial_source offset:0u atIndex:0];
+        [encoder setBuffer:initial_coordinates offset:0u atIndex:1];
+        [encoder setBuffer:transcript_arena
+            offset:(NSUInteger)tree_layer_word_offset(initial_tree, 0u) * sizeof(uint32_t)
+            atIndex:2];
+        [encoder setBytes:&source_count length:sizeof(source_count) atIndex:3];
+        [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:4];
+        [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:5];
+        NSUInteger initial_width = MIN(runtime.friCoordinatesAndLeaves.maxTotalThreadsPerThreadgroup,
+                                       runtime.friCoordinatesAndLeaves.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(source_count, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(initial_width, 1u, 1u)];
+        [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+
         id<MTLBuffer> evaluation = initial_source;
         count = source_count;
         NSUInteger inverse_offset = 0u;
-        uint64_t compute_encoders = 1u, dispatches = 0u;
+        uint64_t compute_encoders = 1u, dispatches = 1u;
         NSUInteger tail_static_bytes = runtime.parentTailSparse.staticThreadgroupMemoryLength;
         NSUInteger tail_available_bytes = runtime.device.maxThreadgroupMemoryLength > tail_static_bytes
             ? runtime.device.maxThreadgroupMemoryLength - tail_static_bytes : 0u;
@@ -381,41 +398,8 @@ bool stwo_zig_metal_fri_line_cascade(
             MIN(runtime.parentTailSparse.maxTotalThreadsPerThreadgroup,
                 tail_available_bytes / (8u * sizeof(uint32_t))));
         for (uint32_t stage = 0u; stage < fri_layer_count; ++stage) {
-            id<MTLBuffer> coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[stage];
             StwoZigMetalTree *tree = trees[stage];
             uint32_t tree_log_size = tree.logSize;
-
-            [encoder setComputePipelineState:runtime.qm31ToCoordinates];
-            [encoder setBuffer:evaluation offset:0u atIndex:0];
-            [encoder setBuffer:coordinates offset:0u atIndex:1];
-            [encoder setBytes:&count length:sizeof(count) atIndex:2];
-            NSUInteger conversion_width = MIN(runtime.qm31ToCoordinates.maxTotalThreadsPerThreadgroup,
-                                              runtime.qm31ToCoordinates.threadExecutionWidth * 8u);
-            [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u)
-                 threadsPerThreadgroup:MTLSizeMake(conversion_width, 1u, 1u)];
-            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-            dispatches += 1u;
-
-            uint32_t column_offsets[4] = { 0u, count, 2u * count, 3u * count };
-            uint32_t column_logs[4] = { tree_log_size, tree_log_size, tree_log_size, tree_log_size };
-            uint32_t column_count = 4u;
-            [encoder setComputePipelineState:runtime.leaves];
-            [encoder setBuffer:coordinates offset:0u atIndex:0];
-            [encoder setBytes:column_offsets length:sizeof(column_offsets) atIndex:1];
-            [encoder setBytes:column_logs length:sizeof(column_logs) atIndex:2];
-            [encoder setBuffer:tree.layers[0]
-                offset:(NSUInteger)tree_layer_word_offset(tree, 0u) * sizeof(uint32_t)
-                atIndex:3];
-            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
-            [encoder setBytes:&tree_log_size length:sizeof(tree_log_size) atIndex:5];
-            [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:6];
-            [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:7];
-            NSUInteger leaf_width = MIN(runtime.leaves.maxTotalThreadsPerThreadgroup,
-                                        runtime.leaves.threadExecutionWidth * 8u);
-            [encoder dispatchThreads:MTLSizeMake(count, 1u, 1u)
-                 threadsPerThreadgroup:MTLSizeMake(leaf_width, 1u, 1u)];
-            [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
-            dispatches += 1u;
 
             uint32_t child_offsets[31], destination_offsets[31], parent_counts[31];
             uint32_t tail_level = tree_log_size + 1u;
@@ -497,15 +481,29 @@ bool stwo_zig_metal_fri_line_cascade(
 
             uint32_t destination_count = count >> 1u;
             id<MTLBuffer> destination = destinations[stage];
-            [encoder setComputePipelineState:runtime.friFoldLine];
+            id<MTLComputePipelineState> fold_pipeline = runtime.friFoldLine;
             [encoder setBuffer:evaluation offset:0u atIndex:0];
             [encoder setBuffer:inverse_buffer offset:inverse_offset atIndex:1];
             [encoder setBuffer:transcript_arena
                 offset:(NSUInteger)alpha_base * sizeof(uint32_t) atIndex:2];
             [encoder setBuffer:destination offset:0u atIndex:3];
-            [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
-            NSUInteger fold_width = MIN(runtime.friFoldLine.maxTotalThreadsPerThreadgroup,
-                                        runtime.friFoldLine.threadExecutionWidth * 8u);
+            if (stage + 1u != fri_layer_count) {
+                fold_pipeline = runtime.friFoldLinePrepareNext;
+                id<MTLBuffer> next_coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[stage + 1u];
+                StwoZigMetalTree *next_tree = trees[stage + 1u];
+                [encoder setBuffer:next_coordinates offset:0u atIndex:4];
+                [encoder setBuffer:transcript_arena
+                    offset:(NSUInteger)tree_layer_word_offset(next_tree, 0u) * sizeof(uint32_t)
+                    atIndex:5];
+                [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:6];
+                [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:7];
+                [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:8];
+            } else {
+                [encoder setBytes:&destination_count length:sizeof(destination_count) atIndex:4];
+            }
+            [encoder setComputePipelineState:fold_pipeline];
+            NSUInteger fold_width = MIN(fold_pipeline.maxTotalThreadsPerThreadgroup,
+                                        fold_pipeline.threadExecutionWidth * 8u);
             [encoder dispatchThreads:MTLSizeMake(destination_count, 1u, 1u)
                  threadsPerThreadgroup:MTLSizeMake(fold_width, 1u, 1u)];
             if (stage + 1u != fri_layer_count)

@@ -44,6 +44,8 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientCoefficientsResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldCircle;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFoldLine;
+@property(nonatomic, strong) id<MTLComputePipelineState> friCoordinatesAndLeaves;
+@property(nonatomic, strong) id<MTLComputePipelineState> friFoldLinePrepareNext;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFold3Resident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friFold2Resident;
 @property(nonatomic, strong) id<MTLComputePipelineState> friPackedLeavesResident;
@@ -537,6 +539,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.quotientCoefficientsResident = make_pipeline(device, library, @"stwo_zig_quotient_coefficients_resident", error_message, error_message_len);
         runtime.friFoldCircle = make_pipeline(device, library, @"stwo_zig_fri_fold_circle", error_message, error_message_len);
         runtime.friFoldLine = make_pipeline(device, library, @"stwo_zig_fri_fold_line", error_message, error_message_len);
+        runtime.friCoordinatesAndLeaves = make_pipeline(device, library, @"stwo_zig_fri_coordinates_and_leaves", error_message, error_message_len);
+        runtime.friFoldLinePrepareNext = make_pipeline(device, library, @"stwo_zig_fri_fold_line_prepare_next", error_message, error_message_len);
         runtime.friFold3Resident = make_pipeline(device, library, @"stwo_zig_fri_fold3_resident", error_message, error_message_len);
         runtime.friFold2Resident = make_pipeline(device, library, @"stwo_zig_fri_fold2_resident", error_message, error_message_len);
         runtime.friPackedLeavesResident = make_pipeline(device, library, @"stwo_zig_fri_packed_leaves_resident", error_message, error_message_len);
@@ -601,7 +605,9 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
             runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
-            runtime.friFoldCircle == nil || runtime.friFoldLine == nil || runtime.friFold3Resident == nil ||
+            runtime.friFoldCircle == nil || runtime.friFoldLine == nil ||
+            runtime.friCoordinatesAndLeaves == nil || runtime.friFoldLinePrepareNext == nil ||
+            runtime.friFold3Resident == nil ||
             runtime.friFold2Resident == nil || runtime.friPackedLeavesResident == nil || runtime.friFinalLineResident == nil ||
             runtime.transcriptInitResident == nil || runtime.transcriptMixResident == nil ||
             runtime.transcriptDrawSecureResident == nil || runtime.transcriptDrawQueriesResident == nil ||

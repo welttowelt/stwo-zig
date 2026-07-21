@@ -2,7 +2,72 @@
 #include "stwo_zig/base.metal"
 #include "stwo_zig/blake2s.metal"
 #include "stwo_zig/merkle.metal"
+#include "stwo_zig/extension_fields.metal"
 #endif
+
+inline Qm31Value fri_fused_fold_pair(
+    Qm31Value left, Qm31Value right, uint inverse, Qm31Value alpha
+) {
+    return qm_add(qm_add(left, right), qm_mul(alpha, qm_mul_m31(qm_sub(left, right), inverse)));
+}
+
+inline void fri_store_coordinates_and_leaf(
+    device uint *coordinates, device uint *leaves, uint value_count, uint index,
+    Qm31Value value, constant uint *leaf_seed, uint prefix_bytes
+) {
+    coordinates[index] = value.a;
+    coordinates[value_count + index] = value.b;
+    coordinates[2u * value_count + index] = value.c;
+    coordinates[3u * value_count + index] = value.d;
+
+    uint state[8], message[16];
+    if (prefix_bytes == 0u) blake2s_init_hash(state);
+    else blake2s_init_seeded(state, leaf_seed);
+    message[0] = value.a;
+    message[1] = value.b;
+    message[2] = value.c;
+    message[3] = value.d;
+    for (uint word = 4u; word < 16u; ++word) message[word] = 0u;
+    blake2s_compress(state, message, prefix_bytes + 16u, true);
+    for (uint word = 0u; word < 8u; ++word) leaves[index * 8u + word] = state[word];
+}
+
+kernel void stwo_zig_fri_coordinates_and_leaves(
+    device const Qm31Value *source [[buffer(0)]],
+    device uint *coordinates [[buffer(1)]],
+    device uint *leaves [[buffer(2)]],
+    constant uint &value_count [[buffer(3)]],
+    constant uint *leaf_seed [[buffer(4)]],
+    constant uint &prefix_bytes [[buffer(5)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index >= value_count) return;
+    fri_store_coordinates_and_leaf(
+        coordinates, leaves, value_count, index, source[index], leaf_seed, prefix_bytes
+    );
+}
+
+kernel void stwo_zig_fri_fold_line_prepare_next(
+    device const Qm31Value *source [[buffer(0)]],
+    device const uint *inverse_x [[buffer(1)]],
+    constant Qm31Value &alpha [[buffer(2)]],
+    device Qm31Value *destination [[buffer(3)]],
+    device uint *coordinates [[buffer(4)]],
+    device uint *leaves [[buffer(5)]],
+    constant uint &destination_count [[buffer(6)]],
+    constant uint *leaf_seed [[buffer(7)]],
+    constant uint &prefix_bytes [[buffer(8)]],
+    uint index [[thread_position_in_grid]]
+) {
+    if (index >= destination_count) return;
+    Qm31Value value = fri_fused_fold_pair(
+        source[index << 1u], source[(index << 1u) + 1u], inverse_x[index], alpha
+    );
+    destination[index] = value;
+    fri_store_coordinates_and_leaf(
+        coordinates, leaves, destination_count, index, value, leaf_seed, prefix_bytes
+    );
+}
 
 kernel void stwo_zig_blake2s_leaves(
     device const uint *flat_columns [[buffer(0)]],
