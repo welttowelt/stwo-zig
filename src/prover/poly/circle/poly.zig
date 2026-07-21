@@ -148,6 +148,7 @@ pub const CircleCoefficients = struct {
         polys: []const CircleCoefficients,
         flat_factors: []const QM31,
         out_batch: []const []QM31,
+        basis_scratch: []QM31,
     ) void {
         std.debug.assert(polys.len == out_batch.len);
         if (polys.len == 0) return;
@@ -163,14 +164,46 @@ pub const CircleCoefficients = struct {
 
         const point_count = out_batch[0].len;
         std.debug.assert(flat_factors.len == point_count * log_size);
+        const basis_len = @as(usize, 1) << @intCast(log_size);
+        std.debug.assert(basis_scratch.len >= point_count * basis_len);
         for (polys, out_batch) |poly, out| {
             std.debug.assert(poly.log_size == log_size);
             std.debug.assert(out.len == point_count);
         }
 
         var factor_at: usize = 0;
+        var basis_at: usize = 0;
+        for (0..point_count) |_| {
+            point_evaluation.fillSubsetProductBasis(
+                flat_factors[factor_at .. factor_at + log_size],
+                basis_scratch[basis_at .. basis_at + basis_len],
+            );
+            factor_at += log_size;
+            basis_at += basis_len;
+        }
+        evalManyAtPointsWithSubsetProductBases(
+            polys,
+            basis_scratch[0 .. point_count * basis_len],
+            out_batch,
+        );
+    }
+
+    pub fn evalManyAtPointsWithSubsetProductBases(
+        polys: []const CircleCoefficients,
+        point_bases: []const QM31,
+        out_batch: []const []QM31,
+    ) void {
+        std.debug.assert(polys.len == out_batch.len);
+        if (polys.len == 0) return;
+
+        const log_size = polys[0].log_size;
+        const basis_len = @as(usize, 1) << @intCast(log_size);
+        const point_count = out_batch[0].len;
+        std.debug.assert(point_bases.len == point_count * basis_len);
+
+        var basis_at: usize = 0;
         for (0..point_count) |point_idx| {
-            const point_factors = flat_factors[factor_at .. factor_at + log_size];
+            const basis = point_bases[basis_at .. basis_at + basis_len];
             var poly_idx: usize = 0;
             if (comptime m31.PACK_WIDTH > 1) {
                 while (poly_idx + m31.PACK_WIDTH <= polys.len) : (poly_idx += m31.PACK_WIDTH) {
@@ -178,10 +211,9 @@ pub const CircleCoefficients = struct {
                     for (0..m31.PACK_WIDTH) |lane| {
                         coefficient_batches[lane] = polys[poly_idx + lane].coeffs;
                     }
-                    const values = point_evaluation.evalBatchAtPointIterative(
+                    const values = point_evaluation.evalBatchWithSubsetProductBasis(
                         coefficient_batches,
-                        point_factors,
-                        log_size,
+                        basis,
                     );
                     for (values, 0..) |value, lane| {
                         out_batch[poly_idx + lane][point_idx] = value;
@@ -189,13 +221,12 @@ pub const CircleCoefficients = struct {
                 }
             }
             for (polys[poly_idx..], out_batch[poly_idx..]) |poly, out| {
-                out[point_idx] = point_evaluation.evalAtPointIterative(
+                out[point_idx] = point_evaluation.evalWithSubsetProductBasis(
                     poly.coeffs,
-                    point_factors,
-                    log_size,
+                    basis,
                 );
             }
-            factor_at += log_size;
+            basis_at += basis_len;
         }
     }
 
@@ -581,7 +612,9 @@ test "prover poly circle poly: batched point evaluation matches scalar helper" {
     for (polys, scalar_out) |poly, out| {
         poly.evalAtPointsWithFlatFactors(factors, out);
     }
-    CircleCoefficients.evalManyAtPointsWithFlatFactors(polys, factors, batch_out);
+    const basis = try alloc.alloc(QM31, point_count * (@as(usize, 1) << @intCast(log_size)));
+    defer alloc.free(basis);
+    CircleCoefficients.evalManyAtPointsWithFlatFactors(polys, factors, batch_out, basis);
 
     for (scalar_out, batch_out) |expected, actual| {
         for (expected, actual) |lhs, rhs| {

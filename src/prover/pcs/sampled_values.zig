@@ -380,6 +380,8 @@ fn evaluateCoefficientPlans(
     defer if (batch_coefficients.len != 0) allocator.free(batch_coefficients);
     var batch_out: [][]QM31 = &[_][]QM31{};
     defer if (batch_out.len != 0) allocator.free(batch_out);
+    var basis_scratch: []QM31 = &[_]QM31{};
+    defer if (basis_scratch.len != 0) allocator.free(basis_scratch);
 
     for (plans) |plan| {
         if (plan.column_indices.items.len == 0) continue;
@@ -412,10 +414,20 @@ fn evaluateCoefficientPlans(
             plan.flat_factors,
             out_view,
         )) {
+            const basis_len = std.math.mul(
+                usize,
+                @as(usize, 1) << @intCast(plan.coeff_log_size),
+                plan.normalized_points.len,
+            ) catch return error.ShapeMismatch;
+            if (basis_scratch.len < basis_len) {
+                if (basis_scratch.len != 0) allocator.free(basis_scratch);
+                basis_scratch = try allocator.alloc(QM31, basis_len);
+            }
             prover_circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors(
                 coefficient_view,
                 plan.flat_factors,
                 out_view,
+                basis_scratch,
             );
         }
     }
@@ -423,13 +435,13 @@ fn evaluateCoefficientPlans(
 
 const CoefficientEvalWork = struct {
     coefficients: []const prover_circle.CircleCoefficients,
-    flat_factors: []const QM31,
     out: []const []QM31,
+    point_bases: []const QM31,
 
     fn run(self: *const CoefficientEvalWork) void {
-        prover_circle.poly.CircleCoefficients.evalManyAtPointsWithFlatFactors(
+        prover_circle.poly.CircleCoefficients.evalManyAtPointsWithSubsetProductBases(
             self.coefficients,
-            self.flat_factors,
+            self.point_bases,
             self.out,
         );
     }
@@ -445,6 +457,22 @@ fn evaluateCoefficientBatchParallel(
     const worker_count = @min(pool.workerCount(), coefficients.len / min_columns_per_worker);
     if (worker_count <= 1) return false;
 
+    const basis_len = coefficients[0].coeffs.len;
+    const point_count = out[0].len;
+    const total_basis_len = std.math.mul(usize, point_count, basis_len) catch return false;
+    const basis_storage = std.heap.page_allocator.alloc(QM31, total_basis_len) catch return false;
+    defer std.heap.page_allocator.free(basis_storage);
+    var factor_at: usize = 0;
+    var basis_at: usize = 0;
+    for (0..point_count) |_| {
+        @import("../poly/circle/point_evaluation.zig").fillSubsetProductBasis(
+            flat_factors[factor_at .. factor_at + coefficients[0].log_size],
+            basis_storage[basis_at .. basis_at + basis_len],
+        );
+        factor_at += coefficients[0].log_size;
+        basis_at += basis_len;
+    }
+
     var work: [work_pool_mod.MAX_WORKERS]CoefficientEvalWork = undefined;
     const chunk_len = (coefficients.len + worker_count - 1) / worker_count;
     for (0..worker_count) |worker| {
@@ -454,8 +482,8 @@ fn evaluateCoefficientBatchParallel(
         const end = @min(coefficients.len, start + chunk_len);
         work[worker] = .{
             .coefficients = coefficients[start..end],
-            .flat_factors = flat_factors,
             .out = out[start..end],
+            .point_bases = basis_storage,
         };
     }
 
