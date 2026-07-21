@@ -262,8 +262,26 @@ bool stwo_zig_metal_fri_line_cascade(
         const uint32_t transcript_root_base = 16u;
         const uint32_t transcript_alpha_base = transcript_root_base + fri_layer_count * 8u;
         const uint32_t transcript_words = transcript_alpha_base + fri_layer_count * 4u;
+        // A single offset-addressed arena makes every tree tail eligible for
+        // the threadgroup-local parent reduction and avoids one buffer object
+        // per logical Merkle level. Keep every level 256-byte aligned.
+        uint64_t arena_words = ((uint64_t)transcript_words + 63u) & ~63u;
+        count = source_count;
+        for (uint32_t stage = 0u; stage < fri_layer_count; ++stage) {
+            uint32_t layer_nodes = count;
+            while (layer_nodes > 1u) {
+                arena_words = (arena_words + 63u) & ~63u;
+                arena_words += (uint64_t)layer_nodes * 8u;
+                layer_nodes >>= 1u;
+            }
+            count >>= 1u;
+        }
+        if (arena_words > UINT32_MAX || arena_words > SIZE_MAX / sizeof(uint32_t)) {
+            write_error(error_message, error_message_len, @"Metal FRI cascade arena is too large");
+            return false;
+        }
         id<MTLBuffer> transcript_arena = [runtime.device newBufferWithLength:
-            (NSUInteger)transcript_words * sizeof(uint32_t)
+            (NSUInteger)arena_words * sizeof(uint32_t)
             options:MTLResourceStorageModeShared];
         id<MTLBuffer> leaf_seed_buffer = [runtime.device newBufferWithBytes:leaf_seed
             length:8u * sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -274,13 +292,14 @@ bool stwo_zig_metal_fri_line_cascade(
             write_error(error_message, error_message_len, @"Metal FRI cascade parameter allocation failed");
             return false;
         }
-        memset(transcript_arena.contents, 0, transcript_arena.length);
+        memset(transcript_arena.contents, 0, (NSUInteger)transcript_words * sizeof(uint32_t));
         memcpy(transcript_arena.contents, channel_state, 10u * sizeof(uint32_t));
 
         NSMutableArray<StwoZigMetalTree *> *trees =
             [NSMutableArray arrayWithCapacity:fri_layer_count];
         NSMutableArray<id<MTLBuffer>> *destinations =
             [NSMutableArray arrayWithCapacity:fri_layer_count];
+        uint32_t arena_cursor = (transcript_words + 63u) & ~63u;
         count = source_count;
         for (uint32_t stage = 0u; stage < fri_layer_count; ++stage) {
             id<MTLBuffer> coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[stage];
@@ -302,20 +321,14 @@ bool stwo_zig_metal_fri_line_cascade(
             const uint32_t root_word_offset = transcript_root_base + stage * 8u;
             uint32_t layer_nodes = count;
             for (uint32_t level = 0u; level <= tree_log_size; ++level) {
-                id<MTLBuffer> layer = transcript_arena;
-                if (level != tree_log_size) {
-                    MTLResourceOptions storage = runtime.device.hasUnifiedMemory
-                        ? MTLResourceStorageModeShared
-                        : MTLResourceStorageModePrivate;
-                    layer = [runtime.device newBufferWithLength:(NSUInteger)layer_nodes * 32u
-                        options:storage];
+                [layers addObject:transcript_arena];
+                if (level == tree_log_size) {
+                    layer_word_offsets[level] = root_word_offset;
+                } else {
+                    arena_cursor = (arena_cursor + 63u) & ~63u;
+                    layer_word_offsets[level] = arena_cursor;
+                    arena_cursor += layer_nodes * 8u;
                 }
-                if (layer == nil) {
-                    write_error(error_message, error_message_len, @"Metal FRI cascade tree allocation failed");
-                    return false;
-                }
-                [layers addObject:layer];
-                layer_word_offsets[level] = level == tree_log_size ? root_word_offset : 0u;
                 layer_word_lengths[level] = layer_nodes * 8u;
                 layer_nodes >>= 1u;
             }
@@ -341,6 +354,10 @@ bool stwo_zig_metal_fri_line_cascade(
             [destinations addObject:destination];
             count = destination_count;
         }
+        if (arena_cursor != (uint32_t)arena_words) {
+            write_error(error_message, error_message_len, @"Metal FRI cascade arena layout mismatch");
+            return false;
+        }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         if (command == nil) {
@@ -357,6 +374,12 @@ bool stwo_zig_metal_fri_line_cascade(
         count = source_count;
         NSUInteger inverse_offset = 0u;
         uint64_t compute_encoders = 1u, dispatches = 0u;
+        NSUInteger tail_static_bytes = runtime.parentTailSparse.staticThreadgroupMemoryLength;
+        NSUInteger tail_available_bytes = runtime.device.maxThreadgroupMemoryLength > tail_static_bytes
+            ? runtime.device.maxThreadgroupMemoryLength - tail_static_bytes : 0u;
+        uint32_t tail_capacity = (uint32_t)MIN((NSUInteger)256u,
+            MIN(runtime.parentTailSparse.maxTotalThreadsPerThreadgroup,
+                tail_available_bytes / (8u * sizeof(uint32_t))));
         for (uint32_t stage = 0u; stage < fri_layer_count; ++stage) {
             id<MTLBuffer> coordinates = (__bridge id<MTLBuffer>)coordinate_ptrs[stage];
             StwoZigMetalTree *tree = trees[stage];
@@ -380,7 +403,9 @@ bool stwo_zig_metal_fri_line_cascade(
             [encoder setBuffer:coordinates offset:0u atIndex:0];
             [encoder setBytes:column_offsets length:sizeof(column_offsets) atIndex:1];
             [encoder setBytes:column_logs length:sizeof(column_logs) atIndex:2];
-            [encoder setBuffer:tree.layers[0] offset:0u atIndex:3];
+            [encoder setBuffer:tree.layers[0]
+                offset:(NSUInteger)tree_layer_word_offset(tree, 0u) * sizeof(uint32_t)
+                atIndex:3];
             [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
             [encoder setBytes:&tree_log_size length:sizeof(tree_log_size) atIndex:5];
             [encoder setBuffer:leaf_seed_buffer offset:0u atIndex:6];
@@ -392,25 +417,58 @@ bool stwo_zig_metal_fri_line_cascade(
             [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
             dispatches += 1u;
 
+            uint32_t child_offsets[31], destination_offsets[31], parent_counts[31];
+            uint32_t tail_level = tree_log_size + 1u;
             uint32_t parent_count = count >> 1u;
             for (uint32_t level = 1u; level <= tree_log_size; ++level) {
+                child_offsets[level - 1u] = tree_layer_word_offset(tree, level - 1u);
+                destination_offsets[level - 1u] = tree_layer_word_offset(tree, level);
+                parent_counts[level - 1u] = parent_count;
+                // Leave a one-level tail alone; fusing is useful only when a
+                // single threadgroup replaces at least two dispatches.
+                if (tail_level > tree_log_size && level < tree_log_size &&
+                    parent_count <= tail_capacity)
+                    tail_level = level;
+                parent_count >>= 1u;
+            }
+            for (uint32_t level = 1u; level < tail_level; ++level) {
+                uint32_t level_index = level - 1u;
                 [encoder setComputePipelineState:runtime.parents];
-                [encoder setBuffer:tree.layers[level - 1u]
-                    offset:(NSUInteger)tree_layer_word_offset(tree, level - 1u) * sizeof(uint32_t)
-                    atIndex:0];
-                [encoder setBuffer:tree.layers[level]
-                    offset:(NSUInteger)tree_layer_word_offset(tree, level) * sizeof(uint32_t)
-                    atIndex:1];
-                [encoder setBytes:&parent_count length:sizeof(parent_count) atIndex:2];
+                [encoder setBuffer:transcript_arena
+                    offset:(NSUInteger)child_offsets[level_index] * sizeof(uint32_t) atIndex:0];
+                [encoder setBuffer:transcript_arena
+                    offset:(NSUInteger)destination_offsets[level_index] * sizeof(uint32_t) atIndex:1];
+                [encoder setBytes:&parent_counts[level_index] length:sizeof(uint32_t) atIndex:2];
                 [encoder setBuffer:node_seed_buffer offset:0u atIndex:3];
                 [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:4];
                 NSUInteger parent_width = MIN(runtime.parents.maxTotalThreadsPerThreadgroup,
                                               runtime.parents.threadExecutionWidth * 8u);
-                [encoder dispatchThreads:MTLSizeMake(parent_count, 1u, 1u)
+                [encoder dispatchThreads:MTLSizeMake(parent_counts[level_index], 1u, 1u)
                      threadsPerThreadgroup:MTLSizeMake(parent_width, 1u, 1u)];
                 [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
                 dispatches += 1u;
-                parent_count >>= 1u;
+            }
+            if (tail_level <= tree_log_size) {
+                uint32_t tail_index = tail_level - 1u;
+                uint32_t tail_levels = tree_log_size - tail_index;
+                uint32_t tail_width = parent_counts[tail_index];
+                [encoder setComputePipelineState:runtime.parentTailSparse];
+                [encoder setBuffer:transcript_arena offset:0u atIndex:0];
+                [encoder setBytes:child_offsets + tail_index
+                    length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:1];
+                [encoder setBytes:destination_offsets + tail_index
+                    length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:2];
+                [encoder setBytes:parent_counts + tail_index
+                    length:(NSUInteger)tail_levels * sizeof(uint32_t) atIndex:3];
+                [encoder setBytes:&tail_levels length:sizeof(tail_levels) atIndex:4];
+                [encoder setBuffer:node_seed_buffer offset:0u atIndex:5];
+                [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:6];
+                [encoder setThreadgroupMemoryLength:(NSUInteger)tail_width * 8u * sizeof(uint32_t)
+                    atIndex:0];
+                [encoder dispatchThreadgroups:MTLSizeMake(1u, 1u, 1u)
+                     threadsPerThreadgroup:MTLSizeMake(tail_width, 1u, 1u)];
+                [encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                dispatches += 1u;
             }
 
             uint32_t root_base = transcript_root_base + stage * 8u;
