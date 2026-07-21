@@ -19,45 +19,65 @@
         "deep": null
       },
       "core_metal": {
-        "small": null,
-        "wide": null,
-        "deep": null,
-        "xlarge": null,
-        "huge": null
+        "small": 2.480041,
+        "wide": 7.85675,
+        "deep": 4.541,
+        "xlarge": 422.199,
+        "huge": 1657.360125
       }
     },
     "anchor_request_ms": {
       "core_metal": {
-        "small": null,
-        "wide": null,
-        "deep": null,
-        "xlarge": null,
-        "huge": null
+        "small": 2.648334,
+        "wide": 8.677959,
+        "deep": 4.860875,
+        "xlarge": 508.385521,
+        "huge": 2023.652917
       }
     },
     "anchor_resources": {
       "core_metal": {
-        "small": null,
-        "wide": null,
-        "deep": null,
-        "xlarge": null,
-        "huge": null
+        "small": {
+          "peak_rss_mib": 143.329132,
+          "energy_j": 0.18386,
+          "proof_bytes": 24965
+        },
+        "wide": {
+          "peak_rss_mib": 161.59462,
+          "energy_j": 0.62008,
+          "proof_bytes": 41840
+        },
+        "deep": {
+          "peak_rss_mib": 154.969643,
+          "energy_j": 0.297486,
+          "proof_bytes": 45200
+        },
+        "xlarge": {
+          "peak_rss_mib": 517.001488,
+          "energy_j": 11.77494,
+          "proof_bytes": 74328
+        },
+        "huge": {
+          "peak_rss_mib": 1644.689445,
+          "energy_j": 18.544443,
+          "proof_bytes": 86383
+        }
       }
     },
     "metal_calibration": {
       "schema": "stwo_perf_metal_calibration_freeze_v2",
-      "status": "pending",
+      "status": "frozen",
       "board": "core_metal",
       "epoch": 2,
       "artifact": "autoresearch/reference/metal-calibration-epoch-2.json",
-      "artifact_sha256": null,
-      "measured_commit": null,
-      "policy_sha256": null,
-      "runtime_identity_sha256": null,
-      "source_sha256": null,
-      "runtime_manifest_sha256": null,
-      "runtime_objc_sha256": null,
-      "platform_identity_sha256": null,
+      "artifact_sha256": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
+      "measured_commit": "c22c359b422ec1bc31e55a0540598688c5ca36ec",
+      "policy_sha256": "1cfb6b20f5e7247f28adb075e11532d619049818ce8f187d5818a7ca79e2a99b",
+      "runtime_identity_sha256": "6854b96f7852d99de67e140e3e16839cfddc962be0332bcf74312fb563b16386",
+      "source_sha256": "c75b9663ec4c268ea030e0b89b9ebec7c3f7096aacf6a43ac9f1469054c7c62f",
+      "runtime_manifest_sha256": "cbb67b910cd442a19d1490113bbc6d34a8d4ede04ebcdc6befcd0c82b73a28be",
+      "runtime_objc_sha256": "9d0ab15fecaa4547175482ccce9845b8239c1e5dfa8abe66596c6d58663a3a87",
+      "platform_identity_sha256": "317537f67bd4cc88519f96a75f3875ecb2d63d8e8888e1fd10172ac0c091c0e9",
       "runtime_mode": "source-jit",
       "designated_host": {
         "chip": "Apple M5 Max",
