@@ -1045,6 +1045,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.999242,
+     "ci_low": 0.983005,
+     "commit": "850598e59d9aca016c0da1d63c3852f8a7eabd46",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "35a0e0cfc689",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T03:04:11Z",
+     "judged_r": 0.992857,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "6c622c60297d",
+     "prove_ms": 6.712792,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-metal-fri-multiblock-merkle-tail",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -1826,12 +1852,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fd0697677abbcc8ce0488edc6273cb55a8b4879321f36ddbef06e451c3da492f",
    "autoresearch/ledger/epochs.json": "b2b6c98203cc97f3a13c23a9c3da29d3b6709e7d9c6afb8b5240926166b01921",
-   "autoresearch/ledger/promotions.tsv": "5e3f0a5231566299a9b6a5a7c3b62cbc69b8a72ee130c401c8e4c7f75e6dbc15",
+   "autoresearch/ledger/promotions.tsv": "186942fc6a7e5a77e4cfc3ccc14f0d310d0314346670fe83b76cb7f4b3700e56",
    "vectors/reports/benchmark_history/index.json": "0216c5ae101a3fe33e647553a0ba7bbf2ac2b3ba8c8265fd8ff5ddde059401fe",
    "vectors/reports/benchmark_history/runs/2026-07-20-221601-matrix-v6-e78cca6f/report.json": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f"
   },
-  "repo_commit": "455ef6d22faf",
-  "repo_commit_time": "2026-07-21T02:09:25Z"
+  "repo_commit": "3d46fac007c1",
+  "repo_commit_time": "2026-07-21T03:04:11Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -2142,6 +2168,24 @@
      "excerpt": "# Session 01 \u2014 extending the resident FRI epoch through the first layer\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Objective and clean frontier\n\nContinue the user's Metal-backend optimization loop immediately after the\nsampled-value batch epoch merged and was recorded. The canonical updater moved\nmain from `bbb8c8823cca` to recorded frontier `564cea426cf4`; the preceding\nsubmission is now listed neutral on the CPU-only judge board, while its Native\nMetal evidence remains a 0.9152 suite ratio. A fresh worktree and branch\n`autoresearch/metal-epoch3` were created at the exact recorded frontier, and\nrepo setup passed before source work.\n\nThe same five repository skills remain active: algorithm mat",
      "label": "session-01.md",
      "sha256": "7ca6a44a6ee0e462c04bc6025476717c7c11529df751d3cdb3ebd494a2dfbbcd"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-metal-fri-multiblock-merkle-tail",
+   "judged_r": 0.992857,
+   "note": "# Parallelize Metal FRI Merkle tails across bottom subtrees\n\n## Model and harness\n\nModel: GPT-5 Codex.  The repo-resident autoresearch CLI was updated before this\ncampaign.  Candidate `f01a645ad829` is measured against exact promoted\npredecessor `6c622c60297d` on an Apple M5 Max.  Native Metal measurements use\nthe real ReleaseFast product, functional protocol, independent verification,\nand `--metal-runtime source-jit`; macOS compiles the embedded MSL through\n`newLibraryWithSource`, so no offline Metal compiler or full Xcode is involved.\n\n## Hypothesis\n\nThe thirteen-tree wide/deep FRI cascade still launched separate global parent\ngrids for the bottom levels of large Merkle trees.  The existing parent-tail\nkernel could reduce an entire shallow tree in one threadgroup, but was used\nonly after the whole remaining level fit a single group.  Making its global\naddressing relative to `threadgroup_position_in_grid` lets one dispatch reduce\nmany independent bottom subtrees concurrently, followed by the existing upper\ntail, without increasing register pressure in the fold/coordinate/leaf\nproducers.\n\n## Changes\n\nEach selected 128-thread bottom group consumes 256 leaves, retains at most 128\nparent hashes in 4 KiB of threadgroup memory, and writes every logical parent\nlevel and block root.  The upper tail retains its 256-thread capacity so small\ntrees do not gain an extra launch.  Wide/deep line-FRI topology moves from 68\nto 58 dispatches; small remains exactly 38.  Buffer bindings, shader export\ninventory, hash order, transcript order, proof data, source-JIT/AOT admission\nsplit, and the one-command-buffer/one-wait epoch are unchanged.\n\n## Results\n\nFifteen clean process pairs per class alternated A-B / B-A order.  Every\nprocess used ten verified warmups and seven timed verified proofs.  Across all\n90 reports, 630/630 timed proofs independently verified, matched the fixed\nclass digests, and remained byte-identical within each process.  Every sample\nclassified accelerated-without-fallbacks, with zero CPU fallback and zero\npost-warmup direct compilation.\n\n| class | predecessor | candidate | B/A HL (95% CI) | wins |\n| --- | ---: | ---: | ---: | ---: |\n| small `wf_log10x8` | 2.660 ms | 2.632 ms | 0.9937 [0.9785, 1.0110] | 9/15 |\n| wide `wf_log14x32` | 11.725 ms | 11.629 ms | 0.9946 [0.9867, 1.0049] | 11/15 |\n| deep `plonk_log14` | 7.088 ms | 7.031 ms | 0.9915 [0.9856, 0.9959] | 13/15 |\n\nThe robust three-class geometric-mean ratio is 0.99325, about 0.68% less proof\nlatency.  Deep is confirmed; small and wide are favorable but neutral and are\nnot overclaimed.\n\n## Validation\n\nA strengthened log-10 parity fixture forces four independent bottom\nthreadgroups and checks every coordinate, Merkle root, transcript challenge,\nand terminal evaluation against the CPU reference.  Native Metal product and\nlifecycle, `metal-check`, source conformance, core-AOT contract, AOT probe\ncontract, and a proof under both Metal API and GPU shader validation pass.  The\nbroad Metal suite remains at the predecessor's 80/83 baseline: two expected\nskips and the same pre-existing resident-policy assertion.\n\n## Caveats\n\nThe official autoresearch board is CPU-only.  Its S3 deep control passes G1--G5\nat 0.9929 [0.9830, 0.9992] but is correctly classified neutral against theta\n0.0183; no CPU-board credit is claimed for a Metal-only change.  The attached\nreasoning transcript also retains the rejected producer-microtree design and\nits occupancy regression rather than folding that dead end into the result.\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Parallelize Metal FRI Merkle tails across bottom subtrees",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 sixth Metal-backend architecture campaign\n\nDate: 2026-07-21\nModel: GPT-5 Codex\n\n## Recorded frontier and fresh benchmark\n\nPR #29 merged fold/coordinate/leaf producer fusion and the recorder advanced\ncanonical main to `6c622c60297d`.  The repo-resident CLI was updated to that\nexact commit, a fresh isolated workspace passed `stwo-perf setup`, and the real\nReleaseFast Native Metal product was built before any source edit.\n\nThe complete fixed three-class Metal suite then ran with ten warmups and seven\ntimed verified samples per class on `--metal-runtime source-jit`:\n\n| class | prove median | request median | logical Metal dispatch telemetry |\n| --- | ---: | ---: | ---: |\n| small `",
+     "label": "session-01.md",
+     "sha256": "8a4f2f875315e371f8bf4137e5274481fd01cd9243d81fb7660f2771b9b25a4f"
     }
    ],
    "verdict_kind": "claimed",
