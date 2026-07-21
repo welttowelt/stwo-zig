@@ -63,11 +63,8 @@ void *stwo_zig_metal_merkle_commit(
         id<MTLBuffer> leaf_seed_buffer = [runtime.device newBufferWithBytes:leaf_seed
                                                                      length:8u * sizeof(uint32_t)
                                                                     options:MTLResourceStorageModeShared];
-        id<MTLBuffer> node_seed_buffer = [runtime.device newBufferWithBytes:node_seed
-                                                                     length:8u * sizeof(uint32_t)
-                                                                    options:MTLResourceStorageModeShared];
         if (staging == nil || offsets == nil || log_sizes == nil ||
-            leaf_seed_buffer == nil || node_seed_buffer == nil) {
+            leaf_seed_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal Merkle allocation failed");
             return NULL;
         }
@@ -86,23 +83,61 @@ void *stwo_zig_metal_merkle_commit(
 
         uint32_t leaf_count = 1u << lifting_log_size;
         NSMutableArray<id<MTLBuffer>> *layers = [NSMutableArray arrayWithCapacity:lifting_log_size + 1u];
+        uint32_t layer_word_offsets[31] = { 0u };
+        uint32_t layer_word_lengths[31] = { 0u };
         uint32_t layer_count = leaf_count;
+        uint64_t arena_words = 0u;
         for (uint32_t level = 0; level <= lifting_log_size; ++level) {
-            // The tree is immutable after this command completes and the CPU
-            // later reads sparse authentication nodes.  On unified-memory
-            // devices, keeping those nodes shared avoids a second command
-            // buffer solely to make a few hashes CPU-visible.
-            MTLResourceOptions storage = level == lifting_log_size || runtime.device.hasUnifiedMemory
-                ? MTLResourceStorageModeShared
-                : MTLResourceStorageModePrivate;
-            id<MTLBuffer> layer = [runtime.device newBufferWithLength:(NSUInteger)layer_count * 32u
-                                                              options:storage];
-            if (layer == nil) {
-                write_error(error_message, error_message_len, @"Metal Merkle layer allocation failed");
+            arena_words = (arena_words + 63u) & ~UINT64_C(63);
+            uint64_t length_words = (uint64_t)layer_count * 8u;
+            if (arena_words > UINT32_MAX || length_words > UINT32_MAX ||
+                arena_words + length_words > UINT32_MAX) {
+                write_error(error_message, error_message_len, @"Metal Merkle arena exceeds word offsets");
                 return NULL;
             }
-            [layers addObject:layer];
+            layer_word_offsets[level] = (uint32_t)arena_words;
+            layer_word_lengths[level] = (uint32_t)length_words;
+            arena_words += length_words;
             layer_count >>= 1u;
+        }
+        id<MTLBuffer> hash_arena = [runtime.device newBufferWithLength:
+            (NSUInteger)arena_words * sizeof(uint32_t)
+            options:runtime.device.hasUnifiedMemory
+                ? MTLResourceStorageModeShared : MTLResourceStorageModePrivate];
+        id<MTLBuffer> root_readback = runtime.device.hasUnifiedMemory ? hash_arena
+            : [runtime.device newBufferWithLength:32u options:MTLResourceStorageModeShared];
+        NSData *layer_word_offsets_data = [NSData dataWithBytes:layer_word_offsets
+            length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
+        NSData *layer_word_lengths_data = [NSData dataWithBytes:layer_word_lengths
+            length:(NSUInteger)(lifting_log_size + 1u) * sizeof(uint32_t)];
+        if (hash_arena == nil || root_readback == nil || layer_word_offsets_data == nil ||
+            layer_word_lengths_data == nil) {
+            write_error(error_message, error_message_len, @"Metal Merkle arena allocation failed");
+            return NULL;
+        }
+        for (uint32_t level = 0u; level <= lifting_log_size; ++level)
+            [layers addObject:hash_arena];
+
+        StwoZigMerkleParentChain *parent_plan = nil;
+        if (lifting_log_size != 0u) {
+            uint32_t child_offsets[30] = { 0u };
+            uint32_t destination_offsets[30] = { 0u };
+            uint32_t parent_counts[30] = { 0u };
+            for (uint32_t level = 0u; level < lifting_log_size; ++level) {
+                child_offsets[level] = layer_word_offsets[level];
+                destination_offsets[level] = layer_word_offsets[level + 1u];
+                parent_counts[level] = leaf_count >> (level + 1u);
+            }
+            void *parent_plan_ptr = stwo_zig_metal_merkle_parent_chain_prepare(
+                runtime_ptr, child_offsets, destination_offsets, parent_counts,
+                lifting_log_size, node_seed, domain_prefix_bytes,
+                error_message, error_message_len);
+            if (parent_plan_ptr != NULL)
+                parent_plan = (__bridge_transfer StwoZigMerkleParentChain *)parent_plan_ptr;
+        }
+        if (lifting_log_size != 0u && parent_plan == nil) {
+            write_error(error_message, error_message_len, @"Metal Merkle parent-chain allocation failed");
+            return NULL;
         }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
@@ -147,7 +182,8 @@ void *stwo_zig_metal_merkle_commit(
         [leaf_encoder setBuffer:staging offset:0 atIndex:0];
         [leaf_encoder setBuffer:offsets offset:0 atIndex:1];
         [leaf_encoder setBuffer:log_sizes offset:0 atIndex:2];
-        [leaf_encoder setBuffer:layers[0] offset:0 atIndex:3];
+        [leaf_encoder setBuffer:hash_arena
+                         offset:(NSUInteger)layer_word_offsets[0] * sizeof(uint32_t) atIndex:3];
         [leaf_encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
         [leaf_encoder setBytes:&lifting_log_size length:sizeof(lifting_log_size) atIndex:5];
         [leaf_encoder setBuffer:leaf_seed_buffer offset:0 atIndex:6];
@@ -158,21 +194,24 @@ void *stwo_zig_metal_merkle_commit(
                 threadsPerThreadgroup:MTLSizeMake(leaf_width, 1, 1)];
         [leaf_encoder endEncoding];
 
-        uint32_t parents = leaf_count >> 1u;
-        for (uint32_t level = 1; level <= lifting_log_size; ++level) {
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.parents];
-            [encoder setBuffer:layers[level - 1u] offset:0 atIndex:0];
-            [encoder setBuffer:layers[level] offset:0 atIndex:1];
-            [encoder setBytes:&parents length:sizeof(parents) atIndex:2];
-            [encoder setBuffer:node_seed_buffer offset:0 atIndex:3];
-            [encoder setBytes:&domain_prefix_bytes length:sizeof(domain_prefix_bytes) atIndex:4];
-            NSUInteger width = MIN(runtime.parents.maxTotalThreadsPerThreadgroup,
-                                   runtime.parents.threadExecutionWidth * 8u);
-            [encoder dispatchThreads:MTLSizeMake(parents, 1, 1)
-                    threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
-            [encoder endEncoding];
-            parents >>= 1u;
+        if (parent_plan != nil) {
+            uint64_t parent_encoders = 0u, parent_dispatches = 0u;
+            if (!encode_merkle_parent_chain_prepared(runtime, hash_arena, parent_plan, command,
+                                                      &parent_encoders, &parent_dispatches)) {
+                write_error(error_message, error_message_len, @"Metal Merkle parent-chain encoding failed");
+                return NULL;
+            }
+        }
+        if (!runtime.device.hasUnifiedMemory) {
+            id<MTLBlitCommandEncoder> root_copy = [command blitCommandEncoder];
+            if (root_copy == nil) {
+                write_error(error_message, error_message_len, @"Metal Merkle root encoder allocation failed");
+                return NULL;
+            }
+            [root_copy copyFromBuffer:hash_arena
+                         sourceOffset:(NSUInteger)layer_word_offsets[lifting_log_size] * sizeof(uint32_t)
+                             toBuffer:root_readback destinationOffset:0u size:32u];
+            [root_copy endEncoding];
         }
 
         [command commit];
@@ -185,7 +224,11 @@ void *stwo_zig_metal_merkle_commit(
 
         StwoZigMetalTree *tree = [StwoZigMetalTree new];
         tree.layers = layers;
-        tree.rootReadback = layers.lastObject;
+        tree.layerWordOffsets = layer_word_offsets_data;
+        tree.layerWordLengths = layer_word_lengths_data;
+        tree.rootReadback = root_readback;
+        tree.rootReadbackWordOffset = runtime.device.hasUnifiedMemory
+            ? layer_word_offsets[lifting_log_size] : 0u;
         tree.logSize = lifting_log_size;
         tree.gpuMilliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return (__bridge_retained void *)tree;
