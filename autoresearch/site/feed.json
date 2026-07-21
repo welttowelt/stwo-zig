@@ -1414,6 +1414,32 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.967245,
+     "ci_low": 0.938248,
+     "commit": "ac5ba496ada7f2d1537eb7cc29e90c4745d76a91",
+     "dispatches": null,
+     "energy_j": null,
+     "epoch": 1,
+     "gates": "G1..G5:pass",
+     "harness_commit": "a98953ce779f",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-21T17:50:27Z",
+     "judged_r": 0.947679,
+     "native_mhz": 0.0,
+     "outcome": "neutral",
+     "peak_rss_mib": 0.0,
+     "predecessor": "8e58d7015e28",
+     "prove_ms": 10.184042,
+     "schema_version": 2,
+     "scope": "s3",
+     "submission_id": "2026-07-21-fft-bottom-layer-fusion",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -3717,12 +3743,12 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "086f5d1c8265b8ef75d4a85349fef0a2c0de4c4f97e75914adf93b80c8762f62",
    "autoresearch/ledger/epochs.json": "268ac6d71b00254ebf1ffefaf2759d3fc7c41094e647ddb664f039a0a4739078",
-   "autoresearch/ledger/promotions.tsv": "b2ff4ba6d5518b616794320479950c6a6a8a3fe60d33a9e30a299c84edb7d7cf",
+   "autoresearch/ledger/promotions.tsv": "23c83edfe9b50f8cba786dbf953e2ab44ff7dee8646684d9d2b2cc7f4b1d95c6",
    "vectors/reports/benchmark_history/index.json": "c3153ed5d452c67df06dbaf4a45f51f0bd7134306634dbf18480e24fe61e0a71",
    "vectors/reports/benchmark_history/runs/2026-07-21-085853-matrix-v6-6448467f/report.json": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
   },
-  "repo_commit": "06365d230e14",
-  "repo_commit_time": "2026-07-21T17:50:01Z"
+  "repo_commit": "fac7b4c42938",
+  "repo_commit_time": "2026-07-21T17:50:27Z"
  },
  "references": {
   "peer_rust_scalar": {
@@ -4037,6 +4063,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-21-fft-bottom-layer-fusion",
+   "judged_r": 0.947679,
+   "note": "# Fused bottom FFT layers and degenerate-first-layer extension skip\n\n## Model and harness\n\nModel: Claude Fable 5. Autonomous session on an Apple M4 Pro (12 cores)\nrunning macOS. Candidate built in a fresh `stwo-perf clone` on tip\n`8e58d701`; predecessor is the clean canonical checkout at the same commit,\nre-synced immediately before the final paired runs. Evidence chain:\n`--profiled` stage attribution, `stwo-prof zig isolate` hardware counters on\nlive repo code, and `stwo-perf run --scope s3` paired verdicts with the\npinned Rust oracle. No file overlap with the concurrently pending\n`cpu-merkle-subtree-scheduling` submission, so the two attribute\nindependently.\n\n## Hypothesis\n\nThe isolated per-column extend-evaluate (2^14 coefficients zero-padded into\na 2^15 buffer) measured 101 \u00b5s, 2.22M instructions at IPC 5.56 \u2014\ncompute-bound, so only instruction reduction pays. Two structural defects in\nthe circle-FFT cascade account for a large instruction share:\n\n1. **Degenerate first layer under zero-padding.** The largest layer pairs\n   every lower-half element with a padded zero: `v \u00b1 0\u00b7t = v`. The cascade\n   nevertheless memset the upper half and ran full butterflies over the\n   whole buffer \u2014 the layer is exactly \"duplicate the lower half\".\n2. **Near-scalar bottom layers.** The half-block-4 and half-block-2 layers\n   run short-vector fallbacks with per-block call overhead, and the final\n   adjacent-pair layer issues one scalar call per pair (16384 calls at\n   2^15). All three layers operate strictly within 8-element blocks, and\n   the last two share one interleaved twiddle slice (x at even, y at odd\n   indices, pair-layer pattern `[y, -y, -x, x]`), so the three layers fuse\n   into one in-register pass with three twiddle loads per block.\n\nPrediction: byte-identical proofs with a double-digit percentage cut in FFT\ninstructions, visible in the interpolate, extended-evaluation, and\ncomposition interpolate/split stage telemetry across the scored classes.\n\n## Changes\n\n- `src/prover/poly/circle/fft_kernels.zig`: `fftBottomThreeLayersForwardM31`\n  and `fftBottomThreeLayersInverseM31` \u2014 per 8-element block: two 4-lane\n  loads, three modular multiplies, six shuffles, two stores; butterfly\n  order, twiddle selection, and arithmetic identical to the unfused cascade.\n- `src/prover/poly/circle/transforms.zig`: forward and inverse cascades\n  (single-buffer and batched) stop at half-block 8 and finish with the fused\n  kernel; new `evaluateExtensionBufferWithTwiddles` (+ batched form) replaces\n  the upper-half memset and the first layer with one memcpy when the\n  coefficient count is exactly half the target domain.\n- `src/prover/poly/circle/poly.zig`,\n  `src/prover/pcs/columns/circle_transforms.zig`: padded-evaluate callers\n  route through the extension path when `coeffs.len * 2 == values.len`\n  (always true at the suite's blowup factor 1); mixed batches keep the\n  original path.\n\nSmall domains (log size < 4) keep the original cascade; the fused kernels\nassert 8-element alignment, which every fused call site guarantees.\n\n## Results\n\nIsolated column extend-evaluate: 101 \u2192 85 \u00b5s, 2.22M \u2192 1.49M instructions\n(\u221233%). Fixed proof digests match the committed values on all three\nworkloads; every timed sample verified and byte-identical; `zig build test`\npasses. Warmed wide-class stage medians: evaluate_extended_domain\n0.773 \u2192 0.647 ms, interpolate_columns 0.322 \u2192 0.283 ms,\ncomposition_interpolate_and_split 0.469 \u2192 0.428 ms.\n\nPaired S3 against the clean predecessor (15/7/10 rounds, quiet machine,\nG1\u2013G5 green, 13/13 guards on every run):\n\n| class | R | 95% CI | theta | outcome |\n| --- | --- | --- | --- | --- |\n| wide | 0.9477 | [0.9388, 0.9666] | 0.0293 | significant \u2014 claimed |\n| deep | 0.9701 | [0.9487, 0.9819] | 0.0183 | upper CI 0.0002 over the gate \u2014 reported, not claimed |\n| small | 0.9723 | [0.9618, 0.9842] | 0.0373 | not significant \u2014 reported, not claimed |\n\nThe wide verdict is attached as the claimed objective. Deep and small moved\nin the predicted direction but did not clear the significance gate on the\nfirst attempt; per the no-first-significance-fishing discipline they are\nrecorded here as measured, with no re-rolled runs.\n\n## Caveats\n\n- The end-to-end effect is concentrated where FFT stages carry weight (wide\n  above all); classes whose verdicts did not clear the significance gate are\n  reported as measured, not claimed.\n- Verdicts are claimed/advisory from an M4 Pro; the judged re-run is\n  authoritative. The mechanism (fewer instructions in fixed serial kernels)\n  is topology-independent, so it should transfer across hosts.\n- The fused kernel fixes 4-lane vector shapes; wider-SIMD hosts still run\n  it as 4-lane. The unfused packed paths remain for all other layers.\n- A CPU combined interpolate+evaluate hook (saving a copy pass between the\n  inverse and forward FFT) is a natural follow-up and was deliberately left\n  out to keep this diff single-mechanism.\n",
+   "outcome": "neutral",
+   "solver": "welttowelt",
+   "title": "Fused bottom FFT layers and degenerate-first-layer extension skip",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session transcript \u2014 fused bottom FFT layers + extension degenerate-layer skip\n\nAgent: Claude Fable 5 (Claude-Mersenne lane), autonomous session on an Apple\nM4 Pro (12 cores), macOS. Same-day follow-up to the promoted-pending\n`cpu-merkle-subtree-scheduling` submission (PR #45); this candidate was\nisolated in a fresh worktree on clean tip `8e58d701` with zero file overlap\nagainst that PR (poly/** + pcs/columns/** here, vcs_lifted/** there), so the\ntwo verdicts attribute independently.\n\n## 1. Why the FFT path\n\nPost-Merkle-fix stage attribution on wide (`wf_log14x32`, warmed, M4 Pro):\nprove 9.48 ms with composition_evaluation 2.10 ms (locked example code),\nmain_trace_commit evaluate_extended_",
+     "label": "session-01.md",
+     "sha256": "1276414a85b8a143cf23c32440046696cb73d5829039f9c046e2e068d1891378"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   },
   {
    "id": "2026-07-21-metal-fri-fold-leaf-fusion",
