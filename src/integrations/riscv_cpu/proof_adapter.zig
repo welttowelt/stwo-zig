@@ -14,6 +14,7 @@ const transcript_state = @import("proof_adapter/transcript_state.zig");
 const verify_receipt = @import("proof_adapter/verify_receipt.zig");
 const wire_arena = @import("proof_adapter/wire_arena.zig");
 const wire_reconstruct = @import("proof_adapter/wire_reconstruct.zig");
+const resource_usage = @import("resource_usage.zig");
 
 const WireArena = wire_arena.WireArena;
 
@@ -352,6 +353,7 @@ fn runBenchmark(
     var verification_seconds: f64 = 0;
     var transcript_state_digest: ?[32]u8 = null;
 
+    const resources_before_warmups = resource_usage.capture();
     const iterations = try std.math.add(usize, benchmark.warmups, benchmark.samples);
     for (0..iterations) |iteration| {
         const is_sample = iteration >= benchmark.warmups;
@@ -436,6 +438,11 @@ fn runBenchmark(
             }
         }
     }
+    const resources_after_verified_samples = resource_usage.capture();
+    const resources = resource_usage.report(
+        resources_before_warmups,
+        resources_after_verified_samples,
+    );
 
     const denominator = @as(f64, @floatFromInt(benchmark.samples));
     const sorted = try allocator.dupe(f64, sample_seconds);
@@ -447,7 +454,7 @@ fn runBenchmark(
     const transcript_state_hex = std.fmt.bytesToHex(transcript_state_digest.?, .lower);
     const executable_hex = std.fmt.bytesToHex(process_identity.executable_sha256, .lower);
     const report = .{
-        .schema = "riscv_proof_v1",
+        .schema = "riscv_proof_v2",
         .release_status = stwo.interop.riscv_artifact.RELEASE_STATUS,
         .mode = "bench",
         .experimental = options.experimental,
@@ -472,6 +479,7 @@ fn runBenchmark(
         .executable_sha256 = &executable_hex,
         .artifact_sha256 = &artifact_hex,
         .proof_path = options.proof_report_path,
+        .resources = resources,
     };
     return std.json.Stringify.valueAlloc(allocator, report, .{});
 }

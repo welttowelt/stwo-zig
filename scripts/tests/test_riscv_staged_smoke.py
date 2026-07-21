@@ -17,6 +17,28 @@ from scripts.riscv_staged_smoke_lib import contracts, mutations, profiles
 DIGEST = "ab" * 32
 
 
+def available_resources() -> dict[str, object]:
+    return {
+        "availability": "available",
+        "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+        "scope": "self_process_lifetime",
+        "unavailable_reason": None,
+        "before_warmups": {
+            "lifetime_max_phys_footprint_bytes": 1024,
+            "energy_nj": 10,
+            "instructions": 20,
+            "cycles": 30,
+        },
+        "after_verified_samples": {
+            "lifetime_max_phys_footprint_bytes": 2048,
+            "energy_nj": 17,
+            "instructions": 31,
+            "cycles": 43,
+        },
+        "interval_delta": {"energy_nj": 7, "instructions": 11, "cycles": 13},
+    }
+
+
 def artifact() -> dict[str, object]:
     return {
         "artifact_kind": "stwo_riscv_proof",
@@ -172,7 +194,7 @@ class JsonContractTests(unittest.TestCase):
 
     def test_benchmark_report_binds_samples_timing_and_retained_artifact(self) -> None:
         report = {
-            "schema": "riscv_proof_v1",
+            "schema": "riscv_proof_v2",
             "release_status": "not_release_gated",
             "mode": "bench",
             "experimental": True,
@@ -197,6 +219,7 @@ class JsonContractTests(unittest.TestCase):
             "executable_sha256": DIGEST,
             "artifact_sha256": DIGEST,
             "proof_path": "bench-proof.json",
+            "resources": available_resources(),
         }
         contracts.validate_benchmark_report(
             report,
@@ -222,6 +245,25 @@ class JsonContractTests(unittest.TestCase):
                 expected_dirty=False,
                 executable_sha256=DIGEST,
             )
+
+    def test_benchmark_resources_fail_closed_and_allow_explicit_nondarwin_state(self) -> None:
+        unavailable = {
+            "availability": "unavailable",
+            "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+            "scope": "self_process_lifetime",
+            "unavailable_reason": "unsupported_platform",
+            "before_warmups": None,
+            "after_verified_samples": None,
+            "interval_delta": None,
+        }
+        contracts.validate_resource_usage(unavailable, require_available=False)
+        with self.assertRaisesRegex(contracts.ContractError, "V6 counters are required"):
+            contracts.validate_resource_usage(unavailable, require_available=True)
+
+        inconsistent = available_resources()
+        inconsistent["interval_delta"]["energy_nj"] = 8
+        with self.assertRaisesRegex(contracts.ContractError, "energy_nj: inconsistent"):
+            contracts.validate_resource_usage(inconsistent, require_available=True)
 
     def test_registry_requires_exact_single_riscv_phase_entry(self) -> None:
         payload = {

@@ -17,7 +17,16 @@ REQUIRED_WORKFLOWS = {
 }
 REQUIRED_CHECKS = frozenset({"autoresearch-validate", "autoresearch-judge"})
 RISCV_ORACLE_COMMIT = "d478f783055aa0d73a93768a433a3c6c31c91d1c"
-RISCV_REPORT_SCHEMA = "riscv_proof_v1"
+RISCV_REPORT_SCHEMA = "riscv_proof_v2"
+RISCV_RESOURCE_TELEMETRY = {
+    "fail_closed": True,
+    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+    "scope": "self_process_lifetime",
+    "sampling_points": ["before_warmups", "after_verified_samples"],
+    "fields": [
+        "lifetime_max_phys_footprint_bytes", "energy_nj", "instructions", "cycles",
+    ],
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -199,7 +208,7 @@ def activation_errors(
     if require_active and group.get("promotion_eligible") is not True:
         errors.append(f"board {board} is not promotion eligible")
     if group.get("report_schema") != RISCV_REPORT_SCHEMA:
-        errors.append("RISC-V board does not consume riscv_proof_v1")
+        errors.append("RISC-V board does not consume riscv_proof_v2")
 
     oracle = group.get("correctness_oracle")
     if not isinstance(oracle, dict):
@@ -220,6 +229,12 @@ def activation_errors(
         "total_steps", "n_components", "mean_proving_seconds", "statement_sha256",
     }):
         errors.append("RISC-V mechanism telemetry omits required proof fields")
+
+    if group.get("resource_telemetry") != RISCV_RESOURCE_TELEMETRY:
+        errors.append(
+            "RISC-V resource telemetry does not fail closed on Darwin "
+            "RUSAGE_INFO_V6 sampling"
+        )
 
     policy = group.get("gates_policy")
     if not isinstance(policy, dict) or not all(

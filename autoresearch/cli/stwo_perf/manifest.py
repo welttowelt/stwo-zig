@@ -11,7 +11,7 @@ RUNGS = ("s1", "s2", "s3", "s4", "s5")
 ACCEPTANCE_FLOOR = "s3"
 REPORT_SCHEMA_VERSIONS = {
     "native_proof_v7": 7,
-    "riscv_proof_v1": 1,
+    "riscv_proof_v2": 2,
 }
 
 GROUP_GATES_POLICY_LIMITS = {
@@ -45,6 +45,18 @@ RISCV_STABLE_MECHANISM_FIELDS = frozenset({
     "statement_sha256",
     "transcript_state_blake2s",
 })
+RISCV_RESOURCE_TELEMETRY = {
+    "fail_closed": True,
+    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+    "scope": "self_process_lifetime",
+    "sampling_points": ["before_warmups", "after_verified_samples"],
+    "fields": [
+        "lifetime_max_phys_footprint_bytes",
+        "energy_nj",
+        "instructions",
+        "cycles",
+    ],
+}
 
 
 class ManifestError(RuntimeError):
@@ -85,6 +97,7 @@ class WorkloadGroup:
     holdout_generator: dict = field(default_factory=dict)
     correctness_oracle: dict = field(default_factory=dict)
     mechanism_telemetry: dict = field(default_factory=dict)
+    resource_telemetry: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -174,6 +187,7 @@ class Manifest:
                 holdout_generator=dict(spec.get("holdout_generator", {})),
                 correctness_oracle=dict(spec.get("correctness_oracle", {})),
                 mechanism_telemetry=dict(spec.get("mechanism_telemetry", {})),
+                resource_telemetry=dict(spec.get("resource_telemetry", {})),
             ))
         return out
 
@@ -412,6 +426,9 @@ def _validate(raw: dict) -> None:
         _validate_group_mechanism_telemetry(
             gid, report_schema, spec.get("mechanism_telemetry", {})
         )
+        _validate_group_resource_telemetry(
+            gid, report_schema, spec.get("resource_telemetry", {})
+        )
         if not isinstance(spec["workloads"], dict) or not spec["workloads"]:
             raise ManifestError(f"workload group {gid}: workloads must be a non-empty object")
         for wid, w in spec["workloads"].items():
@@ -474,7 +491,7 @@ def _validate_group_mechanism_telemetry(
 ) -> None:
     if not isinstance(telemetry, dict):
         raise ManifestError(f"workload group {gid}: mechanism_telemetry must be an object")
-    if report_schema != "riscv_proof_v1":
+    if report_schema != "riscv_proof_v2":
         return
     if set(telemetry) != {"fail_closed", "required_fields"}:
         raise ManifestError(
@@ -557,6 +574,26 @@ def _validate_classes(classes: object) -> None:
             raise ManifestError(
                 f"workload class {name}.sampling min_rounds exceeds max_rounds"
             )
+
+
+def _validate_group_resource_telemetry(
+    gid: str, report_schema: str, telemetry: object,
+) -> None:
+    if not isinstance(telemetry, dict):
+        raise ManifestError(f"workload group {gid}: resource_telemetry must be an object")
+    if report_schema != "riscv_proof_v2":
+        if telemetry:
+            raise ManifestError(
+                f"workload group {gid}: resource_telemetry is only valid for "
+                "riscv_proof_v2"
+            )
+        return
+    if telemetry != RISCV_RESOURCE_TELEMETRY:
+        raise ManifestError(
+            f"workload group {gid}: RISC-V resource_telemetry must exactly require "
+            "Darwin RUSAGE_INFO_V6 lifetime counters before warmups and after "
+            "verified samples"
+        )
 
 
 def _validate_group_gates_policy(

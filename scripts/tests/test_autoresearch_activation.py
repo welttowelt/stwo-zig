@@ -156,7 +156,7 @@ class ActivationContractTest(unittest.TestCase):
                 "enabled": True,
                 "promotion_eligible": True,
                 "board": "riscv",
-                "report_schema": "riscv_proof_v1",
+                "report_schema": "riscv_proof_v2",
                 "correctness_oracle": {
                     "authority": "stark-v",
                     "commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
@@ -171,6 +171,18 @@ class ActivationContractTest(unittest.TestCase):
                     "required_fields": [
                         "total_steps", "n_components", "mean_proving_seconds",
                         "statement_sha256",
+                    ],
+                },
+                "resource_telemetry": {
+                    "fail_closed": True,
+                    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+                    "scope": "self_process_lifetime",
+                    "sampling_points": [
+                        "before_warmups", "after_verified_samples",
+                    ],
+                    "fields": [
+                        "lifetime_max_phys_footprint_bytes", "energy_nj",
+                        "instructions", "cycles",
                     ],
                 },
                 "holdout_generator": {
@@ -220,6 +232,21 @@ class ActivationContractTest(unittest.TestCase):
         self.assertIn("board riscv is disabled", errors)
         self.assertIn("board riscv is not promotion eligible", errors)
         self.assertTrue(any("holdout references" in error for error in errors))
+
+    def test_resource_contract_drift_blocks_activation(self) -> None:
+        path = self.root / "autoresearch/MANIFEST.json"
+        manifest = json.loads(path.read_text())
+        manifest["workload_registry"]["groups"]["riscv"][
+            "resource_telemetry"
+        ]["source"] = "getrusage"
+        path.write_text(json.dumps(manifest))
+        errors = activation_errors(
+            self.root,
+            board="riscv",
+            settings_receipt=self.receipt,
+            repository="teddyjfpender/stwo-zig",
+        )
+        self.assertTrue(any("resource telemetry" in error for error in errors))
 
 
 if __name__ == "__main__":

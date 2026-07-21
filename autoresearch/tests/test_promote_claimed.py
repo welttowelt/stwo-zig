@@ -113,7 +113,7 @@ class PromoteClaimedTest(unittest.TestCase):
                     "board": "riscv",
                     "build_step": "true",
                     "binary": "bin/riscv",
-                    "report_schema": "riscv_proof_v1",
+                    "report_schema": "riscv_proof_v2",
                     "mechanism_telemetry": {
                         "fail_closed": True,
                         "required_fields": [
@@ -121,6 +121,18 @@ class PromoteClaimedTest(unittest.TestCase):
                             "statement_sha256",
                             "total_steps",
                             "transcript_state_blake2s",
+                        ],
+                    },
+                    "resource_telemetry": {
+                        "fail_closed": True,
+                        "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+                        "scope": "self_process_lifetime",
+                        "sampling_points": [
+                            "before_warmups", "after_verified_samples",
+                        ],
+                        "fields": [
+                            "lifetime_max_phys_footprint_bytes", "energy_nj",
+                            "instructions", "cycles",
                         ],
                     },
                     "workloads": {"rv": {

@@ -110,6 +110,10 @@ class ManifestTest(unittest.TestCase):
         )
         self.assertEqual(riscv.binary, "zig-out/bin/stwo-zig")
         self.assertEqual(riscv.build_step, "zig build stwo-zig -Doptimize=ReleaseFast")
+        self.assertEqual(riscv.report_schema, "riscv_proof_v2")
+        self.assertEqual(
+            riscv.resource_telemetry, manifest_mod.RISCV_RESOURCE_TELEMETRY,
+        )
         self.assertEqual(len(riscv.workloads), 20)
         self.assertEqual(
             {name: sum(w.workload_class == name for w in riscv.workloads)
@@ -234,7 +238,8 @@ class RegistryValidationTest(unittest.TestCase):
             "board": "riscv",
             "build_step": "true",
             "binary": "bin/riscv",
-            "report_schema": "riscv_proof_v1",
+            "report_schema": "riscv_proof_v2",
+            "resource_telemetry": manifest_mod.RISCV_RESOURCE_TELEMETRY,
             "workloads": {},
         }
         with self.assertRaises(manifest_mod.ManifestError) as ctx:
@@ -260,6 +265,28 @@ class RegistryValidationTest(unittest.TestCase):
         with self.assertRaises(manifest_mod.ManifestError) as ctx:
             manifest_mod._validate(raw)
         self.assertIn("unsupported report_schema", str(ctx.exception))
+
+    def test_legacy_riscv_report_schema_is_rejected(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["groups"]["native"]["report_schema"] = \
+            "riscv_proof_v1"
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "unsupported report_schema"):
+            manifest_mod._validate(raw)
+
+    def test_riscv_v2_requires_exact_resource_policy(self):
+        raw = self._base_raw()
+        group = raw["workload_registry"]["groups"]["native"]
+        group["report_schema"] = "riscv_proof_v2"
+        group["mechanism_telemetry"] = {
+            "fail_closed": True,
+            "required_fields": sorted(manifest_mod.RISCV_MECHANISM_FIELDS),
+        }
+        group["resource_telemetry"] = {
+            **manifest_mod.RISCV_RESOURCE_TELEMETRY,
+            "source": "getrusage",
+        }
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "resource_telemetry"):
+            manifest_mod._validate(raw)
 
     def test_duplicate_board_ownership_rejected(self):
         raw = self._base_raw()

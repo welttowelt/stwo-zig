@@ -221,7 +221,7 @@
         "board": "riscv",
         "build_step": "zig build stwo-zig -Doptimize=ReleaseFast",
         "binary": "zig-out/bin/stwo-zig",
-        "report_schema": "riscv_proof_v1",
+        "report_schema": "riscv_proof_v2",
         "correctness_oracle": {
           "authority": "stark-v",
           "repository": "https://github.com/ClementWalter/stark-v",
@@ -255,6 +255,21 @@
             "mean_verification_seconds",
             "statement_sha256",
             "transcript_state_blake2s"
+          ]
+        },
+        "resource_telemetry": {
+          "fail_closed": true,
+          "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+          "scope": "self_process_lifetime",
+          "sampling_points": [
+            "before_warmups",
+            "after_verified_samples"
+          ],
+          "fields": [
+            "lifetime_max_phys_footprint_bytes",
+            "energy_nj",
+            "instructions",
+            "cycles"
           ]
         },
         "holdout_generator": {

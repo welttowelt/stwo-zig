@@ -197,6 +197,7 @@ class ArmResult:
     energy_j: float | None = None
     instructions: int | None = None
     cycles: int | None = None
+    resources_complete: bool | None = None
 
 
 @dataclass
@@ -217,6 +218,7 @@ class WorkloadScore:
     candidate_resources: dict[str, float] = field(default_factory=dict)
     proof_bytes: int = 0
     measurement_seconds: float = 0.0
+    resources_complete: bool | None = None
 
 
 def portfolio_summary(scores: list[WorkloadScore], ci_level: float) -> dict:
@@ -388,7 +390,7 @@ def _format_workload_args(
     samples: int,
 ) -> str:
     admission = ""
-    if group.report_schema == "riscv_proof_v1":
+    if group.report_schema == "riscv_proof_v2":
         if "{admission}" not in workload.args:
             raise RunError(
                 f"{workload.workload_id}: RISC-V workload command lacks "
@@ -427,7 +429,7 @@ def bench_once(
         )
     out_dir.mkdir(parents=True, exist_ok=True)
     proof_path = None
-    if group.report_schema == "riscv_proof_v1":
+    if group.report_schema == "riscv_proof_v2":
         proof_path = (out_dir / f"{workload.workload_id}.{tag}.proof.json").resolve()
     args = _format_workload_args(
         arm_root, group, workload, warmups, samples,
@@ -460,7 +462,7 @@ def bench_once(
             result = _parse_native_report(
                 report, group, workload, warmups, samples, out_path,
             )
-        elif group.report_schema == "riscv_proof_v1":
+        elif group.report_schema == "riscv_proof_v2":
             assert proof_path is not None
             result = _parse_riscv_report(
                 report, group, workload, warmups, samples, out_path, proof_path, arm_root,
@@ -601,6 +603,7 @@ def _parse_riscv_report(
         "mean_verification_seconds", "sample_seconds", "statement_sha256",
         "transcript_state_blake2s", "implementation_commit", "implementation_dirty",
         "executable_sha256", "artifact_sha256", "proof_path",
+        "resources",
     }
     if set(report) != expected_fields:
         raise ValueError(
@@ -742,6 +745,9 @@ def _parse_riscv_report(
         raise ValueError("proof_bytes_hex is not hexadecimal") from exc
     if proof_bytes.hex() != proof_hex:
         raise ValueError("proof_bytes_hex is not canonical lowercase hex")
+    resources = _parse_riscv_resources(
+        report.get("resources"), group.resource_telemetry,
+    )
     mechanism = {}
     for field_name in group.mechanism_telemetry.get("required_fields", []):
         # Every supported mechanism field was type/canonical validated above.
@@ -753,7 +759,7 @@ def _parse_riscv_report(
         proof_verified=verified,
         # The RISC-V bench aborts before reporting if sample artifacts differ.
         byte_identical=True,
-        peak_rss_mib=None,
+        peak_rss_mib=resources["peak_rss_mib"],
         report_path=str(out_path),
         proof_digest=hashlib.sha256(proof_bytes).hexdigest(),
         proof_bytes=len(proof_bytes),
@@ -761,7 +767,101 @@ def _parse_riscv_report(
             median_seconds, "median_seconds", positive=True,
         ) * 1000.0,
         mechanism=mechanism,
+        energy_j=resources["energy_j"],
+        instructions=resources["instructions"],
+        cycles=resources["cycles"],
+        resources_complete=resources["complete"],
     )
+
+def _nonnegative_integer(
+    value: object, field_name: str, *, positive: bool = False,
+) -> int:
+    if type(value) is not int or value < 0 or (positive and value == 0):
+        qualifier = "a positive integer" if positive else "a non-negative integer"
+        raise ValueError(f"{field_name} must be {qualifier}")
+    return value
+
+
+def _parse_riscv_resources(
+    resources: object, policy: dict,
+) -> dict[str, float | int | bool | None]:
+    if not isinstance(resources, dict):
+        raise ValueError("resources must be an object")
+    expected_fields = {
+        "availability", "source", "scope", "unavailable_reason",
+        "before_warmups", "after_verified_samples", "interval_delta",
+    }
+    if set(resources) != expected_fields:
+        raise ValueError(
+            "resources fields differ: "
+            f"missing={sorted(expected_fields - set(resources))} "
+            f"unknown={sorted(set(resources) - expected_fields)}"
+        )
+    if resources.get("source") != policy.get("source"):
+        raise ValueError("resources.source does not match the manifest policy")
+    if resources.get("scope") != policy.get("scope"):
+        raise ValueError("resources.scope does not match the manifest policy")
+    if resources.get("availability") == "unavailable":
+        reasons = {
+            "unsupported_platform", "before_warmups_sampling_failed",
+            "after_verified_samples_sampling_failed", "counter_regression",
+        }
+        if resources.get("unavailable_reason") not in reasons:
+            raise ValueError("unavailable resources have an invalid reason")
+        if any(resources.get(field) is not None for field in (
+                "before_warmups", "after_verified_samples", "interval_delta")):
+            raise ValueError("unavailable resource counters must all be null")
+        return {
+            "complete": False,
+            "peak_rss_mib": None,
+            "energy_j": None,
+            "instructions": None,
+            "cycles": None,
+        }
+    if resources.get("availability") != "available":
+        raise ValueError("resources.availability is invalid")
+    if resources.get("unavailable_reason") is not None:
+        raise ValueError("available resources must have null unavailable_reason")
+
+    snapshot_fields = {
+        "lifetime_max_phys_footprint_bytes", "energy_nj", "instructions", "cycles",
+    }
+    snapshots = []
+    for point in ("before_warmups", "after_verified_samples"):
+        snapshot = resources.get(point)
+        if not isinstance(snapshot, dict) or set(snapshot) != snapshot_fields:
+            raise ValueError(f"resources.{point} is not an exact RUSAGE_INFO_V6 snapshot")
+        snapshots.append({
+            field: _nonnegative_integer(
+                snapshot.get(field), f"resources.{point}.{field}",
+                positive=field == "lifetime_max_phys_footprint_bytes",
+            )
+            for field in snapshot_fields
+        })
+    before, after = snapshots
+    for field in snapshot_fields:
+        if after[field] < before[field]:
+            raise ValueError(f"resources.{field} regressed between sampling points")
+
+    delta = resources.get("interval_delta")
+    delta_fields = {"energy_nj", "instructions", "cycles"}
+    if not isinstance(delta, dict) or set(delta) != delta_fields:
+        raise ValueError("resources.interval_delta is not an exact counter delta")
+    for field in delta_fields:
+        value = _nonnegative_integer(
+            delta.get(field), f"resources.interval_delta.{field}", positive=True,
+        )
+        if value != after[field] - before[field]:
+            raise ValueError(f"resources.interval_delta.{field} is inconsistent")
+    return {
+        "complete": True,
+        "peak_rss_mib": (
+            after["lifetime_max_phys_footprint_bytes"] / (1024.0 * 1024.0)
+        ),
+        "energy_j": delta["energy_nj"] / 1_000_000_000.0,
+        "instructions": delta["instructions"],
+        "cycles": delta["cycles"],
+    }
 
 
 def paired_rounds(
@@ -806,6 +906,7 @@ def paired_rounds(
     cross_proof_bytes: int | None = None
     mechanism_reference: dict | None = None
     mechanism_verified: bool | None = None
+    resources_complete: bool | None = None
     group = manifest.group(workload.group_id)
 
     round_no = 0
@@ -852,6 +953,7 @@ def paired_rounds(
         if a.proof_digest and b.proof_digest and a.proof_digest != b.proof_digest:
             raise RunError(
                 f"{workload.workload_id}: cross-arm proof digest mismatch in round "
+                f"{round_no} (predecessor {a.proof_digest[:12]} vs candidate "
                 f"{b.proof_digest[:12]}) — conformance failure"
             )
         if cross_digest is None:
@@ -871,7 +973,7 @@ def paired_rounds(
             raise RunError(
                 f"{workload.workload_id}: proof byte length changed between rounds"
             )
-        if group.report_schema == "riscv_proof_v1":
+        if group.report_schema == "riscv_proof_v2":
             if a.mechanism is None or b.mechanism is None:
                 raise RunError(
                     f"{workload.workload_id}: RISC-V mechanism telemetry is absent"
@@ -894,6 +996,15 @@ def paired_rounds(
                 )
             mechanism_reference = stable_b
             mechanism_verified = True
+            if a.resources_complete is not b.resources_complete:
+                raise RunError(
+                    f"{workload.workload_id}: RISC-V resource availability differs "
+                    f"across A/B in round {round_no}"
+                )
+            if resources_complete is None:
+                resources_complete = bool(b.resources_complete)
+            else:
+                resources_complete = resources_complete and bool(b.resources_complete)
         if a.request_ms and b.request_ms:
             request_ratios.append(b.request_ms / a.request_ms)
         ratios.append(b.prove_ms / a.prove_ms)
@@ -985,6 +1096,7 @@ def paired_rounds(
         candidate_resources=candidate_resources,
         proof_bytes=cross_proof_bytes or 0,
         measurement_seconds=elapsed,
+        resources_complete=resources_complete,
     )
 
 
@@ -1199,7 +1311,7 @@ def rust_oracle_check(candidate_root: Path, manifest: Manifest,
         return _native_rust_oracle_check(
             candidate_root, group, workload, out_dir,
         )
-    if group.report_schema == "riscv_proof_v1":
+    if group.report_schema == "riscv_proof_v2":
         return _riscv_stark_v_oracle_check(
             candidate_root, group, workload, out_dir,
         )
@@ -1738,6 +1850,7 @@ def evaluate(
                     "mechanism_verified": s.mechanism_verified,
                     "proof_bytes": s.proof_bytes,
                     "measurement_seconds": round(s.measurement_seconds, 6),
+                    "resources_complete": s.resources_complete,
                 }
                 for s in scores
             },
@@ -1809,6 +1922,7 @@ def evaluate(
                     },
                     "report_sha256s": s.report_sha256s,
                     "mechanism_verified": s.mechanism_verified,
+                    "resources_complete": s.resources_complete,
                 }
                 for s in scores
             },
@@ -1856,7 +1970,7 @@ def _gates(repo_root, manifest, scores, policy, judged, dispersion,
 
     riscv_scores = [
         score for score in scores
-        if manifest.group(score.workload.group_id).report_schema == "riscv_proof_v1"
+        if manifest.group(score.workload.group_id).report_schema == "riscv_proof_v2"
     ]
     if riscv_scores:
         g3_ok = all(score.mechanism_verified is True for score in riscv_scores)

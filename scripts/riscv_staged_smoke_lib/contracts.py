@@ -47,6 +47,20 @@ BENCHMARK_REPORT_FIELDS = {
     "mean_verification_seconds", "sample_seconds", "statement_sha256",
     "transcript_state_blake2s", "implementation_commit", "implementation_dirty",
     "executable_sha256", "artifact_sha256", "proof_path",
+    "resources",
+}
+RESOURCE_SOURCE = "darwin.proc_pid_rusage.RUSAGE_INFO_V6"
+RESOURCE_SCOPE = "self_process_lifetime"
+RESOURCE_FIELDS = {
+    "availability", "source", "scope", "unavailable_reason",
+    "before_warmups", "after_verified_samples", "interval_delta",
+}
+RESOURCE_SNAPSHOT_FIELDS = {
+    "lifetime_max_phys_footprint_bytes", "energy_nj", "instructions", "cycles",
+}
+RESOURCE_UNAVAILABLE_REASONS = {
+    "unsupported_platform", "before_warmups_sampling_failed",
+    "after_verified_samples_sampling_failed", "counter_regression",
 }
 
 
@@ -94,6 +108,66 @@ def require_sha256(value: Any, label: str) -> str:
 def require_nonnegative_number(value: Any, label: str) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise ContractError(f"{label}: expected a non-negative number")
+
+
+def require_nonnegative_integer(value: Any, label: str, *, positive: bool = False) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0 or (
+            positive and value == 0):
+        qualifier = "positive" if positive else "non-negative"
+        raise ContractError(f"{label}: expected a {qualifier} integer")
+    return value
+
+
+def validate_resource_usage(
+    payload: Mapping[str, Any], *, require_available: bool,
+) -> None:
+    exact_fields(payload, RESOURCE_FIELDS, "benchmark report.resources")
+    if payload["source"] != RESOURCE_SOURCE or payload["scope"] != RESOURCE_SCOPE:
+        raise ContractError("benchmark report.resources: source/scope drifted")
+    if payload["availability"] == "unavailable":
+        if payload["unavailable_reason"] not in RESOURCE_UNAVAILABLE_REASONS:
+            raise ContractError("benchmark report.resources: unavailable reason drifted")
+        if any(payload[field] is not None for field in (
+                "before_warmups", "after_verified_samples", "interval_delta")):
+            raise ContractError("benchmark report.resources: unavailable counters must be null")
+        if require_available:
+            raise ContractError("benchmark report.resources: Darwin V6 counters are required")
+        return
+    if payload["availability"] != "available" or payload["unavailable_reason"] is not None:
+        raise ContractError("benchmark report.resources: availability state drifted")
+
+    snapshots: list[dict[str, int]] = []
+    for point in ("before_warmups", "after_verified_samples"):
+        snapshot = payload[point]
+        if not isinstance(snapshot, dict):
+            raise ContractError(f"benchmark report.resources.{point}: expected object")
+        exact_fields(snapshot, RESOURCE_SNAPSHOT_FIELDS, f"benchmark report.resources.{point}")
+        snapshots.append({
+            field: require_nonnegative_integer(
+                snapshot[field], f"benchmark report.resources.{point}.{field}",
+                positive=field == "lifetime_max_phys_footprint_bytes",
+            )
+            for field in RESOURCE_SNAPSHOT_FIELDS
+        })
+    before, after = snapshots
+    for field in RESOURCE_SNAPSHOT_FIELDS:
+        if after[field] < before[field]:
+            raise ContractError(f"benchmark report.resources.{field}: counter regressed")
+
+    delta = payload["interval_delta"]
+    delta_fields = {"energy_nj", "instructions", "cycles"}
+    if not isinstance(delta, dict):
+        raise ContractError("benchmark report.resources.interval_delta: expected object")
+    exact_fields(delta, delta_fields, "benchmark report.resources.interval_delta")
+    for field in delta_fields:
+        value = require_nonnegative_integer(
+            delta[field], f"benchmark report.resources.interval_delta.{field}",
+            positive=True,
+        )
+        if value != after[field] - before[field]:
+            raise ContractError(
+                f"benchmark report.resources.interval_delta.{field}: inconsistent"
+            )
 
 
 def validate_visible_snapshot(name: str, value: str, *, diagnostic: bool = False) -> str:
@@ -247,9 +321,10 @@ def validate_benchmark_report(
     payload: Mapping[str, Any], *, expected_status: str, experimental: bool,
     warmups: int, samples: int, proof_path: str, expected_commit: str,
     expected_dirty: bool, executable_sha256: str,
+    require_resource_availability: bool = True,
 ) -> None:
     exact_fields(payload, BENCHMARK_REPORT_FIELDS, "benchmark report")
-    if payload["schema"] != "riscv_proof_v1" or payload["mode"] != "bench":
+    if payload["schema"] != "riscv_proof_v2" or payload["mode"] != "bench":
         raise ContractError("benchmark report: schema/mode drifted")
     if payload["release_status"] != expected_status or payload["experimental"] is not experimental:
         raise ContractError("benchmark report: release/admission drifted")
@@ -271,6 +346,12 @@ def validate_benchmark_report(
         raise ContractError("benchmark report: build identity drifted")
     if payload["executable_sha256"] != executable_sha256:
         raise ContractError("benchmark report: executable identity drifted")
+    resources = payload["resources"]
+    if not isinstance(resources, dict):
+        raise ContractError("benchmark report.resources: expected object")
+    validate_resource_usage(
+        resources, require_available=require_resource_availability,
+    )
     for field in (
         "median_seconds", "throughput_mhz", "mean_execution_seconds",
         "mean_witness_seconds", "mean_proving_seconds", "mean_verification_seconds",

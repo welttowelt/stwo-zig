@@ -62,7 +62,7 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
         "board": "riscv",
         "build_step": "true",
         "binary": "bin/missing-riscv-bench",
-        "report_schema": "riscv_proof_v1",
+        "report_schema": "riscv_proof_v2",
         "mechanism_telemetry": {
             "fail_closed": True,
             "required_fields": [
@@ -72,6 +72,9 @@ def make_raw(riscv_enabled: bool, native_binary: str = "bin/fakebench") -> dict:
                 "transcript_state_blake2s",
             ],
         },
+        "resource_telemetry": json.loads(json.dumps(
+            manifest_mod.RISCV_RESOURCE_TELEMETRY
+        )),
         "workloads": {
             "riscv_alu": {
                 "class": "wide",
@@ -216,7 +219,7 @@ class RunnerGroupTest(unittest.TestCase):
             encoded = json.dumps(artifact, separators=(",", ":")).encode()
             proof_path.write_bytes(encoded)
             report = {
-                "schema": "riscv_proof_v1",
+                "schema": "riscv_proof_v2",
                 "release_status": status,
                 "mode": "bench",
                 "experimental": experimental,
@@ -241,6 +244,29 @@ class RunnerGroupTest(unittest.TestCase):
                 "executable_sha256": "6" * 64,
                 "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
                 "proof_path": str(proof_path),
+                "resources": {
+                    "availability": "available",
+                    "source": "darwin.proc_pid_rusage.RUSAGE_INFO_V6",
+                    "scope": "self_process_lifetime",
+                    "unavailable_reason": None,
+                    "before_warmups": {
+                        "lifetime_max_phys_footprint_bytes": 16 * 1024 * 1024,
+                        "energy_nj": 100,
+                        "instructions": 200,
+                        "cycles": 300,
+                    },
+                    "after_verified_samples": {
+                        "lifetime_max_phys_footprint_bytes": 32 * 1024 * 1024,
+                        "energy_nj": 110,
+                        "instructions": 220,
+                        "cycles": 330,
+                    },
+                    "interval_delta": {
+                        "energy_nj": 10,
+                        "instructions": 20,
+                        "cycles": 30,
+                    },
+                },
             }
             if mutate_report:
                 mutate_report(report)
@@ -419,6 +445,52 @@ class RunnerGroupTest(unittest.TestCase):
                          result.proof_digest)
         self.assertEqual(result.mechanism["total_steps"], 32)
         self.assertEqual(result.mechanism["statement_sha256"], "4" * 64)
+        self.assertEqual(result.peak_rss_mib, 32.0)
+        self.assertEqual(result.energy_j, 10 / 1_000_000_000.0)
+        self.assertEqual(result.instructions, 20)
+        self.assertEqual(result.cycles, 30)
+        self.assertTrue(result.resources_complete)
+
+    def test_riscv_bench_rejects_unavailable_resource_counters(self):
+        self._set_riscv_phase(promoted=True)
+        manifest = self._riscv_manifest()
+        workload = manifest.workloads("wide", board="riscv")[0]
+
+        def unavailable(report):
+            report["resources"].update({
+                "availability": "unavailable",
+                "unavailable_reason": "unsupported_platform",
+                "before_warmups": None,
+                "after_verified_samples": None,
+                "interval_delta": None,
+            })
+
+        _commands, fake_run = self._riscv_run(
+            "release_gated", False, mutate_report=unavailable,
+        )
+        with mock.patch.object(runner, "_run", side_effect=fake_run):
+            result = runner.bench_once(
+                self.root, manifest, workload, 0, 1, self.out_dir, "a1",
+            )
+        self.assertFalse(result.resources_complete)
+        self.assertIsNone(result.peak_rss_mib)
+        self.assertIsNone(result.energy_j)
+
+    def test_riscv_bench_rejects_inconsistent_resource_delta(self):
+        self._set_riscv_phase(promoted=True)
+        manifest = self._riscv_manifest()
+        workload = manifest.workloads("wide", board="riscv")[0]
+        _commands, fake_run = self._riscv_run(
+            "release_gated", False,
+            mutate_report=lambda report: report["resources"]["interval_delta"].update(
+                energy_nj=9
+            ),
+        )
+        with mock.patch.object(runner, "_run", side_effect=fake_run), \
+                self.assertRaisesRegex(runner.RunError, "energy_nj is inconsistent"):
+            runner.bench_once(
+                self.root, manifest, workload, 0, 1, self.out_dir, "a1",
+            )
 
     def test_riscv_bench_uses_promoted_admission_without_experimental(self):
         self._set_riscv_phase(promoted=True)
@@ -890,6 +962,34 @@ class RunnerGroupTest(unittest.TestCase):
                 self.assertFalse(gates["G4"]["pass"])
                 self.assertIn(failed_dimension, gates["G4"]["detail"])
                 self.assertIn("budget_exceeded", gates["G4"]["detail"])
+
+    def test_judged_riscv_score_without_resources_fails_g5(self):
+        raw = make_raw(riscv_enabled=True)
+        raw["workload_registry"]["groups"]["riscv"]["binary"] = "bin/fakebench"
+        raw["harness"]["anchor_commit"] = "a" * 40
+        raw["harness"]["anchor_prove_ms"] = {"riscv": {"wide": 1.0}}
+        manifest_mod._validate(raw)
+        manifest = Manifest(self.root, raw)
+        score = runner.WorkloadScore(
+            workload=manifest.workloads("wide", board="riscv")[0],
+            ratios=[1.0],
+            r=1.0,
+            ci=(1.0, 1.0),
+            a_median_ms=1.0,
+            b_median_ms=1.0,
+            rss_ratio=None,
+            mechanism_verified=True,
+            proof_bytes=4096,
+            measurement_seconds=1.0,
+            resources_complete=False,
+        )
+        with mock.patch.object(runner, "changed_paths", return_value=[]):
+            gates = runner._gates(
+                self.root, manifest, [score], GATES_POLICY, True, 0.01,
+                "wide", "riscv",
+            )
+        self.assertFalse(gates["G5"]["pass"])
+        self.assertIn("complete resource vectors", gates["G5"]["detail"])
 
     def test_paired_round_rejects_riscv_semantic_telemetry_drift(self):
         manifest = self._riscv_manifest()
