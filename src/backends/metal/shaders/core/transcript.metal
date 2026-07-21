@@ -145,29 +145,33 @@ kernel void stwo_zig_blake2s_parent_tail_sparse(
     constant uint &prefix_bytes [[buffer(6)]], constant uint *transcript_config [[buffer(7)]],
     threadgroup uint *hashes [[threadgroup(0)]], uint thread_index [[thread_index_in_threadgroup]],
     uint simd_lane [[thread_index_in_simdgroup]],
-    uint group [[threadgroup_position_in_grid]]
+    uint3 threads_in_group [[threads_per_threadgroup]],
+    uint3 group [[threadgroup_position_in_grid]]
 ) {
     if (level_count == 0u) return;
     for (uint level = 0u; level < level_count; ++level) {
         uint parent_count = parent_counts[level];
-        if (level != 0u && parent_count <= 8u) {
-            // One SIMDgroup contains eight independent four-lane hashes. All
-            // lanes execute the shuffles; only logical parents publish output.
+        if (level != 0u && parent_count * 4u <= threads_in_group.x) {
+            // Every available four-lane quad owns one parent. Keep the result
+            // in registers until all SIMDgroups have consumed the compacted
+            // child layer: early writes would otherwise alias later messages.
             uint hash_index = thread_index >> 2u;
             uint quad_lane = thread_index & 3u;
-            if (thread_index < 32u) {
-                uint2 state = blake2s_compress_parent_cooperative4(
+            uint2 state(0u);
+            if (hash_index < parent_count) {
+                state = blake2s_compress_parent_cooperative4(
                     hashes + hash_index * 16u, node_seed, prefix_bytes,
                     quad_lane, simd_lane
                 );
-                if (hash_index < parent_count) {
-                    hashes[hash_index * 8u + quad_lane] = state.x;
-                    hashes[hash_index * 8u + quad_lane + 4u] = state.y;
-                    uint destination = destination_offsets[level] +
-                        (group * parent_count + hash_index) * 8u;
-                    arena[destination + quad_lane] = state.x;
-                    arena[destination + quad_lane + 4u] = state.y;
-                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (hash_index < parent_count) {
+                hashes[hash_index * 8u + quad_lane] = state.x;
+                hashes[hash_index * 8u + quad_lane + 4u] = state.y;
+                uint destination = destination_offsets[level] +
+                    (group.x * parent_count + hash_index) * 8u;
+                arena[destination + quad_lane] = state.x;
+                arena[destination + quad_lane + 4u] = state.y;
             }
         } else {
             uint message[16];
@@ -175,7 +179,7 @@ kernel void stwo_zig_blake2s_parent_tail_sparse(
                 if (level == 0u) {
                     // Each threadgroup owns one contiguous bottom subtree.
                     uint source = child_offsets[0] +
-                        (group * parent_count + thread_index) * 16u;
+                        (group.x * parent_count + thread_index) * 16u;
                     for (uint i = 0u; i < 16u; ++i) message[i] = arena[source + i];
                 } else {
                     uint source = thread_index * 16u;
@@ -189,7 +193,7 @@ kernel void stwo_zig_blake2s_parent_tail_sparse(
                 else blake2s_init_seeded(state, node_seed);
                 blake2s_compress(state, message, prefix_bytes + 64u, true);
                 uint destination = destination_offsets[level] +
-                    (group * parent_count + thread_index) * 8u;
+                    (group.x * parent_count + thread_index) * 8u;
                 for (uint i = 0u; i < 8u; ++i) {
                     hashes[thread_index * 8u + i] = state[i];
                     arena[destination + i] = state[i];
@@ -199,7 +203,7 @@ kernel void stwo_zig_blake2s_parent_tail_sparse(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (transcript_config[2] == 0u || group != 0u ||
+    if (transcript_config[2] == 0u || group.x != 0u ||
         parent_counts[level_count - 1u] != 1u || thread_index != 0u) return;
     uint state_base = transcript_config[0], alpha_base = transcript_config[1];
     uint digest[8], block[16];
