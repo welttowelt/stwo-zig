@@ -1838,8 +1838,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1949,8 +1949,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1990,8 +1990,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2101,8 +2101,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2212,8 +2212,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3910,8 +3910,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4021,8 +4021,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4062,8 +4062,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4173,8 +4173,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4284,8 +4284,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4377,8 +4377,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4418,8 +4418,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4459,8 +4459,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 35,
-       "seconds": 4232
+       "commits": 43,
+       "seconds": 8186
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5387,8 +5387,8 @@
    "vectors/reports/benchmark_history/index.json": "c3153ed5d452c67df06dbaf4a45f51f0bd7134306634dbf18480e24fe61e0a71",
    "vectors/reports/benchmark_history/runs/2026-07-21-085853-matrix-v6-6448467f/report.json": "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc"
   },
-  "repo_commit": "c12a045b47cb",
-  "repo_commit_time": "2026-07-21T18:57:59+01:00"
+  "repo_commit": "aa44f98a74db",
+  "repo_commit_time": "2026-07-21T20:03:53+01:00"
  },
  "references": {
   "peer_relative_series": {
