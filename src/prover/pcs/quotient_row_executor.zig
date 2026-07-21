@@ -631,4 +631,3 @@ test "quotient row workers propagate denominator failures" {
     streamingWorker(&streaming);
     try std.testing.expectEqual(error.DivisionByZero, streaming.failure.?);
 }
-

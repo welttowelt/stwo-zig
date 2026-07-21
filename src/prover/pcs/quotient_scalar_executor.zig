@@ -220,7 +220,6 @@ fn executeMaterializedScalarPerRow(item: *const MaterializedWork) !void {
     }
 }
 
-
 pub fn executeStreaming(item: *StreamingWork) !void {
     const workspace = item.workspace;
     const batch_count = workspace.sample_point_components.len;
@@ -318,7 +317,6 @@ fn executeStreamingScalarPerRow(item: *StreamingWork) !void {
         tile_start = tile_end;
     }
 }
-
 
 test "quad finalize matches scalar finalizeRowQuotients for all batch counts" {
     const allocator = std.testing.allocator;
