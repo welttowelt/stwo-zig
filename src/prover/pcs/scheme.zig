@@ -75,6 +75,11 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         config: PcsConfig,
         coefficient_retention_policy: CoefficientRetentionPolicy,
         twiddle_source: TwiddleSource,
+        /// A first-tree commit whose build was deferred to a worker thread.
+        /// Resolved (joined, appended, root-mixed) before any later tree is
+        /// appended or the transcript is otherwise consumed, preserving the
+        /// exact mix order of the sequential path.
+        pending_commit: ?PendingCommit,
 
         const Self = @This();
 
@@ -90,10 +95,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 .config = config,
                 .coefficient_retention_policy = .always,
                 .twiddle_source = twiddle_source,
+                .pending_commit = null,
             };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.discardPending(allocator);
             for (self.trees.items) |*tree| tree.deinit(allocator);
             self.trees.deinit(allocator);
             self.twiddle_source.deinit(allocator);
@@ -192,6 +199,14 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 );
             }
 
+            // First-tree deferral: the tree's contents are channel-independent
+            // and only its root MIX is order-bound, so the whole build can
+            // overlap the next commit's build. The deferred mix is replayed
+            // (in original order) before any later tree is appended.
+            if (canDeferFirstTree(self, owned_columns)) {
+                if (self.trySpawnDeferredCommit(allocator, owned_columns)) return;
+            }
+
             errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
             var prepared = try column_preparation.prepareColumnsForCommitOwnedForBackend(
                 B,
@@ -219,6 +234,106 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             );
             errdefer tree.deinit(allocator);
             try self.appendCommittedTree(allocator, tree, channel);
+        }
+
+        const PendingCommit = struct {
+            thread: std.Thread,
+            slot: *Slot,
+
+            const Slot = struct {
+                tree: ?BackendCommitmentTree = null,
+                err: ?anyerror = null,
+            };
+        };
+
+        /// Deferral applies only to the very first committed tree, off the
+        /// single-threaded build, for non-trivial non-constant column sets,
+        /// and only when the twiddle source is a borrowed (read-only,
+        /// pre-built) tower so the worker thread never mutates shared cache
+        /// state. All other cases keep the exact sequential path.
+        fn canDeferFirstTree(self: *Self, owned_columns: []const ColumnEvaluation) bool {
+            if (comptime @import("builtin").single_threaded) return false;
+            if (self.pending_commit != null) return false;
+            if (self.trees.items.len != 0) return false;
+            if (owned_columns.len == 0) return false;
+            if (!self.twiddle_source.isBorrowed()) return false;
+            return true;
+        }
+
+        fn trySpawnDeferredCommit(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+        ) bool {
+            const slot = allocator.create(PendingCommit.Slot) catch return false;
+            slot.* = .{};
+            const thread = std.Thread.spawn(
+                .{},
+                deferredCommitWorker,
+                .{ self, allocator, owned_columns, slot },
+            ) catch {
+                allocator.destroy(slot);
+                return false;
+            };
+            self.pending_commit = .{ .thread = thread, .slot = slot };
+            return true;
+        }
+
+        fn deferredCommitWorker(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            owned_columns: []ColumnEvaluation,
+            slot: *PendingCommit.Slot,
+        ) void {
+            var prepared = column_preparation.prepareColumnsForCommitOwnedForBackend(
+                B,
+                allocator,
+                owned_columns,
+                self.config.fri_config.log_blowup_factor,
+                self.coefficient_retention_policy,
+                &self.twiddle_source,
+                null,
+            ) catch |err| {
+                column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+                slot.err = err;
+                return;
+            };
+            const tree = BackendCommitmentTree.initOwnedWithBacking(
+                allocator,
+                prepared.columns,
+                prepared.coefficients,
+                prepared.column_backing_buffers,
+                prepared.coefficient_backing_buffers,
+            ) catch |err| {
+                prepared.deinit(allocator);
+                slot.err = err;
+                return;
+            };
+            slot.tree = tree;
+        }
+
+        /// Joins a deferred first-tree build and replays its root mix. Must
+        /// run before any later tree is appended and before the scheme's
+        /// trees or transcript are consumed.
+        pub fn resolvePending(self: *Self, allocator: std.mem.Allocator, channel: anytype) anyerror!void {
+            const pending = self.pending_commit orelse return;
+            self.pending_commit = null;
+            pending.thread.join();
+            const slot = pending.slot;
+            defer allocator.destroy(slot);
+            if (slot.err) |err| return err;
+            var tree = slot.tree.?;
+            errdefer tree.deinit(allocator);
+            try self.appendCommittedTree(allocator, tree, channel);
+        }
+
+        /// Abort path: join and discard a deferred build without mixing.
+        fn discardPending(self: *Self, allocator: std.mem.Allocator) void {
+            const pending = self.pending_commit orelse return;
+            self.pending_commit = null;
+            pending.thread.join();
+            if (pending.slot.tree) |*tree| tree.deinit(allocator);
+            allocator.destroy(pending.slot);
         }
 
         /// Commits coefficient-form circle polynomials directly.
