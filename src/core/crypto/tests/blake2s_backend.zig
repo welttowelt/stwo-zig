@@ -119,3 +119,54 @@ test "blake2s backend: fixed-seed scalar and simd modes cover boundaries and una
         }
     }
 }
+
+test "blake2s backend: four-way incremental updates preserve independent streams" {
+    var prng = std.Random.DefaultPrng.init(0x7570_6461_7465_345f);
+    var prefixes: [4][93]u8 = undefined;
+    var updates: [4][257]u8 = undefined;
+    var update_views: [4][]const u8 = undefined;
+    var batched: [4]Blake2sHasher = undefined;
+    var expected: [4]Blake2sHasher = undefined;
+    for (0..4) |lane| {
+        prng.random().bytes(prefixes[lane][0..]);
+        prng.random().bytes(updates[lane][0..]);
+        batched[lane] = Blake2sHasher.initWithMode(.simd);
+        batched[lane].update(prefixes[lane][0..]);
+        expected[lane] = batched[lane];
+        update_views[lane] = updates[lane][0..];
+    }
+
+    Blake2sHasher.updateEqual4(&batched, &update_views);
+    for (0..4) |lane| {
+        expected[lane].update(update_views[lane]);
+        try std.testing.expectEqualSlices(
+            u8,
+            expected[lane].finalize()[0..],
+            batched[lane].finalize()[0..],
+        );
+    }
+}
+
+test "blake2s backend: four-way final tails preserve independent states" {
+    var prng = std.Random.DefaultPrng.init(0x7461_696c_7334_5f78);
+    var prefixes: [4][100]u8 = undefined;
+    var tails: [4][20]u8 = undefined;
+    var tail_views: [4][]const u8 = undefined;
+    var states: [4]Blake2sHasher = undefined;
+    var expected: [4]backend.Blake2sHash = undefined;
+    for (0..4) |lane| {
+        prng.random().bytes(prefixes[lane][0..]);
+        prng.random().bytes(tails[lane][0..]);
+        states[lane] = Blake2sHasher.initWithMode(.simd);
+        states[lane].update(prefixes[lane][0..]);
+        var sequential = states[lane];
+        sequential.update(tails[lane][0..]);
+        expected[lane] = sequential.finalize();
+        tail_views[lane] = tails[lane][0..];
+    }
+
+    const actual = Blake2sHasher.finalizeEqualTail4(&states, &tail_views);
+    for (0..4) |lane| {
+        try std.testing.expectEqualSlices(u8, expected[lane][0..], actual[lane][0..]);
+    }
+}
