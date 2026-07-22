@@ -62,6 +62,21 @@ pub const Trace = struct {
     polys: TreeVec([]const Poly),
 };
 
+/// Reviewed semantic contracts that a backend may accelerate without
+/// identifying a workload or trusting a coincidental vtable address. Each
+/// variant names the complete AIR relation implemented by the accelerated
+/// kernel; unmarked components always use the reference evaluator.
+pub const BackendCompositionCapability = union(enum) {
+    /// For one trace tree with columns `[a, b, c, ...]`, contributes one
+    /// constraint per consecutive triple: `c - (a^2 + b^2)`, in canonical
+    /// component constraint order, divided by the trace-coset vanishing
+    /// polynomial.
+    quadratic_sum_squares_v1: struct {
+        trace_tree_index: usize,
+        first_column: usize,
+    },
+};
+
 pub const ComponentProverVTable = struct {
     nConstraints: *const fn (ctx: *const anyopaque) usize,
     maxConstraintLogDegreeBound: *const fn (ctx: *const anyopaque) u32,
@@ -90,6 +105,7 @@ pub const ComponentProverVTable = struct {
 pub const ComponentProver = struct {
     ctx: *const anyopaque,
     vtable: *const ComponentProverVTable,
+    backend_composition_capability: ?BackendCompositionCapability = null,
 
     pub inline fn nConstraints(self: ComponentProver) usize {
         return self.vtable.nConstraints(self.ctx);
@@ -155,24 +171,6 @@ pub const ComponentProver = struct {
         );
     }
 };
-
-pub const BackendCompositionEvaluationHook = *const fn (
-    allocator: std.mem.Allocator,
-    components: []const ComponentProver,
-    random_coeff: QM31,
-    trace: *const Trace,
-) anyerror!?SecureColumnByCoords;
-
-// Installed by an accelerated backend during its excluded initialization.
-// CPU and unsupported component types keep the exact reference evaluator.
-var backend_composition_evaluation_hook: ?BackendCompositionEvaluationHook = null;
-
-pub fn installBackendCompositionEvaluationHook(hook: BackendCompositionEvaluationHook) void {
-    if (backend_composition_evaluation_hook) |installed| {
-        std.debug.assert(installed == hook);
-    }
-    backend_composition_evaluation_hook = hook;
-}
 
 pub const ComponentProvers = struct {
     components: []const ComponentProver,
@@ -244,8 +242,34 @@ pub const ComponentProvers = struct {
         random_coeff: QM31,
         trace: *const Trace,
     ) anyerror!SecureColumnByCoords {
-        if (backend_composition_evaluation_hook) |hook| {
-            if (try hook(allocator, self.components, random_coeff, trace)) |evaluation| {
+        return self.computeCompositionEvaluationForBackend(
+            void,
+            allocator,
+            random_coeff,
+            trace,
+            &.{},
+        );
+    }
+
+    /// Routes an optional accelerator through the proof's backend type. This
+    /// keeps CPU and Metal proofs isolated even when they execute concurrently
+    /// in one process; no process-global hook participates in dispatch.
+    pub fn computeCompositionEvaluationForBackend(
+        self: ComponentProvers,
+        comptime B: type,
+        allocator: std.mem.Allocator,
+        random_coeff: QM31,
+        trace: *const Trace,
+        residency_handles: []const ?*anyopaque,
+    ) anyerror!SecureColumnByCoords {
+        if (comptime B != void and @hasDecl(B, "computeCompositionEvaluation")) {
+            if (try B.computeCompositionEvaluation(
+                allocator,
+                self.components,
+                random_coeff,
+                trace,
+                residency_handles,
+            )) |evaluation| {
                 return evaluation;
             }
         }
@@ -575,6 +599,7 @@ test "prover air component prover: composition accumulation" {
 
     const mock = Mock{ .max_log_size = 2 };
     const components_arr = [_]ComponentProver{mock.asComponent()};
+    try std.testing.expect(components_arr[0].backend_composition_capability == null);
     const component_provers = ComponentProvers{
         .components = components_arr[0..],
         .n_preprocessed_columns = 0,

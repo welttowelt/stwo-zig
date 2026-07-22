@@ -63,6 +63,14 @@ pub const genTrace = trace_input.generate;
 pub const deinitTrace = trace_input.deinit;
 pub const prepareInput = trace_input.prepare;
 
+pub fn prepareInputForBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) anyerror!PreparedInput {
+    return trace_input.prepareForBackend(Backend, allocator, statement);
+}
+
 pub fn prove(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,
@@ -546,6 +554,25 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
         ) !void {
             commit_calls += 1;
             return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
+        }
+
+        pub fn commitWithBacking(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []prover_pcs.ColumnEvaluation,
+            backing_buffers: ?[][]M31,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            commit_calls += 1;
+            return CpuProverEngine.commitWithBacking(
+                scheme,
+                allocator,
+                columns,
+                backing_buffers,
+                recorder,
+                channel,
+            );
         }
 
         pub fn prove(

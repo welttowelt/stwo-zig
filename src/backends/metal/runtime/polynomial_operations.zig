@@ -257,6 +257,8 @@ fn computeQuotientsConfigured(
         raw_column_ptrs.ptr,
         raw_column_lengths.ptr,
         @intCast(raw_column_count),
+        provider.backend_residency_handles.ptr,
+        @intCast(provider.backend_residency_handles.len),
         @ptrCast(descriptors.ptr),
         @intCast(view_count),
         raw_views,
@@ -642,6 +644,7 @@ pub fn transformCircleLdeInto(
 
 pub fn evaluateRecurrenceComposition(
     self: *Runtime,
+    resident_tree: ?*anyopaque,
     trace_first: [*]const @import("stwo_core").fields.m31.M31,
     row_count: usize,
     column_count: usize,
@@ -663,6 +666,7 @@ pub fn evaluateRecurrenceComposition(
     var message: [1024]u8 = [_]u8{0} ** 1024;
     if (!ffi.stwo_zig_metal_recurrence_composition(
         self.handle,
+        resident_tree,
         trace_words,
         @intCast(row_count),
         @intCast(column_count),

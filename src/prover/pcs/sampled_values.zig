@@ -452,7 +452,11 @@ fn evaluateCoefficientBatchParallel(
     flat_factors: []const QM31,
     out: []const []QM31,
 ) bool {
-    const min_columns_per_worker: usize = 8;
+    // Each wide column evaluates a full 2^log basis, so even four columns
+    // provide ample work to amortize one existing-pool dispatch. Keeping the
+    // old eight-column floor stranded six of eighteen M5 Max cores for the
+    // width-100 tree's final OODS evaluations.
+    const min_columns_per_worker: usize = 4;
     const pool = work_pool_mod.getGlobalPool() orelse return false;
     const worker_count = @min(pool.workerCount(), coefficients.len / min_columns_per_worker);
     if (worker_count <= 1) return false;

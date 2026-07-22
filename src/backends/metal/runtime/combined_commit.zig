@@ -33,6 +33,7 @@ pub fn prepareAndCommitOwned(
     log_blowup_factor: u32,
     retention_policy: anytype,
     twiddle_source: anytype,
+    source_backing_buffers: ?[][]M31,
 ) !?PreparedCommitment(H) {
     if (retention_policy != .always or log_blowup_factor != 1 or
         owned_columns.len < min_columns or owned_columns.len > max_columns)
@@ -50,21 +51,33 @@ pub fn prepareAndCommitOwned(
     const extended_len = @as(usize, 1) << @intCast(extended_log_size);
     const page_words = std.heap.pageSize() / @sizeOf(M31);
     const page_rotate = owned_columns.len >= 64 and extended_len >= (1 << 18);
-    const extended_stride = extended_len +
-        @as(usize, if (page_rotate) page_words + 16 else 16);
+    const extended_stride = try std.math.add(
+        usize,
+        extended_len,
+        if (page_rotate) page_words + 16 else 16,
+    );
     const extended_span = try std.math.add(
         usize,
         try std.math.mul(usize, owned_columns.len - 1, extended_stride),
         extended_len,
     );
-    const backing_words = std.mem.alignForward(usize, extended_span, page_words);
-
-    const base_buffer = try allocator.alloc(
-        M31,
-        try std.math.mul(usize, owned_columns.len, base_len),
+    const backing_words = std.mem.alignBackward(
+        usize,
+        try std.math.add(usize, extended_span, page_words - 1),
+        page_words,
     );
+
+    const base_words = try std.math.mul(usize, owned_columns.len, base_len);
+    const reuse_source = source_backing_buffers != null and
+        source_backing_buffers.?.len == 1 and
+        source_backing_buffers.?[0].len == base_words and
+        columnsCoverContiguousBacking(owned_columns, source_backing_buffers.?[0], base_len);
+    const base_buffer = if (reuse_source)
+        source_backing_buffers.?[0]
+    else
+        try allocator.alloc(M31, base_words);
     var keep_base = false;
-    defer if (!keep_base) allocator.free(base_buffer);
+    defer if (!reuse_source and !keep_base) allocator.free(base_buffer);
     const transform_buffer = try allocator.alloc(M31, backing_words);
     var keep_transform = false;
     defer if (!keep_transform) allocator.free(transform_buffer);
@@ -100,8 +113,9 @@ pub fn prepareAndCommitOwned(
         H.leafSeed(),
         H.nodeSeed(),
         H.domainPrefixBytes(),
-    ) catch return null;
-    const commitment = metal_merkle.MetalMerkleTree(H).fromSharedRuntime(result.tree) catch return null;
+    ) catch |err| if (reuse_source) return err else return null;
+    const commitment = metal_merkle.MetalMerkleTree(H).fromSharedRuntime(result.tree) catch |err|
+        if (reuse_source) return err else return null;
     errdefer {
         var owned_commitment = commitment;
         owned_commitment.deinit(allocator);
@@ -119,14 +133,27 @@ pub fn prepareAndCommitOwned(
     const column_backings = try allocator.alloc([]M31, 1);
     errdefer allocator.free(column_backings);
     column_backings[0] = transform_buffer;
-    const coefficient_backings = try allocator.alloc([]M31, 1);
-    errdefer allocator.free(coefficient_backings);
-    coefficient_backings[0] = base_buffer;
+    const coefficient_backings = if (reuse_source)
+        source_backing_buffers.?
+    else blk: {
+        const buffers = try allocator.alloc([]M31, 1);
+        buffers[0] = base_buffer;
+        break :blk buffers;
+    };
+    errdefer if (!reuse_source) allocator.free(coefficient_backings);
 
     // The GPU has completed before the source trace is released. Returned
     // coefficient/evaluation slices borrow only the two retained backings.
-    for (owned_columns) |column| allocator.free(column.values);
-    allocator.free(owned_columns);
+    if (reuse_source) {
+        allocator.free(owned_columns);
+    } else if (source_backing_buffers) |buffers| {
+        allocator.free(owned_columns);
+        for (buffers) |buffer| allocator.free(buffer);
+        allocator.free(buffers);
+    } else {
+        for (owned_columns) |column| allocator.free(column.values);
+        allocator.free(owned_columns);
+    }
     keep_base = true;
     keep_transform = true;
     telemetry.record(.metal_circle_lde_dispatch);
@@ -139,6 +166,20 @@ pub fn prepareAndCommitOwned(
         .coefficient_backing_buffers = coefficient_backings,
         .commitment = commitment,
     };
+}
+
+fn columnsCoverContiguousBacking(
+    columns: []const ColumnEvaluation,
+    backing: []M31,
+    column_len: usize,
+) bool {
+    const required_words = std.math.mul(usize, columns.len, column_len) catch return false;
+    if (columns.len == 0 or backing.len != required_words) return false;
+    for (columns, 0..) |column, index| {
+        if (column.values.len != column_len or
+            column.values.ptr != backing.ptr + index * column_len) return false;
+    }
+    return true;
 }
 
 test "combined commit admission constants remain large-shape only" {

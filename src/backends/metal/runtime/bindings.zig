@@ -31,6 +31,18 @@ pub extern fn stwo_zig_metal_buffer_create(
     error_message: [*]u8,
     error_message_len: usize,
 ) ?*anyopaque;
+pub extern fn stwo_zig_metal_quadratic_recurrence_trace(
+    runtime: *anyopaque,
+    columns: [*]const [*]u32,
+    column_count: u32,
+    row_count: u32,
+    log_n_rows: u32,
+    recipe: *const [7]u32,
+    gpu_milliseconds: *f64,
+    copyback_count: *u32,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;
 pub extern fn stwo_zig_metal_clear_arena_ranges(
     runtime: *anyopaque,
     arena: *anyopaque,
@@ -525,6 +537,8 @@ pub extern fn stwo_zig_metal_compute_quotients(
     raw_columns: [*]const [*]const u32,
     raw_column_lengths: [*]const usize,
     raw_column_count: u32,
+    resident_trees: [*]const *anyopaque,
+    resident_tree_count: u32,
     views: *const anyopaque,
     view_count: u32,
     raw_views: bool,
@@ -621,6 +635,7 @@ pub extern fn stwo_zig_metal_circle_lde_merkle_commit(
 ) ?*anyopaque;
 pub extern fn stwo_zig_metal_recurrence_composition(
     runtime: *anyopaque,
+    resident_tree: ?*anyopaque,
     trace_first: [*]const u32,
     row_count: u32,
     column_count: u32,

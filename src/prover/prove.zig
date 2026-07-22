@@ -245,6 +245,8 @@ fn proveExComponentsWithRecorder(
     };
 
     {
+        const residency_handles = try scheme.backendResidencyHandles(allocator);
+        defer allocator.free(residency_handles);
         var trace = blk: {
             var composition_trace_stage = try stage_profile.StageScope.begin(
                 recorder,
@@ -263,10 +265,12 @@ fn proveExComponentsWithRecorder(
                 "Composition evaluation",
             );
             defer composition_eval_stage.end();
-            break :blk try component_provers.computeCompositionEvaluation(
+            break :blk try component_provers.computeCompositionEvaluationForBackend(
+                B,
                 allocator,
                 random_coeff,
                 &trace,
+                residency_handles,
             );
         };
         defer composition_eval.deinit(allocator);
@@ -282,7 +286,8 @@ fn proveExComponentsWithRecorder(
                 allocator,
                 composition_log_size,
             );
-            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddles(
+            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
+                B,
                 allocator,
                 canonic.CanonicCoset.new(composition_log_size).circleDomain(),
                 &composition_eval,

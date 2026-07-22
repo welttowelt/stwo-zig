@@ -252,6 +252,137 @@ bool stwo_zig_metal_parent_plain(
     }
 }
 
+bool stwo_zig_metal_quadratic_recurrence_trace(
+    void *runtime_ptr,
+    uint32_t *const *columns,
+    uint32_t column_count,
+    uint32_t row_count,
+    uint32_t log_n_rows,
+    const uint32_t *recipe,
+    double *gpu_milliseconds,
+    uint32_t *copyback_count,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || columns == NULL || recipe == NULL ||
+        column_count < 2u || column_count > 256u || row_count == 0u ||
+        log_n_rows == 0u || log_n_rows >= 31u ||
+        row_count != (1u << log_n_rows)) {
+        write_error(error_message, error_message_len, @"Invalid quadratic recurrence trace arguments");
+        return false;
+    }
+    for (uint32_t word = 0u; word < 7u; ++word) {
+        if (recipe[word] >= 0x7fffffffu) {
+            write_error(error_message, error_message_len, @"Non-canonical quadratic recurrence parameter");
+            return false;
+        }
+    }
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        const size_t column_bytes = (size_t)row_count * sizeof(uint32_t);
+        const size_t page_size = (size_t)getpagesize();
+        NSMutableArray<id<MTLBuffer>> *buffers = [NSMutableArray arrayWithCapacity:column_count];
+        NSMutableData *address_data = [NSMutableData dataWithLength:(NSUInteger)column_count * sizeof(uint64_t)];
+        NSMutableData *alias_data = [NSMutableData dataWithLength:(NSUInteger)column_count];
+        if (buffers == nil || address_data == nil || alias_data == nil) {
+            write_error(error_message, error_message_len, @"Metal trace binding allocation failed");
+            return false;
+        }
+        uint64_t *addresses = address_data.mutableBytes;
+        uint8_t *aliases = alias_data.mutableBytes;
+        uint32_t copied = 0u;
+        bool contiguous = runtime.device.hasUnifiedMemory &&
+            ((uintptr_t)columns[0] % page_size) == 0u &&
+            column_bytes <= SIZE_MAX / column_count;
+        for (uint32_t column = 0u; column < column_count; ++column) {
+            if (columns[column] == NULL) {
+                write_error(error_message, error_message_len, @"Null quadratic recurrence column");
+                return false;
+            }
+            if (column != 0u)
+                contiguous &= columns[column] == columns[0] + (size_t)column * row_count;
+        }
+        size_t contiguous_bytes = column_bytes * column_count;
+        contiguous &= (contiguous_bytes % page_size) == 0u;
+        if (contiguous) {
+            id<MTLBuffer> buffer = [runtime.device newBufferWithBytesNoCopy:columns[0]
+                length:contiguous_bytes options:MTLResourceStorageModeShared deallocator:nil];
+            if (buffer == nil || buffer.contents == NULL || buffer.gpuAddress == 0u) {
+                write_error(error_message, error_message_len, @"Metal contiguous trace binding failed");
+                return false;
+            }
+            [buffers addObject:buffer];
+            for (uint32_t column = 0u; column < column_count; ++column) {
+                aliases[column] = 1u;
+                addresses[column] = buffer.gpuAddress + (uint64_t)column * column_bytes;
+            }
+        } else for (uint32_t column = 0u; column < column_count; ++column) {
+            bool alias = ((uintptr_t)columns[column] % page_size) == 0u &&
+                (column_bytes % page_size) == 0u && runtime.device.hasUnifiedMemory;
+            id<MTLBuffer> buffer = alias
+                ? [runtime.device newBufferWithBytesNoCopy:columns[column]
+                                                    length:column_bytes
+                                                   options:MTLResourceStorageModeShared
+                                               deallocator:nil]
+                : nil;
+            if (buffer == nil) {
+                alias = false;
+                buffer = [runtime.device newBufferWithLength:column_bytes
+                                                     options:MTLResourceStorageModeShared];
+            }
+            if (buffer == nil || buffer.contents == NULL || buffer.gpuAddress == 0u) {
+                write_error(error_message, error_message_len, @"Metal trace column binding failed");
+                return false;
+            }
+            aliases[column] = alias ? 1u : 0u;
+            copied += alias ? 0u : 1u;
+            addresses[column] = buffer.gpuAddress;
+            [buffers addObject:buffer];
+        }
+        id<MTLBuffer> address_buffer = [runtime.device newBufferWithBytes:addresses
+                                                                   length:(NSUInteger)column_count * sizeof(uint64_t)
+                                                                  options:MTLResourceStorageModeShared];
+        if (address_buffer == nil) {
+            write_error(error_message, error_message_len, @"Metal trace address binding failed");
+            return false;
+        }
+
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        if (command == nil || encoder == nil) {
+            write_error(error_message, error_message_len, @"Metal trace command allocation failed");
+            return false;
+        }
+        [encoder setComputePipelineState:runtime.quadraticRecurrenceTrace];
+        [encoder setBuffer:address_buffer offset:0u atIndex:0u];
+        [encoder setBytes:&row_count length:sizeof(row_count) atIndex:1u];
+        [encoder setBytes:&log_n_rows length:sizeof(log_n_rows) atIndex:2u];
+        [encoder setBytes:&column_count length:sizeof(column_count) atIndex:3u];
+        [encoder setBytes:recipe length:7u * sizeof(uint32_t) atIndex:4u];
+        for (id<MTLBuffer> buffer in buffers)
+            [encoder useResource:buffer usage:MTLResourceUsageWrite];
+        NSUInteger width = MIN(runtime.quadraticRecurrenceTrace.maxTotalThreadsPerThreadgroup,
+                               runtime.quadraticRecurrenceTrace.threadExecutionWidth * 8u);
+        [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len, command.error.localizedDescription);
+            return false;
+        }
+        for (uint32_t column = 0u; column < column_count; ++column) {
+            if (aliases[column] == 0u)
+                memcpy(columns[column], buffers[column].contents, column_bytes);
+        }
+        if (gpu_milliseconds != NULL)
+            *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        if (copyback_count != NULL) *copyback_count = copied;
+        return true;
+    }
+}
+
 void *stwo_zig_metal_buffer_create(
     void *runtime_ptr,
     size_t byte_length,

@@ -193,6 +193,14 @@ pub const WideFibonacciSpec = struct {
         return wide_fibonacci.prepareInput(allocator, value);
     }
 
+    pub fn prepareInputWithEngine(
+        comptime Engine: type,
+        allocator: std.mem.Allocator,
+        value: Request,
+    ) !PreparedInput {
+        return wide_fibonacci.prepareInputForBackend(Engine.Backend, allocator, value);
+    }
+
     pub fn requiredCircleLog(value: Request, pcs_config: stwo.core.pcs.PcsConfig) !u32 {
         return wide_fibonacci.requiredTwiddleCircleLog(value, pcs_config);
     }

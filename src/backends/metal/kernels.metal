@@ -14,6 +14,56 @@ struct RawQuotientView {
     uint coeff_a, coeff_b, coeff_c, coeff_d;
 };
 
+struct QuadraticRecurrenceColumn {
+    device uint *values;
+};
+
+// One independent lane per stored row. The inverse order mapping keeps every
+// column write coalesced while preserving coset-natural statement semantics.
+kernel void stwo_zig_quadratic_recurrence_trace(
+    device const QuadraticRecurrenceColumn *columns [[buffer(0)]],
+    constant uint &row_count [[buffer(1)]],
+    constant uint &log_n_rows [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    constant uint *recipe [[buffer(4)]],
+    uint storage_index [[thread_position_in_grid]]
+) {
+    if (storage_index >= row_count) return;
+    uint circle_index = reverse_bits(storage_index) >> (32u - log_n_rows);
+    uint half_count = row_count >> 1u;
+    uint logical_row = circle_index < half_count
+        ? circle_index << 1u
+        : ((row_count - 1u - circle_index) << 1u) + 1u;
+
+    // The common unit sum-of-squares recipe is a structural property, not a
+    // workload identity. Keep it free of redundant multiplies by 0 and 1.
+    bool unit_sum_of_squares = recipe[0] == 1u && recipe[1] == 0u &&
+        recipe[2] == 0u && recipe[3] == 1u && recipe[4] == 1u &&
+        recipe[5] == 1u && recipe[6] == 0u;
+    uint previous = unit_sum_of_squares
+        ? 1u
+        : m31_add(recipe[0], m31_mul(recipe[1], logical_row));
+    uint current = unit_sum_of_squares
+        ? logical_row
+        : m31_add(recipe[2], m31_mul(recipe[3], logical_row));
+    columns[0].values[storage_index] = previous;
+    columns[1].values[storage_index] = current;
+    for (uint column = 2u; column < column_count; ++column) {
+        uint next = unit_sum_of_squares
+            ? m31_add(m31_mul(previous, previous), m31_mul(current, current))
+            : m31_add(
+                m31_add(
+                    m31_mul(recipe[4], m31_mul(previous, previous)),
+                    m31_mul(recipe[5], m31_mul(current, current))
+                ),
+                recipe[6]
+            );
+        columns[column].values[storage_index] = next;
+        previous = current;
+        current = next;
+    }
+}
+
 kernel void stwo_zig_compact_gather(
     device uint *arena [[buffer(0)]], device const uint *source_offsets [[buffer(1)]],
     device const uint *descriptors [[buffer(2)]], constant uint *params [[buffer(3)]],

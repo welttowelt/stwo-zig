@@ -49,10 +49,45 @@ const QuotientCommitResult = runtime.QuotientCommitResult;
 const FriFoldCommitResult = runtime.FriFoldCommitResult;
 const ResidentBuffer = runtime.ResidentBuffer;
 const Tree = runtime.Tree;
+const TraceGenerationStats = runtime.TraceGenerationStats;
 const validDomainPrefixBytes = protocol_mode.validDomainPrefixBytes;
 const lifted_merkle_prefix_bytes = runtime.lifted_merkle_prefix_bytes;
 const resource_plans = @import("resource_plans.zig").ResourcePlans(MetalError);
 const evalArguments = resource_plans.evalArguments;
+
+pub fn quadraticRecurrenceTrace(
+    self: *Runtime,
+    columns: []const [*]u32,
+    row_count: u32,
+    log_n_rows: u32,
+    recipe: [7]u32,
+) MetalError!TraceGenerationStats {
+    if (columns.len < 2 or columns.len > 256 or row_count == 0 or
+        log_n_rows == 0 or log_n_rows >= 31 or
+        row_count != @as(u32, 1) << @intCast(log_n_rows))
+        return MetalError.InvalidColumns;
+    for (recipe) |value| if (value >= 0x7fffffff) return MetalError.InvalidColumns;
+
+    var gpu_ms: f64 = 0;
+    var copyback_columns: u32 = 0;
+    var message: [1024]u8 = [_]u8{0} ** 1024;
+    if (!ffi.stwo_zig_metal_quadratic_recurrence_trace(
+        self.handle,
+        columns.ptr,
+        @intCast(columns.len),
+        row_count,
+        log_n_rows,
+        &recipe,
+        &gpu_ms,
+        &copyback_columns,
+        &message,
+        message.len,
+    )) {
+        std.log.err("Metal quadratic recurrence trace failed: {s}", .{std.mem.sliceTo(&message, 0)});
+        return MetalError.TraceGenerationFailed;
+    }
+    return .{ .gpu_ms = gpu_ms, .copyback_columns = copyback_columns };
+}
 
 pub fn witnessInputGather(
     self: *Runtime,

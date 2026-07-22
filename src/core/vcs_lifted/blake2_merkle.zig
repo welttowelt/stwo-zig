@@ -169,6 +169,27 @@ fn Blake2sMerkleHasherProtocolGeneric(
             return out;
         }
 
+        pub fn hashDirectM31LeavesWithSeed4(
+            seed: NodeSeed,
+            columns: anytype,
+            position: usize,
+        ) [4]Hash {
+            const mode = defaultMode();
+            if (comptime hash_protocol == .domain_prefixed) {
+                return InnerHasher.hashM31ColumnsFromSeed4WithMode(
+                    mode,
+                    seed,
+                    columns,
+                    position,
+                );
+            }
+            return InnerHasher.hashM31Columns4WithMode(
+                mode,
+                columns,
+                position,
+            );
+        }
+
         pub fn updateLeaf(self: *Self, column_values: []const M31) void {
             if (column_values.len == 0) return;
 
@@ -246,6 +267,46 @@ test "vcs_lifted blake2: hash children deterministic" {
     const h1 = Blake2sMerkleHasher.hashChildren(.{ .left = left, .right = right });
     const h2 = Blake2sMerkleHasher.hashChildren(.{ .left = left, .right = right });
     try std.testing.expect(std.mem.eql(u8, h1[0..], h2[0..]));
+}
+
+test "vcs_lifted blake2: direct column-major leaves match packed messages" {
+    const Column = struct { values: []const M31 };
+    var storage: [19][4]M31 = undefined;
+    var columns: [storage.len]Column = undefined;
+    for (&storage, &columns, 0..) |*values, *column, column_index| {
+        for (values, 0..) |*value, row| {
+            value.* = M31.fromCanonical(@intCast(1 + column_index * 17 + row * 101));
+        }
+        column.* = .{ .values = values };
+    }
+
+    var messages: [4][storage.len * @sizeOf(M31)]u8 = undefined;
+    for (&messages, 0..) |*message, row| {
+        for (storage, 0..) |values, column_index| {
+            const encoded = values[row].toBytesLe();
+            const at = column_index * @sizeOf(M31);
+            @memcpy(message[at .. at + @sizeOf(M31)], &encoded);
+        }
+    }
+    var message_views: [4][]const u8 = undefined;
+    for (&message_views, &messages) |*view, *message| view.* = message;
+
+    const seed = Blake2sMerkleHasher.leafSeed();
+    const expected = Blake2sMerkleHasher.hashPackedLeavesWithSeed4(seed, &message_views);
+    const actual = Blake2sMerkleHasher.hashDirectM31LeavesWithSeed4(seed, &columns, 0);
+    try std.testing.expectEqualDeep(expected, actual);
+
+    const plain_seed = Blake2sPlainMerkleHasher.leafSeed();
+    const plain_expected = Blake2sPlainMerkleHasher.hashPackedLeavesWithSeed4(
+        plain_seed,
+        &message_views,
+    );
+    const plain_actual = Blake2sPlainMerkleHasher.hashDirectM31LeavesWithSeed4(
+        plain_seed,
+        &columns,
+        0,
+    );
+    try std.testing.expectEqualDeep(plain_expected, plain_actual);
 }
 
 test "vcs_lifted blake2: mix root changes channel digest" {

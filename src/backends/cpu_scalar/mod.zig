@@ -20,6 +20,8 @@ const qm31_mod = @import("stwo_core").fields.qm31;
 const fields_mod = @import("stwo_core").fields;
 const core_fri = @import("stwo_core").fri;
 const circle = @import("stwo_core").circle;
+const core_poly = @import("stwo_core").poly;
+const prover_impl = @import("stwo_prover_impl");
 const lifted_merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const secure_composition = @import("secure_composition.zig");
 
@@ -36,10 +38,76 @@ pub const CpuBackend = struct {
     pub const combined_commit_max_columns: usize = 256;
     pub const combined_base_in_place = true;
 
-    /// Installs CPU-only semantic accelerators before excluded benchmark
-    /// warmups. Unsupported AIRs retain the generic evaluator.
-    pub fn warmup() !void {
-        secure_composition.install();
+    pub fn warmup() !void {}
+
+    pub fn computeCompositionEvaluation(
+        allocator: std.mem.Allocator,
+        components: []const @import("stwo_prover_impl").air.component_prover.ComponentProver,
+        random_coeff: QM31,
+        trace: *const @import("stwo_prover_impl").air.component_prover.Trace,
+        residency_handles: []const ?*anyopaque,
+    ) !?@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
+        _ = residency_handles;
+        return secure_composition.evaluateLargeRecurrenceComposition(
+            allocator,
+            components,
+            random_coeff,
+            trace,
+        );
+    }
+
+    /// Interpolates the four independent secure-field coordinates in place
+    /// on the existing prover pool. The generic path duplicates and transforms
+    /// them serially; owned composition evaluations need neither cost.
+    pub fn interpolateSecureComposition(
+        allocator: std.mem.Allocator,
+        values: []const []M31,
+        domain: core_poly.circle.domain.CircleDomain,
+        twiddle_tree: prover_impl.poly.twiddles.TwiddleTree([]const M31),
+    ) !bool {
+        _ = allocator;
+        if (values.len != qm31_mod.SECURE_EXTENSION_DEGREE) return false;
+        for (values) |coordinate| {
+            if (coordinate.len != domain.size()) return false;
+        }
+
+        const Job = struct {
+            values: []M31,
+            domain: core_poly.circle.domain.CircleDomain,
+            twiddle_tree: prover_impl.poly.twiddles.TwiddleTree([]const M31),
+            failure: ?anyerror = null,
+
+            fn run(job: *@This()) void {
+                var batch = [_][]M31{job.values};
+                prover_impl.poly.circle.poly.interpolateBuffersWithTwiddles(
+                    &batch,
+                    job.domain,
+                    job.twiddle_tree,
+                ) catch |err| {
+                    job.failure = err;
+                };
+            }
+        };
+
+        var jobs: [qm31_mod.SECURE_EXTENSION_DEGREE]Job = undefined;
+        for (values, &jobs) |coordinate, *job| {
+            job.* = .{
+                .values = coordinate,
+                .domain = domain,
+                .twiddle_tree = twiddle_tree,
+            };
+        }
+
+        if (prover_impl.work_pool.getGlobalPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            for (jobs[1..]) |*job| pool.spawnWg(&wait_group, Job.run, .{job});
+            Job.run(&jobs[0]);
+            wait_group.wait();
+        } else {
+            for (&jobs) |*job| Job.run(job);
+        }
+        for (jobs) |job| if (job.failure) |err| return err;
+        return true;
     }
 
     // ---------------------------------------------------------------

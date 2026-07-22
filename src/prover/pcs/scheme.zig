@@ -1,16 +1,15 @@
 //! Stateful PCS commitment, opening, and proof orchestration.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const backend_merkle = @import("stwo_backend_contracts").merkle_ops;
 const circle = @import("stwo_core").circle;
 const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const pcs_core = @import("stwo_core").pcs;
-const pcs_utils = @import("stwo_core").pcs.utils;
 const verifier_types = @import("stwo_core").verifier_types;
 const vcs_verifier = @import("stwo_core").vcs_lifted.verifier;
 const canonic = @import("stwo_core").poly.circle.canonic;
-const component_prover = @import("../air/component_prover.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
 const twiddle_source_mod = @import("../poly/twiddle_source.zig");
 const stage_profile = @import("../stage_profile.zig");
@@ -25,6 +24,9 @@ const sampled_value_transcript = @import("sampled_value_transcript.zig");
 const sampled_value_evaluation = @import("sampled_values.zig");
 const tree_builders = @import("tree_builders.zig");
 const commit_dispatch = @import("commit_dispatch.zig");
+const backed_columns = @import("backed_columns.zig");
+const scheme_decommit = @import("scheme_decommit.zig");
+const scheme_views = @import("scheme_views.zig");
 
 pub const quotient_ops = @import("quotient_ops.zig");
 
@@ -165,12 +167,52 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
+            return self.commitOwnedWithRecorderAndBacking(
+                allocator,
+                owned_columns,
+                null,
+                recorder,
+                channel,
+            );
+        }
+
+        /// Ownership-preserving commit for columns that borrow one or more
+        /// shared allocations. Backends may adopt those allocations; generic
+        /// paths detach them into ordinary per-column ownership first.
+        pub fn commitOwnedWithRecorderAndBacking(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            input_columns: []ColumnEvaluation,
+            input_backing_buffers: ?[][]M31,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            var owned_columns = input_columns;
+            var backing_buffers = input_backing_buffers;
             if (column_preparation.columnEvaluationsAreConstant(owned_columns)) {
+                if (backing_buffers) |buffers| {
+                    const detached = backed_columns.detach(allocator, owned_columns) catch |err| {
+                        backed_columns.free(allocator, owned_columns, buffers);
+                        return err;
+                    };
+                    backed_columns.free(allocator, owned_columns, buffers);
+                    owned_columns = detached;
+                    backing_buffers = null;
+                }
                 return commit_dispatch.commitConstant(B, H, self, allocator, owned_columns, channel);
             }
             // Auto-dispatch to streaming for large column sets (bounds peak memory).
             const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
             if (owned_columns.len >= streaming_column_threshold and !backend_prefers_monolithic) {
+                if (backing_buffers) |buffers| {
+                    const detached = backed_columns.detach(allocator, owned_columns) catch |err| {
+                        backed_columns.free(allocator, owned_columns, buffers);
+                        return err;
+                    };
+                    backed_columns.free(allocator, owned_columns, buffers);
+                    owned_columns = detached;
+                    backing_buffers = null;
+                }
                 return self.commitOwnedStreamingWithRecorder(
                     allocator,
                     owned_columns,
@@ -187,10 +229,27 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 self.config.fri_config.log_blowup_factor,
                 self.coefficient_retention_policy,
                 &self.twiddle_source,
+                backing_buffers,
             )) |committed| {
                 var tree = committed;
                 errdefer tree.deinit(allocator);
+                if (comptime builtin.is_test and @hasDecl(B, "failAfterOwnershipTransferForTesting")) {
+                    try B.failAfterOwnershipTransferForTesting();
+                }
                 return self.appendCommittedTree(allocator, tree, channel);
+            }
+
+            // A shared arena cannot flow into generic code that frees each
+            // slice independently. Detach only after every adopting backend
+            // has declined without mutation.
+            if (backing_buffers) |buffers| {
+                const detached = backed_columns.detach(allocator, owned_columns) catch |err| {
+                    backed_columns.free(allocator, owned_columns, buffers);
+                    return err;
+                };
+                backed_columns.free(allocator, owned_columns, buffers);
+                owned_columns = detached;
+                backing_buffers = null;
             }
 
             if (deferred_commit.canDeferFirstTree(self, owned_columns) and
@@ -418,11 +477,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         }
 
         pub fn roots(self: Self, allocator: std.mem.Allocator) !TreeVec(H.Hash) {
-            const out = try allocator.alloc(H.Hash, self.trees.items.len);
-            for (self.trees.items, 0..) |tree, i| {
-                out[i] = tree.root();
-            }
-            return TreeVec(H.Hash).initOwned(out);
+            return scheme_views.roots(H, self, allocator);
         }
 
         /// Returns committed columns as prover-air `Poly` views.
@@ -431,59 +486,23 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         pub fn polynomials(
             self: Self,
             allocator: std.mem.Allocator,
-        ) !TreeVec([]const component_prover.Poly) {
-            const out = try allocator.alloc([]const component_prover.Poly, self.trees.items.len);
-            errdefer allocator.free(out);
-
-            var initialized: usize = 0;
-            errdefer {
-                for (out[0..initialized]) |tree_polys| allocator.free(tree_polys);
-            }
-
-            for (self.trees.items, 0..) |tree, tree_idx| {
-                const polys = try allocator.alloc(component_prover.Poly, tree.columns.len);
-                out[tree_idx] = polys;
-                initialized += 1;
-                for (tree.columns, 0..) |column, col_idx| {
-                    polys[col_idx] = .{
-                        .log_size = column.log_size,
-                        .values = column.values,
-                        .coefficients = if (tree.coefficients) |coefficients|
-                            try prover_circle.CircleCoefficients.initBorrowed(
-                                coefficients[col_idx].coefficients(),
-                            )
-                        else
-                            null,
-                    };
-                }
-            }
-            return TreeVec([]const component_prover.Poly).initOwned(out);
+        ) !TreeVec([]const @import("../air/component_prover.zig").Poly) {
+            return scheme_views.polynomials(self, allocator);
         }
 
         pub fn trace(
             self: Self,
             allocator: std.mem.Allocator,
-        ) !component_prover.Trace {
-            return .{
-                .polys = try self.polynomials(allocator),
-            };
+        ) !@import("../air/component_prover.zig").Trace {
+            return scheme_views.trace(self, allocator);
+        }
+
+        pub fn backendResidencyHandles(self: Self, allocator: std.mem.Allocator) ![]?*anyopaque {
+            return scheme_views.backendResidencyHandles(B, H, self, allocator);
         }
 
         pub fn columnLogSizes(self: Self, allocator: std.mem.Allocator) !TreeVec([]u32) {
-            const out = try allocator.alloc([]u32, self.trees.items.len);
-            errdefer allocator.free(out);
-
-            var initialized: usize = 0;
-            errdefer {
-                for (out[0..initialized]) |tree_sizes| allocator.free(tree_sizes);
-            }
-
-            for (self.trees.items, 0..) |tree, i| {
-                out[i] = try tree.columnLogSizes(allocator);
-                initialized += 1;
-            }
-
-            return TreeVec([]u32).initOwned(out);
+            return scheme_views.columnLogSizes(self, allocator);
         }
 
         pub fn buildQueryPositionsTree(
@@ -492,37 +511,12 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             query_positions: []const usize,
             lifting_log_size: u32,
         ) !TreeVec([]usize) {
-            const out = try allocator.alloc([]usize, self.trees.items.len);
-            errdefer allocator.free(out);
-
-            var initialized: usize = 0;
-            errdefer {
-                for (out[0..initialized]) |positions| allocator.free(positions);
-            }
-
-            const pp_max_log_size = if (self.trees.items.len > PREPROCESSED_TRACE_IDX)
-                maxLogSize(self.trees.items[PREPROCESSED_TRACE_IDX].columns)
-            else
-                return CommitmentSchemeError.InvalidPreprocessedTree;
-
-            const preprocessed_positions = try pcs_utils.preparePreprocessedQueryPositions(
+            return scheme_views.buildQueryPositionsTree(
+                self,
                 allocator,
                 query_positions,
                 lifting_log_size,
-                pp_max_log_size,
             );
-            defer allocator.free(preprocessed_positions);
-
-            for (0..self.trees.items.len) |tree_idx| {
-                if (tree_idx == PREPROCESSED_TRACE_IDX) {
-                    out[tree_idx] = try allocator.dupe(usize, preprocessed_positions);
-                } else {
-                    out[tree_idx] = try allocator.dupe(usize, query_positions);
-                }
-                initialized += 1;
-            }
-
-            return TreeVec([]usize).initOwned(out);
         }
 
         pub fn decommitByTreePositions(
@@ -530,40 +524,13 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             allocator: std.mem.Allocator,
             query_positions_tree: TreeVec([]const usize),
         ) !TreeDecommitmentResult(H) {
-            if (query_positions_tree.items.len != self.trees.items.len) {
-                return CommitmentSchemeError.ShapeMismatch;
-            }
-
-            const queried_values_out = try allocator.alloc([][]M31, self.trees.items.len);
-            errdefer allocator.free(queried_values_out);
-            const decommitments_out = try allocator.alloc(vcs_verifier.MerkleDecommitmentLifted(H), self.trees.items.len);
-            errdefer allocator.free(decommitments_out);
-            const aux_out = try allocator.alloc(vcs_verifier.MerkleDecommitmentLiftedAux(H), self.trees.items.len);
-            errdefer allocator.free(aux_out);
-
-            var initialized: usize = 0;
-            errdefer {
-                for (queried_values_out[0..initialized]) |tree_values| {
-                    for (tree_values) |col| allocator.free(col);
-                    allocator.free(tree_values);
-                }
-                for (decommitments_out[0..initialized]) |*d| d.deinit(allocator);
-                for (aux_out[0..initialized]) |*a| a.deinit(allocator);
-            }
-
-            for (self.trees.items, query_positions_tree.items, 0..) |tree, positions, i| {
-                const decommit = try tree.decommit(allocator, positions);
-                queried_values_out[i] = decommit.queried_values;
-                decommitments_out[i] = decommit.decommitment.decommitment;
-                aux_out[i] = decommit.decommitment.aux;
-                initialized += 1;
-            }
-
-            return .{
-                .queried_values = TreeVec([][]M31).initOwned(queried_values_out),
-                .decommitments = TreeVec(vcs_verifier.MerkleDecommitmentLifted(H)).initOwned(decommitments_out),
-                .aux = TreeVec(vcs_verifier.MerkleDecommitmentLiftedAux(H)).initOwned(aux_out),
-            };
+            return scheme_decommit.decommit(
+                H,
+                TreeDecommitmentResult(H),
+                self,
+                allocator,
+                query_positions_tree,
+            );
         }
 
         /// Proves sampled values for already-committed trees.
@@ -704,6 +671,22 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     borrowed_columns_items[i] = tree.columns;
                 }
 
+                var residency_storage: ?[]*anyopaque = null;
+                defer if (residency_storage) |handles| allocator.free(handles);
+                var residency_handles: []const *anyopaque = &.{};
+                if (comptime B != void and @hasDecl(B, "quotientResidencyHandle")) {
+                    const handles = try allocator.alloc(*anyopaque, scheme.trees.items.len);
+                    residency_storage = handles;
+                    var resident_count: usize = 0;
+                    for (scheme.trees.items) |tree| {
+                        if (B.quotientResidencyHandle(H, tree.commitment)) |handle| {
+                            handles[resident_count] = handle;
+                            resident_count += 1;
+                        }
+                    }
+                    residency_handles = handles[0..resident_count];
+                }
+
                 var provider = try quotient_ops.LazyQuotientProvider.initForBackend(
                     B,
                     allocator,
@@ -714,6 +697,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     lifting_log_size,
                 );
                 defer provider.deinit(allocator);
+                provider.setBackendResidencyHandles(residency_handles);
 
                 break :blk try prover_fri.FriProver(B, H, MC).commitLazy(
                     allocator,

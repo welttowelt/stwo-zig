@@ -363,6 +363,32 @@ pub inline fn mulPacked(a: PackedM31, b: PackedM31) PackedM31 {
     return reduceProductPacked(prod);
 }
 
+/// Four-term packed dot product with one final Mersenne reduction.
+///
+/// Canonical M31 inputs are at most 2^31 - 2, so four products sum to at
+/// most 4 * (2^31 - 2)^2 = 2^64 - 2^35 + 16 and cannot overflow u64.
+/// This is useful for column-major linear combinations where reducing every
+/// product separately performs redundant work.
+pub inline fn dot4Packed(
+    values: [4]PackedM31,
+    coefficients: [4]PackedM31,
+) PackedM31 {
+    const value0: PackedU64 = values[0];
+    const value1: PackedU64 = values[1];
+    const value2: PackedU64 = values[2];
+    const value3: PackedU64 = values[3];
+    const coefficient0: PackedU64 = coefficients[0];
+    const coefficient1: PackedU64 = coefficients[1];
+    const coefficient2: PackedU64 = coefficients[2];
+    const coefficient3: PackedU64 = coefficients[3];
+    return reducePacked(
+        value0 * coefficient0 +
+            value1 * coefficient1 +
+            value2 * coefficient2 +
+            value3 * coefficient3,
+    );
+}
+
 /// Native-width form of `reduceProduct`; every lane is a canonical product.
 inline fn reduceProductPacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
@@ -481,6 +507,37 @@ test "m31: bounded product reduction matches generic reduction" {
     const packed_result: [PACK_WIDTH]u32 = mulPacked(lhs_packed, rhs_packed);
     for (lhs_packed, rhs_packed, packed_result) |a, b, result| {
         try std.testing.expectEqual(reduceProduct(@as(u64, a) * b), result);
+    }
+}
+
+test "m31: packed four-term dot product matches scalar accumulation" {
+    var values: [4][PACK_WIDTH]u32 = undefined;
+    var coefficients: [4][PACK_WIDTH]u32 = undefined;
+    var packed_values: [4]PackedM31 = undefined;
+    var packed_coefficients: [4]PackedM31 = undefined;
+    var prng = std.Random.DefaultPrng.init(0x1f83_d9ab_fb41_bd6b);
+    const random = prng.random();
+
+    inline for (0..4) |term| {
+        for (0..PACK_WIDTH) |lane| {
+            values[term][lane] = random.intRangeLessThan(u32, 0, Modulus);
+            coefficients[term][lane] = random.intRangeLessThan(u32, 0, Modulus);
+        }
+        packed_values[term] = values[term];
+        packed_coefficients[term] = coefficients[term];
+    }
+
+    const actual: [PACK_WIDTH]u32 = dot4Packed(packed_values, packed_coefficients);
+    for (0..PACK_WIDTH) |lane| {
+        var expected = M31.zero();
+        inline for (0..4) |term| {
+            expected = expected.add(
+                M31.fromCanonical(values[term][lane]).mul(
+                    M31.fromCanonical(coefficients[term][lane]),
+                ),
+            );
+        }
+        try std.testing.expectEqual(expected.v, actual[lane]);
     }
 }
 

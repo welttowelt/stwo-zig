@@ -22,24 +22,8 @@ const TwiddleTree = prover_poly.twiddles.TwiddleTree([]const M31);
 const min_secure_ifft_log_size: u32 = 19;
 const min_recurrence_log_size: u32 = 15;
 const min_recurrence_columns: usize = 32;
-const validation_unknown: u8 = 0;
-const validation_accepted: u8 = 1;
-const validation_rejected: u8 = 2;
-var validation_mutex: std.Thread.Mutex = .{};
-var validation_vtable: ?*const prover_air.component_prover.ComponentProverVTable = null;
-var recurrence_validation: u8 = validation_unknown;
 
-pub fn install() void {
-    prover_poly.circle.secure_poly.installBackendCircleIfftHook(
-        interpolateLargeSecureComposition,
-        min_secure_ifft_log_size,
-    );
-    prover_air.component_prover.installBackendCompositionEvaluationHook(
-        evaluateLargeRecurrenceComposition,
-    );
-}
-
-fn interpolateLargeSecureComposition(
+pub fn interpolateLargeSecureComposition(
     allocator: std.mem.Allocator,
     values: []const []M31,
     domain: CircleDomain,
@@ -59,14 +43,18 @@ fn interpolateLargeSecureComposition(
     return true;
 }
 
-fn evaluateLargeRecurrenceComposition(
+pub fn evaluateLargeRecurrenceComposition(
     allocator: std.mem.Allocator,
     components: []const ComponentProver,
     random_coeff: QM31,
     trace: *const Trace,
+    residency_handles: []const ?*anyopaque,
 ) !?SecureColumnByCoords {
     const shape = recurrenceShape(components, trace) orelse return null;
-    if (validationStatus(components[0].vtable) == validation_rejected) return null;
+    const resident_tree = if (shape.trace_tree_index < residency_handles.len)
+        residency_handles[shape.trace_tree_index]
+    else
+        null;
 
     const powers = try prover_air.accumulation.generateSecurePowers(
         allocator,
@@ -96,6 +84,7 @@ fn evaluateLargeRecurrenceComposition(
     errdefer output.deinit(allocator);
     const output_values = output.columns[0].ptr[0 .. shape.row_count * 4];
     const gpu_ms = lease.runtime.evaluateRecurrenceComposition(
+        resident_tree,
         shape.first_column,
         shape.row_count,
         shape.column_count,
@@ -103,29 +92,17 @@ fn evaluateLargeRecurrenceComposition(
         power_words,
         denominator_inverses,
         output_values,
-    ) catch {
+    ) catch |err| {
         output.deinit(allocator);
+        if (resident_tree != null) return err;
         return null;
     };
     std.log.debug("Metal recurrence composition: {d:.3}ms", .{gpu_ms});
-
-    if (validationStatus(components[0].vtable) == validation_accepted) return output;
-
-    // Admission is semantic, not a guessed type cast: the first excluded
-    // warmup evaluates both implementations and requires byte identity over
-    // the complete domain before this vtable is allowed onto the GPU fast path.
-    var expected = try referenceComposition(allocator, components, random_coeff, trace);
-    if (!secureColumnsEqual(output, expected)) {
-        setValidationStatus(components[0].vtable, validation_rejected);
-        output.deinit(allocator);
-        return expected;
-    }
-    expected.deinit(allocator);
-    setValidationStatus(components[0].vtable, validation_accepted);
     return output;
 }
 
 const RecurrenceShape = struct {
+    trace_tree_index: usize,
     first_column: [*]const M31,
     row_count: usize,
     column_count: usize,
@@ -135,11 +112,20 @@ const RecurrenceShape = struct {
 };
 
 fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?RecurrenceShape {
-    if (components.len != 1 or trace.polys.items.len != 2) return null;
+    if (components.len != 1) return null;
     const component = components[0];
-    if (trace.polys.items[0].len != 0) return null;
-    const columns = trace.polys.items[1];
-    if (columns.len < min_recurrence_columns or component.nConstraints() != columns.len - 2) return null;
+    const capability = component.backend_composition_capability orelse return null;
+    const recurrence = switch (capability) {
+        .quadratic_sum_squares_v1 => |value| value,
+    };
+    if (recurrence.first_column != 0 or
+        recurrence.trace_tree_index >= trace.polys.items.len) return null;
+    for (trace.polys.items, 0..) |tree, tree_index| {
+        if (tree_index != recurrence.trace_tree_index and tree.len != 0) return null;
+    }
+    const columns = trace.polys.items[recurrence.trace_tree_index];
+    if (columns.len < min_recurrence_columns or
+        component.nConstraints() != columns.len - 2) return null;
     const eval_log_size = component.maxConstraintLogDegreeBound();
     if (eval_log_size < min_recurrence_log_size or eval_log_size >= @bitSizeOf(usize)) return null;
     const row_count = @as(usize, 1) << @intCast(eval_log_size);
@@ -159,6 +145,7 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         if (@intFromPtr(column.values.ptr) != expected) return null;
     }
     return .{
+        .trace_tree_index = recurrence.trace_tree_index,
         .first_column = columns[0].values.ptr,
         .row_count = row_count,
         .column_count = columns.len,
@@ -166,48 +153,4 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         .constraint_count = columns.len - 2,
         .eval_log_size = eval_log_size,
     };
-}
-
-fn validationStatus(vtable: *const prover_air.component_prover.ComponentProverVTable) u8 {
-    validation_mutex.lock();
-    defer validation_mutex.unlock();
-    return if (validation_vtable == vtable) recurrence_validation else validation_unknown;
-}
-
-fn setValidationStatus(
-    vtable: *const prover_air.component_prover.ComponentProverVTable,
-    status: u8,
-) void {
-    validation_mutex.lock();
-    defer validation_mutex.unlock();
-    validation_vtable = vtable;
-    recurrence_validation = status;
-}
-
-fn referenceComposition(
-    allocator: std.mem.Allocator,
-    components: []const ComponentProver,
-    random_coeff: QM31,
-    trace: *const Trace,
-) !SecureColumnByCoords {
-    var accumulator = try prover_air.accumulation.DomainEvaluationAccumulator.init(
-        allocator,
-        random_coeff,
-        components[0].maxConstraintLogDegreeBound(),
-        components[0].nConstraints(),
-    );
-    defer accumulator.deinit();
-    try components[0].evaluateConstraintQuotientsOnDomain(trace, &accumulator);
-    return accumulator.finalize();
-}
-
-fn secureColumnsEqual(lhs: SecureColumnByCoords, rhs: SecureColumnByCoords) bool {
-    inline for (0..4) |coordinate| {
-        if (!std.mem.eql(
-            u8,
-            std.mem.sliceAsBytes(lhs.columns[coordinate]),
-            std.mem.sliceAsBytes(rhs.columns[coordinate]),
-        )) return false;
-    }
-    return true;
 }

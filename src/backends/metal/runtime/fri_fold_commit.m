@@ -205,6 +205,7 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
             .gpu_milliseconds = gpu_milliseconds,
         };
         StwoZigMetalTree *tree = [StwoZigMetalTree new];
+        tree.runtimeOwner = runtime;
         tree.layers = layers;
         tree.rootReadback = layers.lastObject;
         tree.logSize = tree_log_size;
@@ -355,6 +356,7 @@ bool stwo_zig_metal_fri_line_cascade(
                 layer_nodes >>= 1u;
             }
             StwoZigMetalTree *tree = [StwoZigMetalTree new];
+            tree.runtimeOwner = runtime;
             tree.layers = layers;
             tree.layerWordOffsets = layer_word_offsets_data;
             tree.layerWordLengths = layer_word_lengths_data;

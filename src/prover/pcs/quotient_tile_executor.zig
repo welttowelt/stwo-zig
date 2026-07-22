@@ -9,6 +9,7 @@ const quotients = @import("stwo_core").pcs.quotients;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
 const compact_groups = @import("quotient_compact_groups.zig");
+const direct_groups = @import("quotient_direct_groups.zig");
 const direct_plan = @import("quotient_direct_plan.zig");
 const constraints = @import("stwo_core").constraints;
 const domain_walk = @import("quotient_domain_walk.zig");
@@ -251,7 +252,39 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
             row_count,
         );
     }
-    for (work.column_views, work.contribution_ranges) |view, contribution_range| {
+    var view_index: usize = 0;
+    while (view_index < work.column_views.len) {
+        if (direct_groups.canAccumulate(
+            work.column_views,
+            work.contribution_ranges,
+            work.contributions,
+            view_index,
+        )) {
+            var views: [4]row_executor.LiftingColumnView = undefined;
+            var coefficients: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+            const first_range = work.contribution_ranges[view_index];
+            const batch = work.contributions[first_range.start].batch_index;
+            inline for (0..4) |term| {
+                views[term] = work.column_views[view_index + term];
+                const contribution_range = work.contribution_ranges[view_index + term];
+                coefficients[term] =
+                    work.contributions[contribution_range.start].value_coeff.toM31Array();
+            }
+            direct_groups.accumulate(
+                scratch.numerators,
+                scratch.row_capacity,
+                views,
+                start,
+                row_count,
+                batch,
+                coefficients,
+            );
+            view_index += 4;
+            continue;
+        }
+
+        const view = work.column_views[view_index];
+        const contribution_range = work.contribution_ranges[view_index];
         const column_contributions = work.contributions[contribution_range.start..][0..contribution_range.len];
         for (column_contributions) |contribution| {
             const coefficients = contribution.value_coeff.toM31Array();
@@ -286,6 +319,7 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
                 }
             }
         }
+        view_index += 1;
     }
 }
 

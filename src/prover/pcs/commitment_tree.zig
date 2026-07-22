@@ -130,6 +130,10 @@ pub fn CommitmentTreeProverForBackend(comptime B: type, comptime H: type) type {
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            // A backend commitment may retain a no-copy view of the committed
+            // column arena. Release that view before returning its host
+            // backing to the allocator.
+            self.commitment.deinit(allocator);
             if (self.column_backing_buffers) |buffers| {
                 allocator.free(self.columns);
                 for (buffers) |buffer| allocator.free(buffer);
@@ -145,7 +149,6 @@ pub fn CommitmentTreeProverForBackend(comptime B: type, comptime H: type) type {
                 for (buffers) |buffer| allocator.free(buffer);
                 allocator.free(buffers);
             }
-            self.commitment.deinit(allocator);
             self.* = undefined;
         }
 

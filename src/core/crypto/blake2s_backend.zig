@@ -365,6 +365,101 @@ pub const Blake2sHasher = struct {
         return parallelStatesToDigests(&states);
     }
 
+    /// Hashes four equal-length M31 leaf messages directly from column-major
+    /// storage. Each column contributes one canonical little-endian u32 word
+    /// to every lane. On little-endian SIMD hosts the four adjacent rows are
+    /// already exactly the vector layout consumed by `compressParallel4`, so
+    /// no row-major message packing or block retransposition is required.
+    pub fn hashM31ColumnsFromSeed4WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        return hashM31Columns4FromStateWithMode(
+            mode,
+            seed,
+            64,
+            columns,
+            position,
+        );
+    }
+
+    pub fn hashM31Columns4WithMode(
+        mode: BackendMode,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        const initial = Self.initWithMode(mode);
+        return hashM31Columns4FromStateWithMode(
+            mode,
+            initial.h,
+            0,
+            columns,
+            position,
+        );
+    }
+
+    fn hashM31Columns4FromStateWithMode(
+        mode: BackendMode,
+        initial_state: [8]u32,
+        initial_counter: u32,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        std.debug.assert(columns.len != 0);
+        for (columns) |column| {
+            std.debug.assert(position + 4 <= column.values.len);
+        }
+
+        if (selectBackend(mode).effective == .scalar or
+            comptime builtin.cpu.arch.endian() != .little)
+        {
+            var out: [4]Blake2sHash = undefined;
+            for (&out, 0..) |*digest, lane| {
+                var hasher = Self.initWithMode(mode);
+                hasher.h = initial_state;
+                hasher.t0 = initial_counter;
+                for (columns) |column| {
+                    var encoded: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &encoded, column.values[position + lane].v, .little);
+                    hasher.update(&encoded);
+                }
+                digest.* = hasher.finalize();
+            }
+            return out;
+        }
+
+        var states: [8]V4 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(initial_state[word_index]);
+
+        var column_at: usize = 0;
+        var counter = initial_counter;
+        while (column_at + 16 < columns.len) : (column_at += 16) {
+            var messages: [16]V4 = undefined;
+            inline for (0..16) |word| {
+                const values: *const [4]u32 = @ptrCast(
+                    columns[column_at + word].values.ptr + position,
+                );
+                messages[word] = values.*;
+            }
+            counter +%= 64;
+            compressParallel4(&states, &messages, counter, 0, 0);
+        }
+
+        var final_messages: [16]V4 = @splat(@splat(0));
+        const remaining = columns.len - column_at;
+        for (0..remaining) |word| {
+            const values: *const [4]u32 = @ptrCast(
+                columns[column_at + word].values.ptr + position,
+            );
+            final_messages[word] = values.*;
+        }
+        counter +%= @intCast(remaining * @sizeOf(u32));
+        compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
+        return parallelStatesToDigests(&states);
+    }
+
     fn addCounter(self: *Self, inc: u32) void {
         const sum: u64 = @as(u64, self.t0) + @as(u64, inc);
         self.t0 = @truncate(sum);
@@ -702,123 +797,7 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
     for (0..8) |i| h[i] ^= v[i] ^ v[i + 8];
 }
 
-fn digestToHex(digest: Blake2sHash) [64]u8 {
-    return std.fmt.bytesToHex(digest, .lower);
-}
-
-test "blake2s backend: one-shot known vector" {
-    const hash_a = Blake2sHasher.hash("a");
-    const hex = digestToHex(hash_a);
-    try std.testing.expectEqualStrings(
-        "4a0d129873403037c2cd9b9048203687f6233fb6738956e0349bd4320fec3e90",
-        &hex,
-    );
-}
-
-test "blake2s backend: incremental equals one-shot" {
-    var state = Blake2sHasher.init();
-    state.update("a");
-    state.update("b");
-    const hash_ab = state.finalize();
-    const one_shot = Blake2sHasher.hash("ab");
-    try std.testing.expect(std.mem.eql(u8, hash_ab[0..], one_shot[0..]));
-}
-
-test "blake2s backend: fixed128 equals generic stream hash" {
-    var prng = std.Random.DefaultPrng.init(0x6a09_e667_f3bc_c908);
-    const rng = prng.random();
-    var i: usize = 0;
-    while (i < 64) : (i += 1) {
-        var payload: [128]u8 = undefined;
-        rng.bytes(payload[0..]);
-        const generic = Blake2sHasher.hash(payload[0..]);
-        const fixed = Blake2sHasher.hashFixed128(&payload);
-        try std.testing.expect(std.mem.eql(u8, generic[0..], fixed[0..]));
-    }
-}
-
-test "blake2s backend: fixed single-block helpers equal generic hash" {
-    var prng = std.Random.DefaultPrng.init(0x243f_6a88_85a3_08d3);
-    const rng = prng.random();
-
-    inline for (.{
-        @as(usize, 0),
-        @as(usize, 1),
-        @as(usize, 37),
-        @as(usize, 40),
-        @as(usize, 52),
-        @as(usize, 64),
-    }) |byte_len| {
-        var i: usize = 0;
-        while (i < 32) : (i += 1) {
-            var payload: [byte_len]u8 = undefined;
-            if (byte_len > 0) rng.bytes(payload[0..]);
-            const generic = Blake2sHasher.hash(payload[0..]);
-            const fixed = Blake2sHasher.hashFixedSingleBlock(byte_len, &payload);
-            try std.testing.expect(std.mem.eql(u8, generic[0..], fixed[0..]));
-        }
-    }
-}
-
-test "blake2s backend: four-way terminal compression matches scalar messages" {
-    var prng = std.Random.DefaultPrng.init(0x6c62_6174_6368_345f);
-    var prefix: [64]u8 = undefined;
-    var blocks: [4][64]u8 = undefined;
-    prng.random().bytes(prefix[0..]);
-    for (&blocks) |*block| prng.random().bytes(block[0..]);
-
-    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
-    const batched = Blake2sHasher.hashFinal64FromSeed4(seed, &blocks);
-    for (blocks, 0..) |block, lane| {
-        const expected = Blake2sHasher.hashFinal64FromSeed(seed, &block);
-        try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
-    }
-}
-
-test "blake2s backend: four-way equal messages match seeded scalar stream" {
-    var prng = std.Random.DefaultPrng.init(0x6c65_6166_345f_7369);
-    var prefix: [64]u8 = undefined;
-    prng.random().bytes(prefix[0..]);
-    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
-
-    inline for (.{ @as(usize, 4), @as(usize, 64), @as(usize, 68), @as(usize, 3296) }) |len| {
-        var storage: [4][len]u8 = undefined;
-        var messages: [4][]const u8 = undefined;
-        for (&storage, 0..) |*message, lane| {
-            prng.random().bytes(message[0..]);
-            messages[lane] = message;
-        }
-        const batched = Blake2sHasher.hashEqualFromSeed4(seed, &messages);
-        for (storage, 0..) |message, lane| {
-            var payload: [64 + len]u8 = undefined;
-            @memcpy(payload[0..64], prefix[0..]);
-            @memcpy(payload[64..], message[0..]);
-            const expected = Blake2sHasher.hash(payload[0..]);
-            try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
-        }
-    }
-}
-
-test "blake2s backend: fixed-seed scalar and simd modes cover boundaries and unaligned tails" {
-    var prng = std.Random.DefaultPrng.init(0x510e_527f_ade6_82d1);
-    const rng = prng.random();
-
-    var storage: [1028]u8 = undefined;
-    rng.bytes(storage[0..]);
-    const boundary_lengths = [_]usize{
-        0,   1,   3,   4,   15,  16,  31,  32,  63,  64,   65, 127, 128, 129,
-        191, 192, 193, 255, 256, 257, 511, 512, 513, 1024,
-    };
-    for (0..4) |offset| {
-        for (boundary_lengths) |len| {
-            const input = storage[offset .. offset + len];
-            const scalar_digest = Blake2sHasher.hashWithMode(.scalar, input);
-            const simd_digest = Blake2sHasher.hashWithMode(.simd, input);
-            try std.testing.expectEqualSlices(u8, scalar_digest[0..], simd_digest[0..]);
-        }
-    }
-}
-
 test {
+    _ = @import("tests/blake2s_backend.zig");
     _ = @import("tests/blake2s_dispatch.zig");
 }

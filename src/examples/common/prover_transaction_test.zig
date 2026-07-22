@@ -60,6 +60,26 @@ const FakeEngine = struct {
         if (fail_commit_index == call_index) return error.InjectedCommitFailure;
     }
 
+    pub fn commitWithBacking(
+        scheme: *Scheme,
+        allocator: std.mem.Allocator,
+        columns: []ColumnEvaluation,
+        backing_buffers: ?[][]M31,
+        recorder: ?*stage_profile.Recorder,
+        channel: *Channel,
+    ) !void {
+        if (backing_buffers) |buffers| {
+            const call_index = commit_calls;
+            commit_calls += 1;
+            allocator.free(columns);
+            for (buffers) |buffer| allocator.free(buffer);
+            allocator.free(buffers);
+            if (fail_commit_index == call_index) return error.InjectedCommitFailure;
+            return;
+        }
+        return commit(scheme, allocator, columns, recorder, channel);
+    }
+
     pub fn prove(
         allocator: std.mem.Allocator,
         _: []const prover_component.ComponentProver,

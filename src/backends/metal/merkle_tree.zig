@@ -203,6 +203,15 @@ pub fn MetalMerkleTree(comptime H: type) type {
             };
         }
 
+        /// Returns a borrowed handle only when this commitment is backed by a
+        /// Metal tree. Callers must scope the handle to the owning proof tree.
+        pub fn quotientResidencyHandle(self: Self) ?*anyopaque {
+            return switch (self.storage) {
+                .host => null,
+                .resident => |resident| resident.tree.handle,
+            };
+        }
+
         pub fn readHashes(
             self: Self,
             allocator: std.mem.Allocator,

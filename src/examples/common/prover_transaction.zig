@@ -8,6 +8,7 @@ const prover_pcs = @import("stwo_prover_impl").pcs;
 const stage_profile = @import("stwo_prover_impl").stage_profile;
 
 const ColumnEvaluation = prover_pcs.ColumnEvaluation;
+const M31 = @import("stwo_core").fields.m31.M31;
 
 pub const Error = error{
     GeometryOverflow,
@@ -18,23 +19,53 @@ pub const Error = error{
 
 pub const OwnedColumns = struct {
     columns: ?[]ColumnEvaluation,
+    backing_buffers: ?[][]M31 = null,
+
+    pub const Taken = struct {
+        columns: []ColumnEvaluation,
+        backing_buffers: ?[][]M31,
+    };
 
     pub fn init(columns: []ColumnEvaluation) OwnedColumns {
         return .{ .columns = columns };
     }
 
+    pub fn initWithBacking(
+        columns: []ColumnEvaluation,
+        backing_buffers: [][]M31,
+    ) OwnedColumns {
+        return .{ .columns = columns, .backing_buffers = backing_buffers };
+    }
+
     /// Transfers the allocation. The caller must consume or release it.
     pub fn take(self: *OwnedColumns) []ColumnEvaluation {
+        std.debug.assert(self.backing_buffers == null);
         const columns = self.columns orelse unreachable;
         self.columns = null;
         return columns;
     }
 
+    /// Transfers the column descriptors and any shared backing allocations.
+    pub fn takeWithBacking(self: *OwnedColumns) Taken {
+        const columns = self.columns orelse unreachable;
+        const backing_buffers = self.backing_buffers;
+        self.columns = null;
+        self.backing_buffers = null;
+        return .{ .columns = columns, .backing_buffers = backing_buffers };
+    }
+
     pub fn deinit(self: *OwnedColumns, allocator: std.mem.Allocator) void {
         const columns = self.columns orelse return;
         self.columns = null;
-        for (columns) |column| allocator.free(column.values);
-        allocator.free(columns);
+        if (self.backing_buffers) |buffers| {
+            self.backing_buffers = null;
+            allocator.free(columns);
+            for (buffers) |buffer| allocator.free(buffer);
+            allocator.free(buffers);
+        } else {
+            for (columns) |column| allocator.free(column.values);
+            allocator.free(columns);
+        }
     }
 };
 
@@ -54,6 +85,28 @@ pub const PreparedTrace = struct {
         var trace = PreparedTrace{
             .preprocessed = OwnedColumns.init(preprocessed),
             .main = OwnedColumns.init(main),
+            .max_column_log = 0,
+            .committed_columns = 0,
+            .committed_cells = 0,
+        };
+        errdefer trace.deinit(allocator);
+
+        const geometry = try measure(&trace);
+        trace.max_column_log = geometry.max_column_log;
+        trace.committed_columns = geometry.committed_columns;
+        trace.committed_cells = geometry.committed_cells;
+        return trace;
+    }
+
+    /// Consumes column descriptors whose values may borrow shared arenas.
+    pub fn initOwnedWithBacking(
+        allocator: std.mem.Allocator,
+        preprocessed: OwnedColumns,
+        main: OwnedColumns,
+    ) Error!PreparedTrace {
+        var trace = PreparedTrace{
+            .preprocessed = preprocessed,
+            .main = main,
             .max_column_log = 0,
             .committed_columns = 0,
             .committed_cells = 0,
@@ -207,8 +260,15 @@ pub fn provePreparedEx(
             "Preprocessed commit",
         );
         defer stage.end();
-        const columns = prepared.trace.preprocessed.take();
-        try Engine.commit(&scheme, allocator, columns, options.recorder, &channel);
+        const owned = prepared.trace.preprocessed.takeWithBacking();
+        try Engine.commitWithBacking(
+            &scheme,
+            allocator,
+            owned.columns,
+            owned.backing_buffers,
+            options.recorder,
+            &channel,
+        );
     }
     {
         var stage = try stage_profile.StageScope.begin(
@@ -217,8 +277,15 @@ pub fn provePreparedEx(
             "Main trace commit",
         );
         defer stage.end();
-        const columns = prepared.trace.main.take();
-        try Engine.commit(&scheme, allocator, columns, options.recorder, &channel);
+        const owned = prepared.trace.main.takeWithBacking();
+        try Engine.commitWithBacking(
+            &scheme,
+            allocator,
+            owned.columns,
+            owned.backing_buffers,
+            options.recorder,
+            &channel,
+        );
     }
 
     var context: Spec.ProverContext = undefined;

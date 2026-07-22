@@ -150,53 +150,102 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         NSMutableArray<id<MTLBuffer>> *input_sources = [NSMutableArray array];
 
-        // The large path folds the source upload into the first eleven inverse
-        // layers, exactly matching the established LDE implementation.
+        bool source_is_base = source_columns[0] == base_columns[0];
+        for (uint32_t column = 1u; column < column_count; ++column) {
+            source_is_base &= source_columns[column] ==
+                base_columns[0] + (size_t)column * base_len;
+        }
+
+        // A transferable contiguous trace already is the coefficient arena.
+        // Transform it in place and avoid a second base allocation and a full
+        // source-to-coefficient pass. Other callers retain the fused upload.
         id<MTLComputeCommandEncoder> upload = [command computeCommandEncoder];
         [upload setComputePipelineState:runtime.circleIfftFused];
-        uint32_t source_mode = 1u;
+        uint32_t source_mode = source_is_base ? 0u : 1u;
         [upload setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
-        size_t source_column = 0u;
-        size_t destination_words = 0u;
-        while (source_column < column_count) {
-            size_t run_start = source_column;
-            size_t run_words = base_len;
-            source_column += 1u;
-            while (source_column < column_count &&
-                   source_columns[source_column] == source_columns[run_start] + run_words) {
-                run_words += base_len;
-                source_column += 1u;
-            }
-            size_t run_bytes = run_words * sizeof(uint32_t);
-            uintptr_t address = (uintptr_t)source_columns[run_start];
-            bool no_copy = (address % page_size) == 0u && (run_bytes % page_size) == 0u;
-            id<MTLBuffer> source = no_copy
-                ? [runtime.device newBufferWithBytesNoCopy:(void *)source_columns[run_start]
-                    length:run_bytes options:MTLResourceStorageModeShared deallocator:nil]
-                : [runtime.device newBufferWithBytes:source_columns[run_start]
-                    length:run_bytes options:MTLResourceStorageModeShared];
-            if (source == nil) {
-                [upload endEncoding];
-                write_error(error_message, error_message_len, @"Combined Metal source allocation failed");
-                return NULL;
-            }
-            [input_sources addObject:source];
-            uint32_t destination_column = (uint32_t)(destination_words / base_len);
-            [upload setBuffer:source offset:0u atIndex:0];
+        if (source_is_base) {
+            [upload setBuffer:coefficients offset:0u atIndex:0];
             [upload setBuffer:coefficients offset:0u atIndex:1];
             [upload setBuffer:inverse_buffer offset:0u atIndex:2];
             [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-            [upload setBytes:&destination_column length:sizeof(destination_column) atIndex:4];
-            [upload dispatchThreadgroups:MTLSizeMake(base_len >> 11u, run_words / base_len, 1u)
+            [upload setBytes:&column_count length:sizeof(column_count) atIndex:4];
+            [upload dispatchThreadgroups:MTLSizeMake(base_len >> 11u, column_count, 1u)
                 threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
-            destination_words += run_words;
+        } else {
+            size_t source_column = 0u;
+            size_t destination_words = 0u;
+            while (source_column < column_count) {
+                size_t run_start = source_column;
+                size_t run_words = base_len;
+                source_column += 1u;
+                while (source_column < column_count &&
+                       source_columns[source_column] == source_columns[run_start] + run_words) {
+                    run_words += base_len;
+                    source_column += 1u;
+                }
+                size_t run_bytes = run_words * sizeof(uint32_t);
+                uintptr_t address = (uintptr_t)source_columns[run_start];
+                bool no_copy = (address % page_size) == 0u && (run_bytes % page_size) == 0u;
+                id<MTLBuffer> source = no_copy
+                    ? [runtime.device newBufferWithBytesNoCopy:(void *)source_columns[run_start]
+                        length:run_bytes options:MTLResourceStorageModeShared deallocator:nil]
+                    : [runtime.device newBufferWithBytes:source_columns[run_start]
+                        length:run_bytes options:MTLResourceStorageModeShared];
+                if (source == nil) {
+                    [upload endEncoding];
+                    write_error(error_message, error_message_len, @"Combined Metal source allocation failed");
+                    return NULL;
+                }
+                [input_sources addObject:source];
+                uint32_t destination_column = (uint32_t)(destination_words / base_len);
+                [upload setBuffer:source offset:0u atIndex:0];
+                [upload setBuffer:coefficients offset:0u atIndex:1];
+                [upload setBuffer:inverse_buffer offset:0u atIndex:2];
+                [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [upload setBytes:&destination_column length:sizeof(destination_column) atIndex:4];
+                [upload dispatchThreadgroups:MTLSizeMake(base_len >> 11u, run_words / base_len, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                destination_words += run_words;
+            }
         }
         [upload endEncoding];
 
         MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
         uint32_t inverse_layer = 11u;
         while (inverse_layer < base_log_size) {
-            if (inverse_layer + 1u < base_log_size) {
+            if (inverse_layer + 3u < base_log_size) {
+                uint32_t layer_mode = inverse_layer | 0xa0000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:coefficients offset:0u atIndex:0];
+                [encoder setBuffer:base_offsets offset:0u atIndex:1];
+                [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
+                [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(base_len >> 4u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                inverse_layer += 4u;
+            } else if (inverse_layer + 2u < base_log_size) {
+                uint32_t layer_mode = inverse_layer | 0xc0000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:coefficients offset:0u atIndex:0];
+                [encoder setBuffer:base_offsets offset:0u atIndex:1];
+                [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
+                [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(base_len >> 3u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                inverse_layer += 3u;
+            } else if (inverse_layer + 1u < base_log_size) {
                 uint32_t layer_mode = inverse_layer | 0x80000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
@@ -250,7 +299,39 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
         uint32_t layer = extended_log_size - 3u;
         while (layer > 10u) {
-            if (layer >= 12u) {
+            if (layer >= 14u) {
+                uint32_t layer_mode = layer | 0x20000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:extended offset:0u atIndex:0];
+                [encoder setBuffer:extended_offsets offset:0u atIndex:1];
+                [encoder setBuffer:forward_buffer offset:0u atIndex:2];
+                [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(extended_len >> 4u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                layer -= 4u;
+            } else if (layer >= 13u) {
+                uint32_t layer_mode = layer | 0x40000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:extended offset:0u atIndex:0];
+                [encoder setBuffer:extended_offsets offset:0u atIndex:1];
+                [encoder setBuffer:forward_buffer offset:0u atIndex:2];
+                [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(extended_len >> 3u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                layer -= 3u;
+            } else if (layer >= 12u) {
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
                 [encoder setBuffer:extended offset:0u atIndex:0];
@@ -326,14 +407,10 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             return NULL;
         }
 
-        @synchronized(runtime) {
-            runtime.compositionTraceBuffer = extended;
-            runtime.compositionTraceHostBegin = (uintptr_t)extended_words;
-            runtime.compositionTraceWordCount = extended_word_count;
-        }
         double elapsed = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         if (gpu_milliseconds != NULL) *gpu_milliseconds = elapsed;
         StwoZigMetalTree *tree = [StwoZigMetalTree new];
+        tree.runtimeOwner = runtime;
         tree.layers = layers;
         tree.layerWordOffsets = layer_offsets_data;
         tree.layerWordLengths = layer_lengths_data;
@@ -341,6 +418,9 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         tree.rootReadbackWordOffset = layer_word_offsets[extended_log_size];
         tree.logSize = extended_log_size;
         tree.gpuMilliseconds = elapsed;
+        tree.residentColumns = extended;
+        tree.residentColumnsHostBegin = (uintptr_t)extended_words;
+        tree.residentColumnsWordCount = extended_word_count;
         return (__bridge_retained void *)tree;
     }
 }

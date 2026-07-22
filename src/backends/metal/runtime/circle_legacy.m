@@ -520,11 +520,6 @@ bool stwo_zig_metal_circle_lde(
                            (size_t)extended_len * sizeof(uint32_t));
             }
         }
-        @synchronized(runtime) {
-            runtime.compositionTraceBuffer = direct_extended ? extended : nil;
-            runtime.compositionTraceHostBegin = direct_extended ? (uintptr_t)extended_words : 0u;
-            runtime.compositionTraceWordCount = direct_extended ? extended_word_count : 0u;
-        }
         if (gpu_milliseconds != NULL) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;
     }

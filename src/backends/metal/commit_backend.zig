@@ -1,44 +1,16 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
+const backend_composition = @import("runtime/backend_composition.zig");
 const commit_policy = @import("commit_policy.zig");
 const combined_commit = @import("runtime/combined_commit.zig");
+const fold_inverses = @import("runtime/fold_inverses.zig");
 const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
-const secure_composition = @import("runtime/secure_composition.zig");
+const ownership_testing = @import("runtime/ownership_testing.zig");
+const quadratic_trace = @import("runtime/quadratic_trace_backend.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
-
-const FoldCoordinate = enum { x, y };
 const fri_inverse_cache_min_values: usize = 1 << 13;
-fn prepareBitReversedFoldInverses(
-    coordinates: []@import("stwo_core").fields.m31.M31,
-    inverses: []@import("stwo_core").fields.m31.M31,
-    coset: @import("stwo_core").circle.Coset,
-    comptime coordinate: FoldCoordinate,
-) !void {
-    const M31 = @import("stwo_core").fields.m31.M31;
-    const fields = @import("stwo_core").fields;
-    const core_utils = @import("stwo_core").utils;
-    if (coordinates.len == 0 or
-        coordinates.len != inverses.len or
-        !std.math.isPowerOfTwo(coordinates.len) or
-        coordinates.len > coset.size())
-    {
-        return error.ShapeMismatch;
-    }
-
-    const log_len: u32 = @intCast(std.math.log2_int(usize, coordinates.len));
-    var points = coset.iter();
-    for (0..coordinates.len) |natural_index| {
-        const point = points.next() orelse unreachable;
-        const output_index = core_utils.bitReverseIndex(natural_index, log_len);
-        coordinates[output_index] = switch (coordinate) {
-            .x => point.x,
-            .y => point.y,
-        };
-    }
-    try fields.batchInverseInPlace(M31, coordinates, inverses);
-}
 
 pub fn warmup() !void {
     return MetalCommitBackend.warmup();
@@ -70,11 +42,14 @@ pub const MetalCommitBackend = struct {
     pub const preferMonolithicCommit = true;
     pub const lazyFriFoldInverseWorkspace = true;
     pub const prepareAndCommitOwned = combined_commit.prepareAndCommitOwned;
+    pub const preferContiguousQuadraticRecurrenceTrace = true;
+    pub const quadratic_recurrence_min_cells = quadratic_trace.min_cells;
+    pub const admitsQuadraticRecurrenceTrace = quadratic_trace.admits;
+    pub const fillQuadraticRecurrenceTrace = quadratic_trace.fill;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
-        secure_composition.install();
     }
 
     pub fn initializeRuntime(
@@ -82,8 +57,13 @@ pub const MetalCommitBackend = struct {
         policy: RuntimeInitializationPolicy,
     ) !void {
         try shared_runtime.initialize(allocator, policy);
-        secure_composition.install();
     }
+
+    pub const computeCompositionEvaluation = backend_composition.computeCompositionEvaluation;
+    pub const interpolateSecureComposition = backend_composition.interpolateSecureComposition;
+    pub const armOwnershipTransferFailureForTesting = ownership_testing.arm;
+    pub const clearOwnershipTransferFailureForTesting = ownership_testing.clear;
+    pub const failAfterOwnershipTransferForTesting = ownership_testing.failAfterTransfer;
 
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
         var lease = try shared_runtime.acquireExisting();
@@ -266,6 +246,16 @@ pub const MetalCommitBackend = struct {
         telemetry.record(.host_merkle_commit);
         telemetry.record(.cpu_streaming_merkle_commit);
         return MerkleTree(H).fromHost(tree);
+    }
+
+    /// Exposes residency only through an explicit proof-session capability.
+    /// The returned handle is borrowed from `tree` and is never registered on
+    /// the process-wide Metal runtime.
+    pub fn quotientResidencyHandle(
+        comptime H: type,
+        tree: MerkleTree(H),
+    ) ?*anyopaque {
+        return tree.quotientResidencyHandle();
     }
 
     pub fn computeLazyQuotients(
@@ -459,7 +449,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, dst.len);
             const py = workspace.py_values[0..dst.len];
             const inverse_y = workspace.inv_py_values[0..dst.len];
-            try prepareBitReversedFoldInverses(py, inverse_y, src_domain.half_coset, .y);
+            try fold_inverses.prepare(py, inverse_y, src_domain.half_coset, .y);
             inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_y));
         }
         const alpha_coords = alpha.toM31Array();
@@ -502,7 +492,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, destination_len);
             const x = workspace.x_values[0..destination_len];
             const inverse_x = workspace.inv_x_values[0..destination_len];
-            try prepareBitReversedFoldInverses(x, inverse_x, current.domain().coset(), .x);
+            try fold_inverses.prepare(x, inverse_x, current.domain().coset(), .x);
             const source_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(current.values));
             const destination_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(@constCast(next.values)));
             const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_x));
@@ -588,7 +578,7 @@ pub const MetalCommitBackend = struct {
             try workspace.ensureCapacity(allocator, destination_count);
             const x = workspace.x_values[0..destination_count];
             const inverse_x = workspace.inv_x_values[0..destination_count];
-            try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
+            try fold_inverses.prepare(x, inverse_x, current_domain.coset(), .x);
             @memcpy(inverse_values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
             inverse_cursor += destination_count;
             const alpha_coordinates = current_alpha.toM31Array();
@@ -673,7 +663,7 @@ pub const MetalCommitBackend = struct {
                 try workspace.ensureCapacity(allocator, destination_count);
                 const x = workspace.x_values[0..destination_count];
                 const inverse_x = workspace.inv_x_values[0..destination_count];
-                try prepareBitReversedFoldInverses(x, inverse_x, current_domain.coset(), .x);
+                try fold_inverses.prepare(x, inverse_x, current_domain.coset(), .x);
                 @memcpy(values[inverse_cursor .. inverse_cursor + destination_count], inverse_x);
             }
             inverse_cursor += destination_count;

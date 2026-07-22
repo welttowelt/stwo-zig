@@ -4,6 +4,8 @@ bool stwo_zig_metal_compute_quotients(
     const uint32_t *const *raw_columns,
     const size_t *raw_column_lengths,
     uint32_t raw_column_count,
+    void *const *resident_tree_handles,
+    uint32_t resident_tree_count,
     const void *views, uint32_t view_count,
     bool raw_views,
     const uint32_t *sample_components,
@@ -28,6 +30,7 @@ bool stwo_zig_metal_compute_quotients(
     if (runtime_ptr == NULL || views == NULL || sample_components == NULL ||
         linear_terms == NULL || (!cache_domain && (domain_x == NULL || domain_y == NULL)) ||
         output == NULL || row_count == 0u || tree_out == NULL ||
+        (resident_tree_count != 0u && resident_tree_handles == NULL) ||
         (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u) ||
         (cache_domain && ((row_count & (row_count - 1u)) != 0u ||
                           domain_log_size >= 31u ||
@@ -39,6 +42,17 @@ bool stwo_zig_metal_compute_quotients(
         if (commit_tree && (resident_output_ptr == NULL || leaf_seed == NULL || node_seed == NULL))
             return false;
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        NSMutableArray<StwoZigMetalTree *> *resident_trees =
+            [NSMutableArray arrayWithCapacity:resident_tree_count];
+        for (uint32_t i = 0u; i < resident_tree_count; ++i) {
+            StwoZigMetalTree *tree = (__bridge StwoZigMetalTree *)resident_tree_handles[i];
+            if (tree == nil || tree.runtimeOwner != runtime) {
+                write_error(error_message, error_message_len,
+                            @"Metal quotient residency handle belongs to another runtime");
+                return false;
+            }
+            [resident_trees addObject:tree];
+        }
         NSUInteger view_word_count = raw_views ? 9u : 5u;
         id<MTLBuffer> flat_buffer;
         size_t raw_len = 0;
@@ -241,10 +255,41 @@ bool stwo_zig_metal_compute_quotients(
             while (column < raw_column_count) {
                 size_t run_start = column;
                 size_t run_words = raw_column_lengths[column];
+                uintptr_t first_address = (uintptr_t)raw_columns[column];
+                id<MTLBuffer> resident_source = nil;
+                uintptr_t resident_begin = 0u;
+                size_t resident_words = 0u;
+                for (StwoZigMetalTree *tree in resident_trees) {
+                    uintptr_t begin = tree.residentColumnsHostBegin;
+                    size_t words = tree.residentColumnsWordCount;
+                    if (tree.residentColumns == nil || first_address < begin) continue;
+                    size_t offset_words = (first_address - begin) / sizeof(uint32_t);
+                    if (offset_words <= words &&
+                        raw_column_lengths[column] <= words - offset_words) {
+                        resident_source = tree.residentColumns;
+                        resident_begin = begin;
+                        resident_words = words;
+                        break;
+                    }
+                }
+                bool resident_run = resident_source != nil;
                 column += 1;
-                while (column < raw_column_count && raw_columns[column] == raw_columns[run_start] + run_words) {
-                    run_words += raw_column_lengths[column];
-                    column += 1;
+                if (resident_run) {
+                    while (column < raw_column_count) {
+                        uintptr_t address = (uintptr_t)raw_columns[column];
+                        if (address < resident_begin) break;
+                        size_t offset_words = (address - resident_begin) / sizeof(uint32_t);
+                        if (offset_words > resident_words ||
+                            raw_column_lengths[column] > resident_words - offset_words) break;
+                        run_words += raw_column_lengths[column];
+                        column += 1;
+                    }
+                } else {
+                    while (column < raw_column_count &&
+                           raw_columns[column] == raw_columns[run_start] + run_words) {
+                        run_words += raw_column_lengths[column];
+                        column += 1;
+                    }
                 }
                 size_t run_bytes = run_words * sizeof(uint32_t);
                 uintptr_t address = (uintptr_t)raw_columns[run_start];
@@ -262,14 +307,15 @@ bool stwo_zig_metal_compute_quotients(
                     if (alias_shared)
                         alias_length = (alias_span + page_size - 1u) / page_size * page_size;
                 }
-                id<MTLBuffer> source = alias_shared
-                    ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
-                                                        length:alias_length
-                                                       options:MTLResourceStorageModeShared
-                                                   deallocator:nil]
-                    : [runtime.device newBufferWithBytes:raw_columns[run_start]
-                                                  length:run_bytes
-                                                 options:MTLResourceStorageModeShared];
+                id<MTLBuffer> source = resident_run ? resident_source :
+                    (alias_shared
+                        ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
+                                                            length:alias_length
+                                                           options:MTLResourceStorageModeShared
+                                                       deallocator:nil]
+                        : [runtime.device newBufferWithBytes:raw_columns[run_start]
+                                                      length:run_bytes
+                                                     options:MTLResourceStorageModeShared]);
                 if (source == nil) {
                     write_error(error_message, error_message_len, @"Metal quotient upload allocation failed");
                     return false;
@@ -280,7 +326,23 @@ bool stwo_zig_metal_compute_quotients(
                 for (uint32_t view_index = 0; view_index < view_count; ++view_index) {
                     StwoZigRawQuotientView view = all_views[view_index];
                     if ((size_t)view.offset >= flat_offset && (size_t)view.offset < flat_offset + run_words) {
-                        view.offset -= (uint32_t)flat_offset;
+                        if (resident_run) {
+                            size_t logical_column_start = flat_offset;
+                            for (size_t source_column = run_start; source_column < column; ++source_column) {
+                                size_t logical_column_end = logical_column_start + raw_column_lengths[source_column];
+                                if ((size_t)view.offset < logical_column_end) {
+                                    size_t resident_column_offset =
+                                        ((uintptr_t)raw_columns[source_column] - resident_begin) /
+                                        sizeof(uint32_t);
+                                    view.offset = (uint32_t)(resident_column_offset +
+                                        (size_t)view.offset - logical_column_start);
+                                    break;
+                                }
+                                logical_column_start = logical_column_end;
+                            }
+                        } else {
+                            view.offset -= (uint32_t)flat_offset;
+                        }
                         [run_view_data appendBytes:&view length:sizeof(view)];
                     }
                 }
@@ -293,7 +355,8 @@ bool stwo_zig_metal_compute_quotients(
                     id<MTLComputeCommandEncoder> numerator_encoder = [command computeCommandEncoder];
                     [numerator_encoder setComputePipelineState:runtime.quotientNumerator];
                     [numerator_encoder setBuffer:source
-                                           offset:alias_shared ? source_binding_offset : 0u
+                                           offset:resident_run ? 0u :
+                                               (alias_shared ? source_binding_offset : 0u)
                                           atIndex:0];
                     [numerator_encoder setBuffer:run_views offset:0 atIndex:1];
                     [numerator_encoder setBytes:&run_view_count length:sizeof(run_view_count) atIndex:2];
@@ -408,6 +471,7 @@ bool stwo_zig_metal_compute_quotients(
         }
         if (commit_tree) {
             StwoZigMetalTree *tree = [StwoZigMetalTree new];
+            tree.runtimeOwner = runtime;
             tree.layers = layers;
             tree.layerWordOffsets = layer_word_offsets_data;
             tree.layerWordLengths = layer_word_lengths_data;
