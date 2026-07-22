@@ -257,6 +257,8 @@ fn computeQuotientsConfigured(
         raw_column_ptrs.ptr,
         raw_column_lengths.ptr,
         @intCast(raw_column_count),
+        provider.backend_residency_handles.ptr,
+        @intCast(provider.backend_residency_handles.len),
         @ptrCast(descriptors.ptr),
         @intCast(view_count),
         raw_views,

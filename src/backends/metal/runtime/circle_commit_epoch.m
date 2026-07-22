@@ -375,14 +375,10 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             return NULL;
         }
 
-        @synchronized(runtime) {
-            runtime.compositionTraceBuffer = extended;
-            runtime.compositionTraceHostBegin = (uintptr_t)extended_words;
-            runtime.compositionTraceWordCount = extended_word_count;
-        }
         double elapsed = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         if (gpu_milliseconds != NULL) *gpu_milliseconds = elapsed;
         StwoZigMetalTree *tree = [StwoZigMetalTree new];
+        tree.runtimeOwner = runtime;
         tree.layers = layers;
         tree.layerWordOffsets = layer_offsets_data;
         tree.layerWordLengths = layer_lengths_data;
@@ -393,9 +389,6 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         tree.residentColumns = extended;
         tree.residentColumnsHostBegin = (uintptr_t)extended_words;
         tree.residentColumnsWordCount = extended_word_count;
-        @synchronized(runtime) {
-            [runtime.residentTraceTrees addObject:tree];
-        }
         return (__bridge_retained void *)tree;
     }
 }

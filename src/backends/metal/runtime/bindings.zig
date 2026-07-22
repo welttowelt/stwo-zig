@@ -537,6 +537,8 @@ pub extern fn stwo_zig_metal_compute_quotients(
     raw_columns: [*]const [*]const u32,
     raw_column_lengths: [*]const usize,
     raw_column_count: u32,
+    resident_trees: [*]const *anyopaque,
+    resident_tree_count: u32,
     views: *const anyopaque,
     view_count: u32,
     raw_views: bool,

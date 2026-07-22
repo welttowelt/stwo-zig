@@ -58,6 +58,10 @@ pub const LazyQuotientProvider = struct {
     combined_views: []CombinedContributionView,
     direct_plan: tile_executor.DirectContributionPlan,
     raw_columns: []ColumnEvaluation,
+    /// Backend-owned resources explicitly borrowed from the commitment trees
+    /// in this proof session. Backends may use these handles to reuse resident
+    /// data, but must never discover resources from runtime-global state.
+    backend_residency_handles: []const *anyopaque,
     workspace: quotients.RowQuotientWorkspace,
     chunk_scratch: ?row_executor.Scratch,
     direct_chunk_scratch: ?tile_executor.Scratch,
@@ -250,6 +254,7 @@ pub const LazyQuotientProvider = struct {
                 allocator.free(flat_columns);
                 break :blk &.{};
             },
+            .backend_residency_handles = &.{},
             .workspace = workspace,
             .chunk_scratch = chunk_scratch,
             .direct_chunk_scratch = direct_chunk_scratch,
@@ -258,6 +263,15 @@ pub const LazyQuotientProvider = struct {
             .lifting_log_size = lifting_log_size,
             .domain_size = domain_size,
         };
+    }
+
+    /// Borrows the proof-session residency set for the lifetime of this
+    /// provider. The caller retains ownership of both the slice and handles.
+    pub fn setBackendResidencyHandles(
+        self: *LazyQuotientProvider,
+        handles: []const *anyopaque,
+    ) void {
+        self.backend_residency_handles = handles;
     }
 
     pub fn deinit(self: *LazyQuotientProvider, allocator: std.mem.Allocator) void {

@@ -291,6 +291,7 @@ void *stwo_zig_metal_merkle_commit(
         }
 
         StwoZigMetalTree *tree = [StwoZigMetalTree new];
+        tree.runtimeOwner = runtime;
         tree.layers = layers;
         tree.layerWordOffsets = layer_word_offsets_data;
         tree.layerWordLengths = layer_word_lengths_data;

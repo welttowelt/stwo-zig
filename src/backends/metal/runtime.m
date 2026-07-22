@@ -127,10 +127,6 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionRandomPowers;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExtParams;
-@property(nonatomic, strong) id<MTLBuffer> compositionTraceBuffer;
-@property(nonatomic) uintptr_t compositionTraceHostBegin;
-@property(nonatomic) NSUInteger compositionTraceWordCount;
-@property(nonatomic, strong) NSHashTable *residentTraceTrees;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalLibraryKey *, id> *evalLibraries;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalPipelineKey *, id<MTLComputePipelineState>> *evalPipelines;
 @property(nonatomic) uint64_t evalLibraryCacheHits;
@@ -441,6 +437,7 @@
 @end
 
 @interface StwoZigMetalTree : NSObject
+@property(nonatomic, strong) StwoZigMetalRuntime *runtimeOwner;
 @property(nonatomic, strong) NSArray<id<MTLBuffer>> *layers;
 @property(nonatomic, strong) NSData *layerWordOffsets;
 @property(nonatomic, strong) NSData *layerWordLengths;
@@ -534,7 +531,6 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.device = device;
         runtime.queue = stwo_zig_metal_profile_queue([device newCommandQueue], device);
         runtime.evalLibraries = [NSMutableDictionary dictionary];
-        runtime.residentTraceTrees = [NSHashTable weakObjectsHashTable];
         runtime.evalPipelines = [NSMutableDictionary dictionary];
         runtime.quadraticRecurrenceTrace = make_pipeline(device, library, @"stwo_zig_quadratic_recurrence_trace",
                                                          error_message, error_message_len);

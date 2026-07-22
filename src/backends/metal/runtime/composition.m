@@ -740,25 +740,31 @@ bool stwo_zig_metal_recurrence_composition(
         size_t trace_bytes = trace_word_count * sizeof(uint32_t);
         if (trace_address > UINTPTR_MAX - trace_bytes) return false;
 
-        id<MTLBuffer> trace_buffer = nil;
-        NSUInteger trace_offset = 0u;
-        @synchronized(runtime) {
-            uintptr_t cache_begin = runtime.compositionTraceHostBegin;
-            size_t cache_bytes = runtime.compositionTraceWordCount * sizeof(uint32_t);
-            if (runtime.compositionTraceBuffer != nil && cache_begin <= trace_address &&
-                cache_begin <= UINTPTR_MAX - cache_bytes &&
-                trace_address + trace_bytes <= cache_begin + cache_bytes) {
-                trace_buffer = runtime.compositionTraceBuffer;
-                trace_offset = (NSUInteger)(trace_address - cache_begin);
-            }
-        }
+        // Bind this call's trace directly. Keeping the alias local to the
+        // command removes the previous runtime-wide "last trace" slot, which
+        // could be overwritten by another proof sharing the runtime.
+        size_t page_size = (size_t)getpagesize();
+        uintptr_t alias_address = trace_address - (trace_address % page_size);
+        size_t trace_offset_bytes = (size_t)(trace_address - alias_address);
+        if (trace_bytes > SIZE_MAX - trace_offset_bytes) return false;
+        size_t alias_span = trace_offset_bytes + trace_bytes;
+        if (alias_span > SIZE_MAX - (page_size - 1u)) return false;
+        size_t alias_length = (alias_span + page_size - 1u) / page_size * page_size;
+        NSUInteger trace_offset = runtime.device.hasUnifiedMemory ? trace_offset_bytes : 0u;
+        id<MTLBuffer> trace_buffer = runtime.device.hasUnifiedMemory
+            ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
+                                                length:alias_length
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithBytes:(const void *)trace_address
+                                          length:trace_bytes
+                                         options:MTLResourceStorageModeShared];
         if (trace_buffer == nil) {
-            write_error(error_message, error_message_len, @"Metal composition trace is not resident");
+            write_error(error_message, error_message_len, @"Metal composition trace binding failed");
             return false;
         }
 
         size_t output_bytes = output_word_count * sizeof(uint32_t);
-        size_t page_size = (size_t)getpagesize();
         bool direct_output = ((uintptr_t)output_words % page_size) == 0u &&
             (output_bytes % page_size) == 0u;
         id<MTLBuffer> output = direct_output

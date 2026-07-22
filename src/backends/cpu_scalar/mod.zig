@@ -36,10 +36,20 @@ pub const CpuBackend = struct {
     pub const combined_commit_max_columns: usize = 256;
     pub const combined_base_in_place = true;
 
-    /// Installs CPU-only semantic accelerators before excluded benchmark
-    /// warmups. Unsupported AIRs retain the generic evaluator.
-    pub fn warmup() !void {
-        secure_composition.install();
+    pub fn warmup() !void {}
+
+    pub fn computeCompositionEvaluation(
+        allocator: std.mem.Allocator,
+        components: []const @import("stwo_prover_impl").air.component_prover.ComponentProver,
+        random_coeff: QM31,
+        trace: *const @import("stwo_prover_impl").air.component_prover.Trace,
+    ) !?@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
+        return secure_composition.evaluateLargeRecurrenceComposition(
+            allocator,
+            components,
+            random_coeff,
+            trace,
+        );
     }
 
     // ---------------------------------------------------------------

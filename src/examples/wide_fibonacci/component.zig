@@ -33,7 +33,14 @@ pub const Component = struct {
     }
 
     pub fn asProverComponent(self: *const @This()) prover_component.ComponentProver {
-        return Adapter.asProverComponent(self);
+        var component = Adapter.asProverComponent(self);
+        component.backend_composition_capability = .{
+            .quadratic_sum_squares_v1 = .{
+                .trace_tree_index = 1,
+                .first_column = 0,
+            },
+        };
+        return component;
     }
 
     pub fn nConstraints(self: *const @This()) usize {
@@ -252,6 +259,15 @@ test "wide Fibonacci component: OODS quotient and coefficient order match scalar
 
     const component = Component{ .statement = .{ .log_n_rows = 5, .sequence_len = 5 } };
     try std.testing.expectEqual(@as(usize, 3), component.nConstraints());
+    const backend_component = component.asProverComponent();
+    const capability = backend_component.backend_composition_capability orelse
+        return error.MissingBackendCompositionCapability;
+    switch (capability) {
+        .quadratic_sum_squares_v1 => |recurrence| {
+            try std.testing.expectEqual(@as(usize, 1), recurrence.trace_tree_index);
+            try std.testing.expectEqual(@as(usize, 0), recurrence.first_column);
+        },
+    }
 
     var actual = core_air_accumulation.PointEvaluationAccumulator.init(alpha);
     try component.evaluateConstraintQuotientsAtPoint(point, &mask, &actual, 5);

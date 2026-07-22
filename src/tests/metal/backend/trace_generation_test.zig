@@ -1,5 +1,5 @@
 const std = @import("std");
-const runtime_mod = @import("../runtime.zig");
+const runtime_mod = @import("../../../backends/metal/runtime.zig");
 const m31 = @import("stwo_core").fields.m31;
 const trace = @import("../../../examples/wide_fibonacci/trace.zig");
 

@@ -263,7 +263,8 @@ fn proveExComponentsWithRecorder(
                 "Composition evaluation",
             );
             defer composition_eval_stage.end();
-            break :blk try component_provers.computeCompositionEvaluation(
+            break :blk try component_provers.computeCompositionEvaluationForBackend(
+                B,
                 allocator,
                 random_coeff,
                 &trace,
@@ -282,7 +283,8 @@ fn proveExComponentsWithRecorder(
                 allocator,
                 composition_log_size,
             );
-            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddles(
+            break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
+                B,
                 allocator,
                 canonic.CanonicCoset.new(composition_log_size).circleDomain(),
                 &composition_eval,

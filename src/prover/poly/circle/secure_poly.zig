@@ -15,27 +15,6 @@ const CircleDomain = domain_mod.CircleDomain;
 const CircleCoefficients = poly.CircleCoefficients;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
-pub const BackendCircleIfftHook = *const fn (
-    allocator: std.mem.Allocator,
-    values: []const []M31,
-    domain: CircleDomain,
-    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
-) anyerror!bool;
-
-// Installed during backend initialization, before any proof worker runs.
-// A null hook keeps CPU and other backends on the reference implementation.
-var backend_circle_ifft_hook: ?BackendCircleIfftHook = null;
-var backend_circle_ifft_min_log_size: u32 = std.math.maxInt(u32);
-
-pub fn installBackendCircleIfftHook(hook: BackendCircleIfftHook, min_log_size: u32) void {
-    if (backend_circle_ifft_hook) |installed| {
-        std.debug.assert(installed == hook);
-        std.debug.assert(backend_circle_ifft_min_log_size == min_log_size);
-    }
-    backend_circle_ifft_min_log_size = min_log_size;
-    backend_circle_ifft_hook = hook;
-}
-
 pub const SecurePolyError = error{
     ShapeMismatch,
 };
@@ -171,18 +150,34 @@ pub fn interpolateAndSplitFromEvaluationWithTwiddles(
     values: *const SecureColumnByCoords,
     twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
 ) !SecureCirclePoly.SplitPair {
+    return interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
+        void,
+        allocator,
+        domain,
+        values,
+        twiddle_tree,
+    );
+}
+
+/// Backend-scoped secure interpolation. An accelerator is selected from the
+/// proof's backend type instead of process-global mutable state.
+pub fn interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
+    comptime B: type,
+    allocator: std.mem.Allocator,
+    domain: CircleDomain,
+    values: *const SecureColumnByCoords,
+    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
+) !SecureCirclePoly.SplitPair {
     if (domain.size() != values.len() or values.len() < 2) return SecurePolyError.ShapeMismatch;
 
     if (!evaluationIsConstant(values)) {
-        if (domain.logSize() >= backend_circle_ifft_min_log_size) {
-            if (backend_circle_ifft_hook) |backend_ifft| {
-                if (try backend_ifft(
-                    allocator,
-                    values.columns[0..],
-                    domain,
-                    twiddle_tree,
-                )) return splitCoefficientColumns(allocator, values);
-            }
+        if (comptime B != void and @hasDecl(B, "interpolateSecureComposition")) {
+            if (try B.interpolateSecureComposition(
+                allocator,
+                values.columns[0..],
+                domain,
+                twiddle_tree,
+            )) return splitCoefficientColumns(allocator, values);
         }
 
         var polynomial = try interpolateFromEvaluationWithTwiddles(

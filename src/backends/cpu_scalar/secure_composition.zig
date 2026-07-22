@@ -17,18 +17,6 @@ const SecureColumnByCoords = prover.secure_column.SecureColumnByCoords;
 // Keep short/small proofs on the reference loop: their fan-out cost is a
 // meaningful fraction of the whole request. This admits trace logs >= 16.
 const min_eval_log_size: u32 = 17;
-const validation_unknown: u8 = 0;
-const validation_accepted: u8 = 1;
-const validation_rejected: u8 = 2;
-var validation_mutex: std.Thread.Mutex = .{};
-var validation_vtable: ?*const prover.air.component_prover.ComponentProverVTable = null;
-var recurrence_validation: u8 = validation_unknown;
-
-pub fn install() void {
-    prover.air.component_prover.installBackendCompositionEvaluationHook(
-        evaluateLargeRecurrenceComposition,
-    );
-}
 
 const RecurrenceShape = struct {
     first_column: [*]const M31,
@@ -95,14 +83,13 @@ const Worker = struct {
     }
 };
 
-fn evaluateLargeRecurrenceComposition(
+pub fn evaluateLargeRecurrenceComposition(
     allocator: std.mem.Allocator,
     components: []const ComponentProver,
     random_coeff: QM31,
     trace: *const Trace,
 ) !?SecureColumnByCoords {
     const shape = recurrenceShape(components, trace) orelse return null;
-    if (validationStatus(components[0].vtable) == validation_rejected) return null;
 
     const powers = try prover.air.accumulation.generateSecurePowers(
         allocator,
@@ -168,26 +155,22 @@ fn evaluateLargeRecurrenceComposition(
         Worker.run(&workers[0]);
     }
 
-    if (validationStatus(components[0].vtable) == validation_accepted) return output;
-
-    // The public shape is deliberately insufficient as a type identity. The
-    // first excluded warmup proves the specialized semantics over every row.
-    var expected = try referenceComposition(allocator, components, random_coeff, trace);
-    if (!secureColumnsEqual(output, expected)) {
-        setValidationStatus(components[0].vtable, validation_rejected);
-        output.deinit(allocator);
-        return expected;
-    }
-    expected.deinit(allocator);
-    setValidationStatus(components[0].vtable, validation_accepted);
     return output;
 }
 
 fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?RecurrenceShape {
-    if (components.len != 1 or trace.polys.items.len != 2) return null;
+    if (components.len != 1) return null;
     const component = components[0];
-    if (trace.polys.items[0].len != 0) return null;
-    const columns = trace.polys.items[1];
+    const capability = component.backend_composition_capability orelse return null;
+    const recurrence = switch (capability) {
+        .quadratic_sum_squares_v1 => |value| value,
+    };
+    if (recurrence.first_column != 0 or
+        recurrence.trace_tree_index >= trace.polys.items.len) return null;
+    for (trace.polys.items, 0..) |tree, tree_index| {
+        if (tree_index != recurrence.trace_tree_index and tree.len != 0) return null;
+    }
+    const columns = trace.polys.items[recurrence.trace_tree_index];
     if (columns.len < 64 or component.nConstraints() != columns.len - 2) return null;
     const eval_log_size = component.maxConstraintLogDegreeBound();
     if (eval_log_size < min_eval_log_size or eval_log_size >= @bitSizeOf(usize)) return null;
@@ -217,48 +200,4 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         .constraint_count = columns.len - 2,
         .eval_log_size = eval_log_size,
     };
-}
-
-fn validationStatus(vtable: *const prover.air.component_prover.ComponentProverVTable) u8 {
-    validation_mutex.lock();
-    defer validation_mutex.unlock();
-    return if (validation_vtable == vtable) recurrence_validation else validation_unknown;
-}
-
-fn setValidationStatus(
-    vtable: *const prover.air.component_prover.ComponentProverVTable,
-    status: u8,
-) void {
-    validation_mutex.lock();
-    defer validation_mutex.unlock();
-    validation_vtable = vtable;
-    recurrence_validation = status;
-}
-
-fn referenceComposition(
-    allocator: std.mem.Allocator,
-    components: []const ComponentProver,
-    random_coeff: QM31,
-    trace: *const Trace,
-) !SecureColumnByCoords {
-    var accumulator = try prover.air.accumulation.DomainEvaluationAccumulator.init(
-        allocator,
-        random_coeff,
-        components[0].maxConstraintLogDegreeBound(),
-        components[0].nConstraints(),
-    );
-    defer accumulator.deinit();
-    try components[0].evaluateConstraintQuotientsOnDomain(trace, &accumulator);
-    return accumulator.finalize();
-}
-
-fn secureColumnsEqual(lhs: SecureColumnByCoords, rhs: SecureColumnByCoords) bool {
-    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-        if (!std.mem.eql(
-            u8,
-            std.mem.sliceAsBytes(lhs.columns[coordinate]),
-            std.mem.sliceAsBytes(rhs.columns[coordinate]),
-        )) return false;
-    }
-    return true;
 }
