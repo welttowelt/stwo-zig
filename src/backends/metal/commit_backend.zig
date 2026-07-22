@@ -418,7 +418,7 @@ pub const MetalCommitBackend = struct {
         }
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
-        const gpu_ms = try lease.runtime.transformCircleLde(
+        const gpu_ms = try lease.runtime.transformCircleLdeInto(
             allocator,
             source_values,
             base_values,

@@ -209,6 +209,7 @@ pub const Runtime = struct {
     pub const transformCircle = polynomial_ops.transformCircle;
     pub const transformCircleResident = polynomial_ops.transformCircleResident;
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
+    pub const transformCircleLdeInto = polynomial_ops.transformCircleLdeInto;
 };
 
 /// Deferred compatibility hooks that deliberately bypass production admission.

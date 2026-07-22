@@ -575,7 +575,7 @@ pub fn transformCircleResident(
     return gpu_ms;
 }
 
-pub fn transformCircleLde(
+pub fn transformCircleLdeInto(
     self: *Runtime,
     allocator: std.mem.Allocator,
     source_columns: []const []const @import("stwo_core").fields.m31.M31,
@@ -637,5 +637,46 @@ pub fn transformCircleLde(
         std.log.err("Metal circle LDE failed: {s}", .{std.mem.sliceTo(&message, 0)});
         return MetalError.CircleTransformFailed;
     }
+    return gpu_ms;
+}
+
+pub fn transformCircleLde(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    source_columns: []const []const @import("stwo_core").fields.m31.M31,
+    base_columns: []const []@import("stwo_core").fields.m31.M31,
+    extended_columns: []const []@import("stwo_core").fields.m31.M31,
+    inverse_twiddles: []const @import("stwo_core").fields.m31.M31,
+    forward_twiddles: []const @import("stwo_core").fields.m31.M31,
+    base_log_size: u32,
+    extended_log_size: u32,
+) (MetalError || std.mem.Allocator.Error)!f64 {
+    if (extended_columns.len == 0 or extended_log_size >= @bitSizeOf(usize)) {
+        return MetalError.CircleTransformFailed;
+    }
+    const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+    const transform_len = std.math.mul(usize, extended_columns.len, extended_len) catch
+        return MetalError.CircleTransformFailed;
+    const transform_buffer = try allocator.alloc(@import("stwo_core").fields.m31.M31, transform_len);
+    defer allocator.free(transform_buffer);
+    const transform_columns = try allocator.alloc([]@import("stwo_core").fields.m31.M31, extended_columns.len);
+    defer allocator.free(transform_columns);
+    for (transform_columns, 0..) |*column, index| {
+        column.* = transform_buffer[index * extended_len .. (index + 1) * extended_len];
+    }
+    const gpu_ms = try self.transformCircleLdeInto(
+        allocator,
+        source_columns,
+        base_columns,
+        transform_columns,
+        transform_buffer,
+        0,
+        extended_len,
+        inverse_twiddles,
+        forward_twiddles,
+        base_log_size,
+        extended_log_size,
+    );
+    for (extended_columns, transform_columns) |destination, source| @memcpy(destination, source);
     return gpu_ms;
 }
