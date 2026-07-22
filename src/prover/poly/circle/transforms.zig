@@ -92,13 +92,25 @@ fn evaluateBufferTailLayers(
     var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
     const stop: u32 = if (fuse_bottom) 2 else 0;
-    while (layer_idx > stop) {
+    while (skipped < skip_layers and layer_idx > stop) {
         layer_idx -= 1;
-        const depth = line_log_size - 1 - layer_idx;
-        if (skipped < skip_layers) {
-            skipped += 1;
+        skipped += 1;
+    }
+    while (layer_idx > stop) {
+        if (layer_idx >= 5 and
+            fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
+        {
+            fft_kernels.fftThreeLayersForwardPackedM31(
+                values,
+                domain.logSize(),
+                layer_idx,
+                twiddle_tree.twiddles,
+            );
+            layer_idx -= 3;
             continue;
         }
+        layer_idx -= 1;
+        const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
         const start = twiddle_len - (len * 2);
         const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];
@@ -206,7 +218,20 @@ pub fn interpolateIntoBufferWithTwiddles(
         }
     }
 
-    while (layer_idx < line_log_size) : (layer_idx += 1) {
+    while (layer_idx < line_log_size) {
+        const lowest_stage = layer_idx + 1;
+        if (lowest_stage + 2 <= line_log_size and
+            fft_kernels.canFuseThreeLayersPacked(lowest_stage))
+        {
+            fft_kernels.fftThreeLayersInversePackedM31(
+                coeffs,
+                domain.logSize(),
+                lowest_stage,
+                twiddle_tree.itwiddles,
+            );
+            layer_idx += 3;
+            continue;
+        }
         const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
         const start = itwiddle_len - (len * 2);
@@ -214,6 +239,7 @@ pub fn interpolateIntoBufferWithTwiddles(
         for (layer_twiddles, 0..) |twid, h| {
             fft_kernels.fftLayerLoopInverseM31(coeffs, @intCast(layer_idx + 1), h, twid);
         }
+        layer_idx += 1;
     }
 
     const n_inv = M31.fromCanonical(@intCast(n)).inv() catch return PolyError.SingularSystem;
@@ -305,7 +331,22 @@ pub fn interpolateBuffersWithTwiddles(
         }
     }
 
-    while (layer_idx < line_log_size) : (layer_idx += 1) {
+    while (layer_idx < line_log_size) {
+        const lowest_stage = layer_idx + 1;
+        if (lowest_stage + 2 <= line_log_size and
+            fft_kernels.canFuseThreeLayersPacked(lowest_stage))
+        {
+            for (coeffs_batch) |coeffs| {
+                fft_kernels.fftThreeLayersInversePackedM31(
+                    coeffs,
+                    domain.logSize(),
+                    lowest_stage,
+                    twiddle_tree.itwiddles,
+                );
+            }
+            layer_idx += 3;
+            continue;
+        }
         const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
         const start = itwiddle_len - (len * 2);
@@ -315,6 +356,7 @@ pub fn interpolateBuffersWithTwiddles(
                 fft_kernels.fftLayerLoopInverseM31(coeffs, @intCast(layer_idx + 1), h, twid);
             }
         }
+        layer_idx += 1;
     }
 
     const n_inv = M31.fromCanonical(@intCast(coeffs_batch[0].len)).inv() catch return PolyError.SingularSystem;
@@ -404,13 +446,27 @@ fn evaluateBuffersTailLayers(
     var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
     const stop: u32 = if (fuse_bottom) 2 else 0;
-    while (layer_idx > stop) {
+    while (skipped < skip_layers and layer_idx > stop) {
         layer_idx -= 1;
-        const depth = line_log_size - 1 - layer_idx;
-        if (skipped < skip_layers) {
-            skipped += 1;
+        skipped += 1;
+    }
+    while (layer_idx > stop) {
+        if (layer_idx >= 5 and
+            fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
+        {
+            for (values_batch) |values| {
+                fft_kernels.fftThreeLayersForwardPackedM31(
+                    values,
+                    domain.logSize(),
+                    layer_idx,
+                    twiddle_tree.twiddles,
+                );
+            }
+            layer_idx -= 3;
             continue;
         }
+        layer_idx -= 1;
+        const depth = line_log_size - 1 - layer_idx;
         const len = @as(usize, 1) << @intCast(depth);
         const start = twiddle_len - (len * 2);
         const layer_twiddles = twiddle_tree.twiddles[start .. twiddle_len - len];

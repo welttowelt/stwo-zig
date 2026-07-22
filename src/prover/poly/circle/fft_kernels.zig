@@ -127,6 +127,111 @@ pub inline fn fftLayerLoopForwardM31(
     }
 }
 
+/// Whether three adjacent stages can be fused while retaining packed,
+/// contiguous lanes. The tuple elements are separated by 2^lowest_stage,
+/// while each packed load spans PACK_WIDTH adjacent lanes.
+pub fn canFuseThreeLayersPacked(lowest_stage: u32) bool {
+    if (lowest_stage >= @bitSizeOf(usize)) return false;
+    const distance = @as(usize, 1) << @intCast(lowest_stage);
+    return distance >= m31.PACK_WIDTH and distance % m31.PACK_WIDTH == 0;
+}
+
+/// Runs three adjacent FFT stages in one packed radix-8 pass.
+///
+/// Each packed lane represents adjacent positions inside one stage group.
+/// Eight vectors therefore hold eight strided tuple elements while retaining
+/// native SIMD within each element. All intermediates stay in registers, so
+/// the three-stage cascade reads and writes the column only once.
+fn fftThreeLayersPackedM31(
+    values: []M31,
+    log_size: u32,
+    stage: u32,
+    twiddles: []const M31,
+    comptime inverse: bool,
+) void {
+    std.debug.assert(log_size < @bitSizeOf(usize));
+    std.debug.assert(values.len == @as(usize, 1) << @intCast(log_size));
+    const pair_count = values.len / 2;
+    std.debug.assert(twiddles.len >= pair_count);
+
+    const lowest_stage = if (inverse) stage else stage - 2;
+    std.debug.assert(canFuseThreeLayersPacked(lowest_stage));
+    std.debug.assert(if (inverse) stage + 2 < log_size else stage >= 2 and stage < log_size);
+
+    const distance = @as(usize, 1) << @intCast(lowest_stage);
+    const group_count = values.len >> @intCast(lowest_stage + 3);
+    const PW = m31.PACK_WIDTH;
+
+    var group: usize = 0;
+    while (group < group_count) : (group += 1) {
+        const base = group << @intCast(lowest_stage + 3);
+        var lane: usize = 0;
+        while (lane < distance) : (lane += PW) {
+            var tuple: [8]m31.PackedM31 = undefined;
+            inline for (0..8) |item| {
+                tuple[item] = m31.loadPacked(values.ptr + base + lane + item * distance);
+            }
+
+            inline for (0..3) |step| {
+                const substage = if (inverse)
+                    stage + @as(u32, @intCast(step))
+                else
+                    stage - @as(u32, @intCast(step));
+                const half_span: usize = if (inverse)
+                    @as(usize, 1) << @intCast(step)
+                else
+                    @as(usize, 4) >> @intCast(step);
+                const block_count = 4 / half_span;
+                const twiddle_offset = pair_count -
+                    (@as(usize, 1) << @intCast(log_size - substage));
+
+                inline for (0..block_count) |block| {
+                    const twiddle: m31.PackedM31 = @splat(
+                        twiddles[twiddle_offset + group * block_count + block].v,
+                    );
+                    const block_start = block * (half_span * 2);
+                    inline for (0..half_span) |item| {
+                        const lo = block_start + item;
+                        const hi = lo + half_span;
+                        const lhs = tuple[lo];
+                        const rhs = tuple[hi];
+                        if (inverse) {
+                            tuple[lo] = m31.addPacked(lhs, rhs);
+                            tuple[hi] = m31.mulPacked(m31.subPacked(lhs, rhs), twiddle);
+                        } else {
+                            const product = m31.mulPacked(rhs, twiddle);
+                            tuple[lo] = m31.addPacked(lhs, product);
+                            tuple[hi] = m31.subPacked(lhs, product);
+                        }
+                    }
+                }
+            }
+
+            inline for (0..8) |item| {
+                m31.storePacked(values.ptr + base + lane + item * distance, tuple[item]);
+            }
+        }
+    }
+}
+
+pub fn fftThreeLayersForwardPackedM31(
+    values: []M31,
+    log_size: u32,
+    highest_stage: u32,
+    twiddles: []const M31,
+) void {
+    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false);
+}
+
+pub fn fftThreeLayersInversePackedM31(
+    values: []M31,
+    log_size: u32,
+    lowest_stage: u32,
+    itwiddles: []const M31,
+) void {
+    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true);
+}
+
 /// Fused forward pass over the three smallest-block layers (half-block 4, 2,
 /// and the adjacent-pair circle layer). All three operate strictly within
 /// 8-element blocks, so each block is loaded once, transformed in registers,
@@ -441,6 +546,60 @@ test "circle FFT layer kernels match scalar butterfly laws across lane regimes" 
                 before[index - half_block].sub(before[index]).mul(itwid);
             try std.testing.expect(inverse[index].eql(expected));
         }
+    }
+}
+
+test "packed radix-8 pass matches three independent stages" {
+    const log_size: u32 = 10;
+    const value_count = @as(usize, 1) << @intCast(log_size);
+    const pair_count = value_count / 2;
+    var prng = std.Random.DefaultPrng.init(0x510e_527f_ade6_82d1);
+    const random = prng.random();
+
+    const input = try std.testing.allocator.alloc(M31, value_count);
+    defer std.testing.allocator.free(input);
+    const expected = try std.testing.allocator.alloc(M31, value_count);
+    defer std.testing.allocator.free(expected);
+    const actual = try std.testing.allocator.alloc(M31, value_count);
+    defer std.testing.allocator.free(actual);
+    const twiddles = try std.testing.allocator.alloc(M31, pair_count);
+    defer std.testing.allocator.free(twiddles);
+
+    for (input) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
+    for (twiddles) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 1, m31.Modulus));
+
+    const forward_stages = [_]u32{ 9, 5 };
+    for (forward_stages) |highest_stage| {
+        @memcpy(expected, input);
+        @memcpy(actual, input);
+        var step: u32 = 0;
+        while (step < 3) : (step += 1) {
+            const stage = highest_stage - step;
+            const count = @as(usize, 1) << @intCast(log_size - stage - 1);
+            const offset = pair_count - count * 2;
+            for (twiddles[offset .. offset + count], 0..) |twiddle, block| {
+                fftLayerLoopForwardM31(expected, stage, block, twiddle);
+            }
+        }
+        fftThreeLayersForwardPackedM31(actual, log_size, highest_stage, twiddles);
+        try std.testing.expectEqualSlices(M31, expected, actual);
+    }
+
+    const inverse_stages = [_]u32{ 3, 7 };
+    for (inverse_stages) |lowest_stage| {
+        @memcpy(expected, input);
+        @memcpy(actual, input);
+        var step: u32 = 0;
+        while (step < 3) : (step += 1) {
+            const stage = lowest_stage + step;
+            const count = @as(usize, 1) << @intCast(log_size - stage - 1);
+            const offset = pair_count - count * 2;
+            for (twiddles[offset .. offset + count], 0..) |twiddle, block| {
+                fftLayerLoopInverseM31(expected, stage, block, twiddle);
+            }
+        }
+        fftThreeLayersInversePackedM31(actual, log_size, lowest_stage, twiddles);
+        try std.testing.expectEqualSlices(M31, expected, actual);
     }
 }
 

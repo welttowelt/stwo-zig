@@ -7,7 +7,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const MAX_WORKERS: usize = 16;
+/// Fixed storage ceiling, not a scheduling target. Modern Apple Max parts
+/// expose more than 16 logical cores; detection still chooses the host count
+/// (or the explicit override) below this fail-closed array bound.
+pub const MAX_WORKERS: usize = 32;
 pub const WORKER_STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MiB (matches std default)
 
 pub const WorkPool = struct {

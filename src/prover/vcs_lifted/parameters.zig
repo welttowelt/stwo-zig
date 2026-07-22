@@ -6,7 +6,7 @@ const mmap_alloc = @import("../mmap_alloc.zig");
 
 pub const parallel_min_nodes: usize = 1 << 11;
 pub const parallel_min_nodes_per_worker: usize = 1 << 10;
-pub const max_parallel_workers: usize = 16;
+pub const max_parallel_workers: usize = 32;
 pub const merkle_worker_stack_size: usize = 1 << 20;
 pub const leaf_tile_len: usize = 256;
 pub const max_leaf_scratch_bytes: usize = 256 * 1024;
