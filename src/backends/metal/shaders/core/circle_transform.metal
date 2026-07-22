@@ -426,6 +426,64 @@ kernel void stwo_zig_circle_ifft_fused_tail(
     }
 }
 
+// Stream a host-backed column run directly into the coefficient arena while
+// performing the cache-local IFFT tail. This removes one full-size staging
+// copy and one subsequent read/write traversal of the coefficient buffer.
+kernel void stwo_zig_circle_ifft_fused_upload(
+    device const uint *source [[buffer(0)]],
+    device uint *destination [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &destination_column [[buffer(4)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]]
+) {
+    threadgroup uint tile[circle_fused_tile_size];
+    uint value_len = 1u << log_size;
+    uint tile_offset = group.x << circle_fused_tile_log;
+    uint source_column_offset = group.y << log_size;
+    uint destination_column_offset = (destination_column + group.y) << log_size;
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        tile[item] = source[source_column_offset + tile_offset + item];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+        uint idx0 = pair << 1u;
+        uint idx1 = idx0 + 1u;
+        uint lhs = tile[idx0];
+        uint rhs = tile[idx1];
+        uint global_pair = (tile_offset >> 1u) + pair;
+        tile[idx0] = m31_add(lhs, rhs);
+        tile[idx1] = m31_mul(m31_sub(lhs, rhs), circle_twiddle(twiddles, global_pair));
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint pair_count = value_len >> 1u;
+    for (uint layer = 1u; layer < circle_fused_tile_log; ++layer) {
+        uint distance = 1u << layer;
+        uint stride = distance << 1u;
+        uint twiddle_offset = pair_count - (1u << (log_size - layer));
+        uint group_base = tile_offset / stride;
+        for (uint pair = lane; pair < circle_fused_tile_size / 2u; pair += circle_fused_threads) {
+            uint local_group = pair / distance;
+            uint inner = pair - local_group * distance;
+            uint idx0 = local_group * stride + inner;
+            uint idx1 = idx0 + distance;
+            uint lhs = tile[idx0];
+            uint rhs = tile[idx1];
+            uint twiddle = twiddles[twiddle_offset + group_base + local_group];
+            tile[idx0] = m31_add(lhs, rhs);
+            tile[idx1] = m31_mul(m31_sub(lhs, rhs), twiddle);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
+        destination[destination_column_offset + tile_offset + item] = tile[item];
+    }
+}
+
 kernel void stwo_zig_circle_rfft_fused_tail(
     device uint *values [[buffer(0)]],
     device const uint *twiddles [[buffer(1)]],

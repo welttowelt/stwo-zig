@@ -35,6 +35,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRescale;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFused;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFusedUpload;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFused;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientNumerator;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientFinalize;
@@ -546,6 +547,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.circleRescale = make_pipeline(device, library, @"stwo_zig_circle_rescale", error_message, error_message_len);
         runtime.circleExpand = make_pipeline(device, library, @"stwo_zig_circle_expand_coefficients", error_message, error_message_len);
         runtime.circleIfftFused = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_tail", error_message, error_message_len);
+        runtime.circleIfftFusedUpload = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_upload", error_message, error_message_len);
         runtime.circleRfftFused = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail", error_message, error_message_len);
         runtime.quotientNumerator = make_pipeline(device, library, @"stwo_zig_quotient_numerator_raw", error_message, error_message_len);
         runtime.quotientFinalize = make_pipeline(device, library, @"stwo_zig_quotient_finalize", error_message, error_message_len);
@@ -615,7 +617,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
             runtime.circleRfftLayer == nil || runtime.circleRfftLast == nil || runtime.circleRescale == nil ||
-            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleRfftFused == nil ||
+            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleIfftFusedUpload == nil ||
+            runtime.circleRfftFused == nil ||
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
             runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
