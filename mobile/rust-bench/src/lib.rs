@@ -9,7 +9,6 @@
 
 use sha2::{Digest, Sha256};
 use std::ffi::{c_char, CStr, CString};
-use std::time::Instant;
 
 // The zig harness's "functional" protocol parameters.
 const POW_BITS: u32 = 10;
@@ -77,7 +76,7 @@ fn parse(line: &str) -> anyhow::Result<Args> {
     Ok(args)
 }
 
-fn prove_once(a: &Args) -> anyhow::Result<Vec<u8>> {
+fn prove_once(a: &Args) -> anyhow::Result<(Vec<u8>, f64)> {
     match a.workload.as_str() {
         "wide_fibonacci" => stwo_interop_rs::prove_wide_fibonacci(
             a.log_n_rows,
@@ -100,22 +99,26 @@ fn prove_once(a: &Args) -> anyhow::Result<Vec<u8>> {
 
 fn bench(line: &str) -> anyhow::Result<String> {
     let a = parse(line)?;
+    let n_samples = a.samples.max(1);
     for _ in 0..a.warmups {
         prove_once(&a)?;
     }
-    let mut secs: Vec<f64> = Vec::with_capacity(a.samples);
-    let mut digests: Vec<String> = Vec::with_capacity(a.samples);
+    let mut secs: Vec<f64> = Vec::with_capacity(n_samples);
+    let mut digests: Vec<String> = Vec::with_capacity(n_samples);
     let mut proof_len = 0usize;
-    for _ in 0..a.samples.max(1) {
-        let t = Instant::now();
-        let bytes = prove_once(&a)?;
-        secs.push(t.elapsed().as_secs_f64());
+    for _ in 0..n_samples {
+        let (bytes, prove_seconds) = prove_once(&a)?;
+        secs.push(prove_seconds);
         proof_len = bytes.len();
         digests.push(hex::encode(Sha256::digest(&bytes)));
     }
     let mut sorted = secs.clone();
     sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
-    let median = sorted[sorted.len() / 2];
+    let median = if sorted.len() % 2 == 1 {
+        sorted[sorted.len() / 2]
+    } else {
+        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+    };
     let all_equal = digests.windows(2).all(|w| w[0] == w[1]);
 
     Ok(serde_json::json!({
@@ -125,10 +128,10 @@ fn bench(line: &str) -> anyhow::Result<String> {
         "workload": { "name": a.workload, "log_n_rows": a.log_n_rows, "sequence_len": a.sequence_len },
         "protocol": { "name": "functional", "pow_bits": POW_BITS, "log_last_layer_degree_bound": LOG_LAST_LAYER, "log_blowup_factor": LOG_BLOWUP, "n_queries": N_QUERIES },
         "warmups": a.warmups,
-        "samples": a.samples,
+        "samples": n_samples,
         "prove_seconds": { "samples": secs, "median": median },
         "proof": { "wire_bytes": proof_len, "sha256": digests, "all_samples_byte_identical": all_equal },
-        "verified_samples": a.samples
+        "verified_samples": n_samples
     })
     .to_string())
 }

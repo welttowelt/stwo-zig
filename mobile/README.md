@@ -42,6 +42,12 @@ Files:
 - `mobile/BOARD_SPEC.md` — board proposal for the harness maintainer
 - `mobile/schema/mobile-proof-v1.md` — report wrapper schema
 
+## One rule when linking
+
+Link exactly ONE of the two static libs — they export the same C symbols
+(`stwo_mobile_bench`, `stwo_mobile_bench_free`), so linking both is a
+duplicate-symbol error. Pick the flavor, keep the same Swift file.
+
 ## What the finisher does (est. an afternoon for the first numbers)
 
 1. Xcode: new iOS App project, drop in `StwoBenchView.swift`, link

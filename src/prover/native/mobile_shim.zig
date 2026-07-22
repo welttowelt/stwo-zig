@@ -22,11 +22,17 @@ const config = @import("config.zig");
 
 const allocator = std.heap.smp_allocator;
 
+/// Static fallback for the pathological case where even the error message
+/// cannot be heap-allocated. `stwo_mobile_bench_free` recognizes and skips
+/// it, so the caller-side contract ("always free the result") stays safe.
+var oom_sentinel: [19:0]u8 = "error: OutOfMemory\x00".*;
+
 export fn stwo_mobile_bench(arg_line: [*:0]const u8) [*:0]u8 {
     return benchImpl(std.mem.span(arg_line)) catch |err| dupeError(err);
 }
 
 export fn stwo_mobile_bench_free(ptr: [*:0]u8) void {
+    if (@intFromPtr(ptr) == @intFromPtr(&oom_sentinel)) return;
     allocator.free(std.mem.span(ptr));
 }
 
@@ -60,5 +66,5 @@ fn benchImpl(line: []const u8) ![*:0]u8 {
 fn dupeError(err: anyerror) [*:0]u8 {
     var buf: [128]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "error: {s}", .{@errorName(err)}) catch "error: OutOfMemory";
-    return allocator.dupeZ(u8, msg) catch @constCast("error: OutOfMemory");
+    return allocator.dupeZ(u8, msg) catch &oom_sentinel;
 }

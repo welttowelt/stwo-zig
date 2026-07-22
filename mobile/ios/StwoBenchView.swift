@@ -64,9 +64,11 @@ struct StwoBenchView: View {
     private func runBench() {
         running = true
         thermal = ProcessInfo.processInfo.thermalState
+        // UIKit is main-thread-only: toggle the idle timer here and in the
+        // main-queue completion, never on the worker queue.
+        UIApplication.shared.isIdleTimerDisabled = true
         let args = selected.args
         DispatchQueue.global(qos: .userInitiated).async {
-            UIApplication.shared.isIdleTimerDisabled = true
             let out = args.withCString { stwo_mobile_bench($0) }
             let json = String(cString: out)
             stwo_mobile_bench_free(out)
