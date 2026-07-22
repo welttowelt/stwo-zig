@@ -4,6 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const M31 = @import("stwo_core").fields.m31.M31;
 const work_pool_mod = @import("../work_pool.zig");
+const blake2_leaf_words = @import("blake2_leaf_words.zig");
 const columns_mod = @import("columns.zig");
 const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
@@ -199,6 +200,32 @@ pub fn Operations(comptime H: type) type {
                     return;
                 }
             }
+
+            if (comptime blake2_leaf_words.supports(H)) {
+                const seed = H.leafSeed();
+                var position = ctx.start;
+                while (position + 4 <= ctx.end) : (position += 4) {
+                    const hashes = blake2_leaf_words.hashColumnMajorLeavesWithSeed4(
+                        H,
+                        seed,
+                        ctx.sorted_columns,
+                        ctx.max_log_size,
+                        position,
+                    );
+                    inline for (0..4) |lane| ctx.out[position + lane] = hashes[lane];
+                }
+                while (position < ctx.end) : (position += 1) {
+                    var hasher = ctx.seed_hasher;
+                    for (ctx.sorted_columns) |column| {
+                        const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
+                        const source_index = ((position >> shift_amt) << 1) + (position & 1);
+                        hasher.updateLeaf(column.values[source_index .. source_index + 1]);
+                    }
+                    ctx.out[position] = hasher.finalize();
+                }
+                return;
+            }
+
             const scratch = ctx.scratch orelse {
                 buildLeavesBatchedRangeScalar(ctx);
                 return;

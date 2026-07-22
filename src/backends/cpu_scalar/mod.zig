@@ -385,6 +385,14 @@ pub const CpuBackend = struct {
     ) !MerkleTree(H) {
         return MerkleTree(H).commitWithLazyQuotients(allocator, provider, out_column);
     }
+
+    pub fn commitSecureValuesMerkle(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        values: []const QM31,
+    ) !MerkleTree(H).SecureColumnCommitResult {
+        return MerkleTree(H).commitSecureValues(allocator, values);
+    }
 };
 
 // ---------------------------------------------------------------

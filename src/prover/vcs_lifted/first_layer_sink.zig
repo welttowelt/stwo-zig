@@ -6,6 +6,7 @@ const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const work_pool = @import("../work_pool.zig");
 const tile_sink = @import("../pcs/quotient_tile_sink.zig");
+const blake2_leaf_words = @import("blake2_leaf_words.zig");
 
 const M31 = m31.M31;
 
@@ -53,6 +54,32 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
                     }
                 } else if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
                     const seed = H.leafSeed();
+                    if (comptime blake2_leaf_words.supports(H)) {
+                        const Reader = struct {
+                            coordinates: @TypeOf(tile.coordinates),
+                            row: usize,
+
+                            pub inline fn readWord4(reader: @This(), coordinate: usize) [4]u32 {
+                                return .{
+                                    reader.coordinates[coordinate][reader.row + 0].v,
+                                    reader.coordinates[coordinate][reader.row + 1].v,
+                                    reader.coordinates[coordinate][reader.row + 2].v,
+                                    reader.coordinates[coordinate][reader.row + 3].v,
+                                };
+                            }
+                        };
+                        while (row + 4 <= tile_len) : (row += 4) {
+                            const hashes = blake2_leaf_words.hashLeafWordsWithSeed4(
+                                H,
+                                seed,
+                                qm31.SECURE_EXTENSION_DEGREE,
+                                Reader{ .coordinates = tile.coordinates, .row = row },
+                            );
+                            inline for (0..4) |lane| {
+                                self.leaves[tile.start - self.absolute_start + row + lane] = hashes[lane];
+                            }
+                        }
+                    }
                     while (row + 4 <= tile_len) : (row += 4) {
                         var values: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
                         var packed_bytes: [4][qm31.SECURE_EXTENSION_DEGREE * @sizeOf(M31)]u8 = undefined;

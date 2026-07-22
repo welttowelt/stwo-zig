@@ -13,8 +13,10 @@ const first_layer_sink = @import("first_layer_sink.zig");
 const leaves_mod = @import("leaves.zig");
 const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
+const blake2_leaf_words = @import("blake2_leaf_words.zig");
 
 const M31 = m31.M31;
+const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub fn MerkleProverLifted(comptime H: type) type {
@@ -44,6 +46,10 @@ pub fn MerkleProverLifted(comptime H: type) type {
         pub const DecommitmentResult = decommit_mod.DecommitmentResult(H);
         pub const LazyQuotientCommitStats = quotient_tile_sink.ExecutionStats;
         pub const LazyQuotientCommitMode = enum { tiled, legacy };
+        pub const SecureColumnCommitResult = struct {
+            column: SecureColumnByCoords,
+            tree: Self,
+        };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             for (self.layers) |layer| self.layer_allocator.free(layer);
@@ -65,6 +71,164 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 merkleWorkerOverride(allocator),
                 reuseAvailablePool(allocator),
             );
+        }
+
+        const SecureLeafRange = struct {
+            values: []const QM31,
+            column: *SecureColumnByCoords,
+            leaves: []H.Hash,
+            scratch: *[4][qm31.SECURE_EXTENSION_DEGREE]M31,
+            start: usize,
+            end: usize,
+        };
+
+        fn buildSecureLeafRange(work: *const SecureLeafRange) void {
+            const seed = H.leafSeed();
+            var position = work.start;
+            while (position + 4 <= work.end) : (position += 4) {
+                inline for (0..4) |lane| {
+                    work.scratch[lane] = work.values[position + lane].toM31Array();
+                    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                        work.column.columns[coordinate][position + lane] = work.scratch[lane][coordinate];
+                    }
+                }
+
+                const Reader = struct {
+                    rows: *const [4][qm31.SECURE_EXTENSION_DEGREE]M31,
+
+                    pub inline fn readWord4(reader: @This(), coordinate: usize) [4]u32 {
+                        return .{
+                            reader.rows[0][coordinate].v,
+                            reader.rows[1][coordinate].v,
+                            reader.rows[2][coordinate].v,
+                            reader.rows[3][coordinate].v,
+                        };
+                    }
+                };
+                const hashes = blake2_leaf_words.hashLeafWordsWithSeed4(
+                    H,
+                    seed,
+                    qm31.SECURE_EXTENSION_DEGREE,
+                    Reader{ .rows = work.scratch },
+                );
+                inline for (0..4) |lane| work.leaves[position + lane] = hashes[lane];
+            }
+
+            while (position < work.end) : (position += 1) {
+                const coordinates = work.values[position].toM31Array();
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    work.column.columns[coordinate][position] = coordinates[coordinate];
+                }
+                var hasher = H.defaultWithInitialState();
+                hasher.updateLeaf(coordinates[0..]);
+                work.leaves[position] = hasher.finalize();
+            }
+        }
+
+        fn buildSecureLeaves(
+            allocator: std.mem.Allocator,
+            values: []const QM31,
+            column: *SecureColumnByCoords,
+            leaves: []H.Hash,
+        ) !void {
+            const pool = work_pool_mod.getGlobalPool();
+            const worker_count = if (pool) |active_pool|
+                @max(
+                    @as(usize, 1),
+                    @min(
+                        active_pool.workerCount(),
+                        values.len / parallel_min_nodes_per_worker,
+                    ),
+                )
+            else
+                1;
+
+            // The generic batched leaf path uses the same small allocator
+            // class for its per-worker row scratch. Keeping fused scratch
+            // allocator-owned also bounds worker stack touch and prevents
+            // repeated proof sessions from growing the allocator high-water.
+            const scratch = try allocator.alloc(
+                [4][qm31.SECURE_EXTENSION_DEGREE]M31,
+                worker_count,
+            );
+            defer allocator.free(scratch);
+
+            if (worker_count == 1) {
+                buildSecureLeafRange(&.{
+                    .values = values,
+                    .column = column,
+                    .leaves = leaves,
+                    .scratch = &scratch[0],
+                    .start = 0,
+                    .end = values.len,
+                });
+                return;
+            }
+
+            const groups = values.len / 4;
+            const groups_per_worker = (groups + worker_count - 1) / worker_count;
+            var work: [work_pool_mod.MAX_WORKERS]SecureLeafRange = undefined;
+            for (0..worker_count) |worker| {
+                const start = @min(values.len, worker * groups_per_worker * 4);
+                work[worker] = .{
+                    .values = values,
+                    .column = column,
+                    .leaves = leaves,
+                    .scratch = &scratch[worker],
+                    .start = start,
+                    .end = @min(values.len, start + groups_per_worker * 4),
+                };
+            }
+
+            var wait_group: WaitGroup = .{};
+            for (work[1..worker_count]) |*item| {
+                pool.?.spawnWg(&wait_group, buildSecureLeafRange, .{@as(*const SecureLeafRange, item)});
+            }
+            buildSecureLeafRange(&work[0]);
+            wait_group.wait();
+        }
+
+        /// Materialize coordinate columns for FRI openings while hashing the
+        /// same QM31 rows into Merkle leaves. This removes the later full
+        /// coordinate-column reread and preserves both representations needed
+        /// by the proof.
+        pub fn commitSecureValues(
+            allocator: std.mem.Allocator,
+            values: []const QM31,
+        ) !SecureColumnCommitResult {
+            if (values.len < 2 or !std.math.isPowerOfTwo(values.len)) {
+                return error.InvalidColumnSize;
+            }
+
+            if (comptime !blake2_leaf_words.supports(H)) {
+                var column = try SecureColumnByCoords.fromSecureSlice(allocator, values);
+                errdefer column.deinit(allocator);
+                const refs = [_][]const M31{
+                    column.columns[0],
+                    column.columns[1],
+                    column.columns[2],
+                    column.columns[3],
+                };
+                return .{
+                    .column = column,
+                    .tree = try commit(allocator, refs[0..]),
+                };
+            }
+
+            var column = try SecureColumnByCoords.uninitialized(allocator, values.len);
+            errdefer column.deinit(allocator);
+            const layer_alloc = layerAllocator(allocator);
+            const leaves = try layer_alloc.alloc(H.Hash, values.len);
+            try buildSecureLeaves(allocator, values, &column, leaves);
+            return .{
+                .column = column,
+                .tree = try buildTreeFromOwnedLeaves(
+                    allocator,
+                    layer_alloc,
+                    leaves,
+                    @intCast(std.math.log2_int(usize, values.len)),
+                ),
+            };
         }
 
         /// Builds a Merkle tree by computing quotient values lazily from the
