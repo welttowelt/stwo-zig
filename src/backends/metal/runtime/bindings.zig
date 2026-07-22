@@ -635,6 +635,7 @@ pub extern fn stwo_zig_metal_circle_lde_merkle_commit(
 ) ?*anyopaque;
 pub extern fn stwo_zig_metal_recurrence_composition(
     runtime: *anyopaque,
+    resident_tree: ?*anyopaque,
     trace_first: [*]const u32,
     row_count: u32,
     column_count: u32,

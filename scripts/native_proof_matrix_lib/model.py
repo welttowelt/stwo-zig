@@ -110,6 +110,9 @@ BACKEND_COUNTER_KEYS = {
     "metal_fri_line_fold_dispatches",
     "metal_fri_fold_commit_epochs",
     "metal_qm31_coordinate_dispatches",
+    "metal_trace_generation_dispatches",
+    "metal_trace_generation_synchronizations",
+    "metal_trace_generation_copybacks",
     "cpu_small_merkle_commits",
     "cpu_streaming_merkle_commits",
     "cpu_sampled_value_evaluations",
@@ -117,6 +120,15 @@ BACKEND_COUNTER_KEYS = {
     "cpu_small_circle_evaluations",
     "cpu_small_circle_ldes",
 }
+
+
+def trace_generation_counters_valid(counters: dict[str, int]) -> bool:
+    dispatches = counters["metal_trace_generation_dispatches"]
+    synchronizations = counters["metal_trace_generation_synchronizations"]
+    copybacks = counters["metal_trace_generation_copybacks"]
+    return synchronizations == dispatches and copybacks <= synchronizations
+
+
 PIPELINE_CACHE_COUNTER_KEYS = {
     "library_cache_hits",
     "library_cache_misses",

@@ -48,8 +48,13 @@ pub fn evaluateLargeRecurrenceComposition(
     components: []const ComponentProver,
     random_coeff: QM31,
     trace: *const Trace,
+    residency_handles: []const ?*anyopaque,
 ) !?SecureColumnByCoords {
     const shape = recurrenceShape(components, trace) orelse return null;
+    const resident_tree = if (shape.trace_tree_index < residency_handles.len)
+        residency_handles[shape.trace_tree_index]
+    else
+        null;
 
     const powers = try prover_air.accumulation.generateSecurePowers(
         allocator,
@@ -79,6 +84,7 @@ pub fn evaluateLargeRecurrenceComposition(
     errdefer output.deinit(allocator);
     const output_values = output.columns[0].ptr[0 .. shape.row_count * 4];
     const gpu_ms = lease.runtime.evaluateRecurrenceComposition(
+        resident_tree,
         shape.first_column,
         shape.row_count,
         shape.column_count,
@@ -86,8 +92,9 @@ pub fn evaluateLargeRecurrenceComposition(
         power_words,
         denominator_inverses,
         output_values,
-    ) catch {
+    ) catch |err| {
         output.deinit(allocator);
+        if (resident_tree != null) return err;
         return null;
     };
     std.log.debug("Metal recurrence composition: {d:.3}ms", .{gpu_ms});
@@ -95,6 +102,7 @@ pub fn evaluateLargeRecurrenceComposition(
 }
 
 const RecurrenceShape = struct {
+    trace_tree_index: usize,
     first_column: [*]const M31,
     row_count: usize,
     column_count: usize,
@@ -137,6 +145,7 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         if (@intFromPtr(column.values.ptr) != expected) return null;
     }
     return .{
+        .trace_tree_index = recurrence.trace_tree_index,
         .first_column = columns[0].values.ptr,
         .row_count = row_count,
         .column_count = columns.len,

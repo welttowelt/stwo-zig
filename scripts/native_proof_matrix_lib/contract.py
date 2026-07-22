@@ -42,6 +42,7 @@ from .model import (
     SESSION_KEYS,
     MatrixError,
     Workload,
+    trace_generation_counters_valid,
     workload_descriptor_sha256,
 )
 from .validation import (
@@ -120,7 +121,6 @@ TELEMETRY_DELTA_KEYS = {
     "classification", "metal_dispatches", "cpu_fallbacks", "counters",
     "pipeline_cache", "archive_store",
 }
-
 # The outer request timer encloses four nanosecond-resolution phase timers. One
 # timer tick plus a relative floating-point allowance prevents binary rounding
 # from rejecting an otherwise exact decomposition.
@@ -366,7 +366,7 @@ def metal_dispatch_total(counters: dict[str, int]) -> int:
         "metal_sampled_value_dispatches", "metal_circle_transform_dispatches",
         "metal_circle_lde_dispatches", "metal_fri_circle_fold_dispatches",
         "metal_fri_line_fold_dispatches", "metal_fri_fold_commit_epochs",
-        "metal_qm31_coordinate_dispatches",
+        "metal_qm31_coordinate_dispatches", "metal_trace_generation_dispatches",
     ))
 
 
@@ -439,6 +439,8 @@ def validate_metal_telemetry(report: dict[str, Any], warmups: int, samples: int)
                 raise MatrixError(f"{context} must be an object")
             require_exact_keys(record, TELEMETRY_DELTA_KEYS, context)
             counters = validate_counter_object(record["counters"], f"{context}.counters")
+            if not trace_generation_counters_valid(counters):
+                raise MatrixError(f"{context} trace-generation counters are inconsistent")
             validate_pipeline_cache(record["pipeline_cache"], f"{context}.pipeline_cache")
             validate_archive_store(record["archive_store"], f"{context}.archive_store")
             if group == "samples" and (

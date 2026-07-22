@@ -247,6 +247,7 @@ pub const ComponentProvers = struct {
             allocator,
             random_coeff,
             trace,
+            &.{},
         );
     }
 
@@ -259,6 +260,7 @@ pub const ComponentProvers = struct {
         allocator: std.mem.Allocator,
         random_coeff: QM31,
         trace: *const Trace,
+        residency_handles: []const ?*anyopaque,
     ) anyerror!SecureColumnByCoords {
         if (comptime B != void and @hasDecl(B, "computeCompositionEvaluation")) {
             if (try B.computeCompositionEvaluation(
@@ -266,6 +268,7 @@ pub const ComponentProvers = struct {
                 self.components,
                 random_coeff,
                 trace,
+                residency_handles,
             )) |evaluation| {
                 return evaluation;
             }

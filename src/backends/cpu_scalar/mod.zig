@@ -43,7 +43,9 @@ pub const CpuBackend = struct {
         components: []const @import("stwo_prover_impl").air.component_prover.ComponentProver,
         random_coeff: QM31,
         trace: *const @import("stwo_prover_impl").air.component_prover.Trace,
+        residency_handles: []const ?*anyopaque,
     ) !?@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
+        _ = residency_handles;
         return secure_composition.evaluateLargeRecurrenceComposition(
             allocator,
             components,

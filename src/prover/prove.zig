@@ -245,6 +245,8 @@ fn proveExComponentsWithRecorder(
     };
 
     {
+        const residency_handles = try scheme.backendResidencyHandles(allocator);
+        defer allocator.free(residency_handles);
         var trace = blk: {
             var composition_trace_stage = try stage_profile.StageScope.begin(
                 recorder,
@@ -268,6 +270,7 @@ fn proveExComponentsWithRecorder(
                 allocator,
                 random_coeff,
                 &trace,
+                residency_handles,
             );
         };
         defer composition_eval.deinit(allocator);

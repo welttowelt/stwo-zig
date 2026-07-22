@@ -45,6 +45,25 @@ pub fn trace(scheme: anytype, allocator: std.mem.Allocator) !component_prover.Tr
     return .{ .polys = try polynomials(scheme, allocator) };
 }
 
+/// Returns one borrowed backend resource handle per commitment tree. Keeping
+/// tree indices intact lets AIR capabilities select their exact proof-session
+/// input without runtime-wide discovery.
+pub fn backendResidencyHandles(
+    comptime B: type,
+    comptime H: type,
+    scheme: anytype,
+    allocator: std.mem.Allocator,
+) ![]?*anyopaque {
+    const handles = try allocator.alloc(?*anyopaque, scheme.trees.items.len);
+    for (scheme.trees.items, handles) |tree, *handle| {
+        handle.* = if (comptime B != void and @hasDecl(B, "quotientResidencyHandle"))
+            B.quotientResidencyHandle(H, tree.commitment)
+        else
+            null;
+    }
+    return handles;
+}
+
 pub fn columnLogSizes(scheme: anytype, allocator: std.mem.Allocator) !TreeVec([]u32) {
     const out = try allocator.alloc([]u32, scheme.trees.items.len);
     errdefer allocator.free(out);

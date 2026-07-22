@@ -10,12 +10,14 @@ pub fn computeCompositionEvaluation(
     components: []const prover.air.component_prover.ComponentProver,
     random_coeff: core.fields.qm31.QM31,
     trace: *const prover.air.component_prover.Trace,
+    residency_handles: []const ?*anyopaque,
 ) !?prover.secure_column.SecureColumnByCoords {
     return secure_composition.evaluateLargeRecurrenceComposition(
         allocator,
         components,
         random_coeff,
         trace,
+        residency_handles,
     );
 }
 

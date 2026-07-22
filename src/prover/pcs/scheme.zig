@@ -497,6 +497,10 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             return scheme_views.trace(self, allocator);
         }
 
+        pub fn backendResidencyHandles(self: Self, allocator: std.mem.Allocator) ![]?*anyopaque {
+            return scheme_views.backendResidencyHandles(B, H, self, allocator);
+        }
+
         pub fn columnLogSizes(self: Self, allocator: std.mem.Allocator) !TreeVec([]u32) {
             return scheme_views.columnLogSizes(self, allocator);
         }

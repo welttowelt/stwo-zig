@@ -713,6 +713,7 @@ bool stwo_zig_metal_composition_prepared(
 
 bool stwo_zig_metal_recurrence_composition(
     void *runtime_ptr,
+    void *resident_tree_handle,
     const uint32_t *trace_first,
     uint32_t row_count,
     uint32_t column_count,
@@ -740,25 +741,57 @@ bool stwo_zig_metal_recurrence_composition(
         size_t trace_bytes = trace_word_count * sizeof(uint32_t);
         if (trace_address > UINTPTR_MAX - trace_bytes) return false;
 
-        // Bind this call's trace directly. Keeping the alias local to the
-        // command removes the previous runtime-wide "last trace" slot, which
-        // could be overwritten by another proof sharing the runtime.
         size_t page_size = (size_t)getpagesize();
-        uintptr_t alias_address = trace_address - (trace_address % page_size);
-        size_t trace_offset_bytes = (size_t)(trace_address - alias_address);
-        if (trace_bytes > SIZE_MAX - trace_offset_bytes) return false;
-        size_t alias_span = trace_offset_bytes + trace_bytes;
-        if (alias_span > SIZE_MAX - (page_size - 1u)) return false;
-        size_t alias_length = (alias_span + page_size - 1u) / page_size * page_size;
-        NSUInteger trace_offset = runtime.device.hasUnifiedMemory ? trace_offset_bytes : 0u;
-        id<MTLBuffer> trace_buffer = runtime.device.hasUnifiedMemory
-            ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
-                                                length:alias_length
-                                               options:MTLResourceStorageModeShared
-                                           deallocator:nil]
-            : [runtime.device newBufferWithBytes:(const void *)trace_address
-                                          length:trace_bytes
-                                         options:MTLResourceStorageModeShared];
+        id<MTLBuffer> trace_buffer = nil;
+        NSUInteger trace_offset = 0u;
+        StwoZigMetalTree *resident_tree = resident_tree_handle == NULL
+            ? nil
+            : (__bridge StwoZigMetalTree *)resident_tree_handle;
+        if (resident_tree != nil) {
+            if (resident_tree.runtimeOwner != runtime) {
+                write_error(error_message, error_message_len,
+                            @"Metal composition residency handle mismatch");
+                return false;
+            }
+            if (resident_tree.residentColumns != nil) {
+                if (trace_address < resident_tree.residentColumnsHostBegin) {
+                    write_error(error_message, error_message_len,
+                                @"Metal composition trace precedes its proof-session tree");
+                    return false;
+                }
+                uintptr_t resident_begin = resident_tree.residentColumnsHostBegin;
+                size_t resident_words = resident_tree.residentColumnsWordCount;
+                size_t offset_bytes = (size_t)(trace_address - resident_begin);
+                if (offset_bytes % sizeof(uint32_t) != 0u ||
+                    offset_bytes / sizeof(uint32_t) > resident_words ||
+                    trace_word_count > resident_words - offset_bytes / sizeof(uint32_t)) {
+                    write_error(error_message, error_message_len,
+                                @"Metal composition trace is outside its proof-session tree");
+                    return false;
+                }
+                trace_buffer = resident_tree.residentColumns;
+                trace_offset = (NSUInteger)offset_bytes;
+            }
+        }
+        if (trace_buffer == nil) {
+            // Nonresident structurally admitted traces retain a call-local
+            // alias. No runtime-wide "last trace" state participates.
+            uintptr_t alias_address = trace_address - (trace_address % page_size);
+            size_t trace_offset_bytes = (size_t)(trace_address - alias_address);
+            if (trace_bytes > SIZE_MAX - trace_offset_bytes) return false;
+            size_t alias_span = trace_offset_bytes + trace_bytes;
+            if (alias_span > SIZE_MAX - (page_size - 1u)) return false;
+            size_t alias_length = (alias_span + page_size - 1u) / page_size * page_size;
+            trace_offset = runtime.device.hasUnifiedMemory ? trace_offset_bytes : 0u;
+            trace_buffer = runtime.device.hasUnifiedMemory
+                ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
+                                                    length:alias_length
+                                                   options:MTLResourceStorageModeShared
+                                               deallocator:nil]
+                : [runtime.device newBufferWithBytes:(const void *)trace_address
+                                              length:trace_bytes
+                                             options:MTLResourceStorageModeShared];
+        }
         if (trace_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal composition trace binding failed");
             return false;
