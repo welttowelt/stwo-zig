@@ -28,6 +28,10 @@ pub const TwiddleSource = struct {
 
     const Owned = struct {
         cache: std.AutoHashMap(u32, M31TwiddleTree),
+        // Serializes cache access so a deferred-commit worker and the main
+        // thread may request trees concurrently; returned slices are stable
+        // allocations, so the lock covers only lookup/insert.
+        mutex: std.Thread.Mutex = .{},
     };
 
     const Storage = union(enum) {
@@ -93,6 +97,8 @@ pub const TwiddleSource = struct {
                 break :blk tree;
             },
             .owned => |*owned| blk: {
+                owned.mutex.lock();
+                defer owned.mutex.unlock();
                 if (owned.cache.get(circle_log)) |tree| {
                     self.cache_hit_count +|= 1;
                     break :blk treeConst(tree);
