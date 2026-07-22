@@ -2006,6 +2006,76 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.773767,
+     "ci_low": 0.764104,
+     "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 21.876846,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:08739ea05ca79a0a697efba3b33e6067a0308fa2c8b0507da516350a6aea7dd8",
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9bf238c4fdc",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T02:33:40Z",
+     "judged_r": 0.770148,
+     "measurement_rounds": 5,
+     "measurement_seconds": 32.304176,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:0bbe38e614ce12b78efd47079e37ec579694893b9d670e7182319ee88706e355",
+     "outcome": "promoted",
+     "peak_rss_mib": 420.204109,
+     "predecessor": "bca6540a3fbe",
+     "proof_bytes": 74328,
+     "prove_ms": 166.644042,
+     "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "xlarge"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.908437,
+     "ci_low": 0.850738,
+     "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 37.654863,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:9c29ac70b4c553178908488cf259ef16e137e53c1f30d068c7b7bd679eb5cf35",
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9bf238c4fdc",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T02:33:40Z",
+     "judged_r": 0.862618,
+     "measurement_rounds": 5,
+     "measurement_seconds": 46.492306,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:3c5aea49448aaebde0616186b67e170c7973dcad7c4261a9f4be27f2a6f19f54",
+     "outcome": "promoted",
+     "peak_rss_mib": 1668.767548,
+     "predecessor": "bca6540a3fbe",
+     "proof_bytes": 86383,
+     "prove_ms": 709.310583,
+     "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "huge"
     }
    ],
    "frontier_by_class": {
@@ -2013,8 +2083,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2337,8 +2407,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2347,9 +2417,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.957135,
+      "effective_score": 0.869496847995,
       "evidence_share": {
-       "claimed": 1,
+       "claimed": 2,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -2367,9 +2437,10 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 1,
+       "count": 2,
        "observation_ids": [
-        "sha256:5c483687162a71bfe61886e42073f9c2cdd0eff02b9656853b14710e0750719a"
+        "sha256:5c483687162a71bfe61886e42073f9c2cdd0eff02b9656853b14710e0750719a",
+        "sha256:3c5aea49448aaebde0616186b67e170c7973dcad7c4261a9f4be27f2a6f19f54"
        ]
       }
      },
@@ -2408,38 +2479,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "huge"
+      },
+      {
+       "board": "core_cpu",
+       "ci_high": 0.908437,
+       "ci_low": 0.850738,
+       "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 37.654863,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:9c29ac70b4c553178908488cf259ef16e137e53c1f30d068c7b7bd679eb5cf35",
+       "gates": "G1..G5:pass",
+       "harness_commit": "a9bf238c4fdc",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "judged_r": 0.862618,
+       "measurement_rounds": 5,
+       "measurement_seconds": 46.492306,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:3c5aea49448aaebde0616186b67e170c7973dcad7c4261a9f4be27f2a6f19f54",
+       "outcome": "promoted",
+       "peak_rss_mib": 1668.767548,
+       "predecessor": "bca6540a3fbe",
+       "proof_bytes": 86383,
+       "prove_ms": 709.310583,
+       "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "huge"
       }
      ],
      "head": {
       "board": "core_cpu",
-      "ci_high": 0.957135,
-      "ci_low": 0.944843,
-      "commit": "86f9dcb217742b629196dea684ba18da6a83ef80",
+      "ci_high": 0.908437,
+      "ci_low": 0.850738,
+      "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 39.437491,
+      "energy_j": 37.654863,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:f8ba62897ad3367df386d285c8e96ed8702c9ec3a3732767ae93404db1762f02",
+      "evidence_sha256": "sha256:9c29ac70b4c553178908488cf259ef16e137e53c1f30d068c7b7bd679eb5cf35",
       "gates": "G1..G5:pass",
-      "harness_commit": "55260603bbbe",
+      "harness_commit": "a9bf238c4fdc",
       "holdout": "none",
-      "judged_at_utc": "2026-07-21T23:19:43Z",
-      "judged_r": 0.95,
-      "measurement_rounds": 3,
-      "measurement_seconds": 36.324467,
+      "judged_at_utc": "2026-07-22T02:33:40Z",
+      "judged_r": 0.862618,
+      "measurement_rounds": 5,
+      "measurement_seconds": 46.492306,
       "native_mhz": 0.0,
-      "observation_id": "sha256:5c483687162a71bfe61886e42073f9c2cdd0eff02b9656853b14710e0750719a",
+      "observation_id": "sha256:3c5aea49448aaebde0616186b67e170c7973dcad7c4261a9f4be27f2a6f19f54",
       "outcome": "promoted",
-      "peak_rss_mib": 1645.361435,
-      "predecessor": "7f00554f9df4",
+      "peak_rss_mib": 1668.767548,
+      "predecessor": "bca6540a3fbe",
       "proof_bytes": 86383,
-      "prove_ms": 814.475208,
-      "row_id": "sha256:8030a450ec622756980bb773ce6c4ba790b8ae2cdfbcc5006e276ed13fc8c33b",
+      "prove_ms": 709.310583,
+      "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-21-shared-umin-native-metal-lde",
+      "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -2450,8 +2556,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2668,8 +2774,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2991,8 +3097,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3001,12 +3107,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.773767,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -3021,12 +3127,84 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:0bbe38e614ce12b78efd47079e37ec579694893b9d670e7182319ee88706e355"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "core_cpu",
+       "ci_high": 0.773767,
+       "ci_low": 0.764104,
+       "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 21.876846,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:08739ea05ca79a0a697efba3b33e6067a0308fa2c8b0507da516350a6aea7dd8",
+       "gates": "G1..G5:pass",
+       "harness_commit": "a9bf238c4fdc",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "judged_r": 0.770148,
+       "measurement_rounds": 5,
+       "measurement_seconds": 32.304176,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:0bbe38e614ce12b78efd47079e37ec579694893b9d670e7182319ee88706e355",
+       "outcome": "promoted",
+       "peak_rss_mib": 420.204109,
+       "predecessor": "bca6540a3fbe",
+       "proof_bytes": 74328,
+       "prove_ms": 166.644042,
+       "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "xlarge"
+      }
+     ],
+     "head": {
+      "board": "core_cpu",
+      "ci_high": 0.773767,
+      "ci_low": 0.764104,
+      "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 21.876846,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:08739ea05ca79a0a697efba3b33e6067a0308fa2c8b0507da516350a6aea7dd8",
+      "gates": "G1..G5:pass",
+      "harness_commit": "a9bf238c4fdc",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-22T02:33:40Z",
+      "judged_r": 0.770148,
+      "measurement_rounds": 5,
+      "measurement_seconds": 32.304176,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:0bbe38e614ce12b78efd47079e37ec579694893b9d670e7182319ee88706e355",
+      "outcome": "promoted",
+      "peak_rss_mib": 420.204109,
+      "predecessor": "bca6540a3fbe",
+      "proof_bytes": 74328,
+      "prove_ms": 166.644042,
+      "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "xlarge"
+     }
     }
    },
    "scored_classes": [
@@ -3039,10 +3217,10 @@
    "suite_score": {
     "active_credit_events": {
      "deep": 1,
-     "huge": 1,
+     "huge": 2,
      "small": 0,
      "wide": 0,
-     "xlarge": 0
+     "xlarge": 1
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -3054,10 +3232,10 @@
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
      "deep": 0.966256,
-     "huge": 0.957135,
+     "huge": 0.869496847995,
      "small": 1.0,
      "wide": 1.0,
-     "xlarge": 1.0
+     "xlarge": 0.773767
     },
     "classes": [
      "small",
@@ -3067,10 +3245,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 98.44940149159925,
+    "index": 91.7474672058289,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.9844940149159924,
-    "speedup": 1.0157502075676212
+    "ratio_geomean": 0.917474672058289,
+    "speedup": 1.0899483445756288
    }
   },
   "core_hybrid": {
@@ -4725,6 +4903,76 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "xlarge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.559136,
+     "ci_low": 0.402681,
+     "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 10.644126,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:9d7e1cd5c47cb4f2fb639c1482b12e54abe72bced92b80c57916e1f44f5490d5",
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9bf238c4fdc",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T02:33:40Z",
+     "judged_r": 0.454118,
+     "measurement_rounds": 5,
+     "measurement_seconds": 72.203945,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:67d763411718095bac970186186e3b555064d74f0e3dcee581a6e4af15b4a0a3",
+     "outcome": "promoted",
+     "peak_rss_mib": 1644.798775,
+     "predecessor": "bca6540a3fbe",
+     "proof_bytes": 86383,
+     "prove_ms": 609.984334,
+     "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.397715,
+     "ci_low": 0.380132,
+     "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 6.601323,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:e57d02afd7a81311c1fdee2ba496cf6f4a70afff6de7c962924cffe1d148a605",
+     "gates": "G1..G5:pass",
+     "harness_commit": "a9bf238c4fdc",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T02:33:40Z",
+     "judged_r": 0.390284,
+     "measurement_rounds": 5,
+     "measurement_seconds": 57.746006,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:1a943c83756731fdb098fb3a0b166132e97faf0c923757787ca4eb1e26da8cb0",
+     "outcome": "promoted",
+     "peak_rss_mib": 516.923386,
+     "predecessor": "bca6540a3fbe",
+     "proof_bytes": 74328,
+     "prove_ms": 160.480416,
+     "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "xlarge"
     }
    ],
    "frontier_by_class": {
@@ -4732,8 +4980,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5193,8 +5441,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5203,12 +5451,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.559136,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -5223,19 +5471,91 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:67d763411718095bac970186186e3b555064d74f0e3dcee581a6e4af15b4a0a3"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "core_metal",
+       "ci_high": 0.559136,
+       "ci_low": 0.402681,
+       "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 10.644126,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:9d7e1cd5c47cb4f2fb639c1482b12e54abe72bced92b80c57916e1f44f5490d5",
+       "gates": "G1..G5:pass",
+       "harness_commit": "a9bf238c4fdc",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "judged_r": 0.454118,
+       "measurement_rounds": 5,
+       "measurement_seconds": 72.203945,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:67d763411718095bac970186186e3b555064d74f0e3dcee581a6e4af15b4a0a3",
+       "outcome": "promoted",
+       "peak_rss_mib": 1644.798775,
+       "predecessor": "bca6540a3fbe",
+       "proof_bytes": 86383,
+       "prove_ms": 609.984334,
+       "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "huge"
+      }
+     ],
+     "head": {
+      "board": "core_metal",
+      "ci_high": 0.559136,
+      "ci_low": 0.402681,
+      "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 10.644126,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:9d7e1cd5c47cb4f2fb639c1482b12e54abe72bced92b80c57916e1f44f5490d5",
+      "gates": "G1..G5:pass",
+      "harness_commit": "a9bf238c4fdc",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-22T02:33:40Z",
+      "judged_r": 0.454118,
+      "measurement_rounds": 5,
+      "measurement_seconds": 72.203945,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:67d763411718095bac970186186e3b555064d74f0e3dcee581a6e4af15b4a0a3",
+      "outcome": "promoted",
+      "peak_rss_mib": 1644.798775,
+      "predecessor": "bca6540a3fbe",
+      "proof_bytes": 86383,
+      "prove_ms": 609.984334,
+      "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "huge"
+     }
     },
     "small": {
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5520,8 +5840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5981,8 +6301,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5991,9 +6311,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.977978,
+      "effective_score": 0.38895652027,
       "evidence_share": {
-       "claimed": 1,
+       "claimed": 2,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -6011,43 +6331,44 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 1,
+       "count": 2,
        "observation_ids": [
-        "sha256:bc22869f072ac25d16f8e813c1b81319e660d774c3985b0ddf261832eb42af4b"
+        "sha256:bc22869f072ac25d16f8e813c1b81319e660d774c3985b0ddf261832eb42af4b",
+        "sha256:1a943c83756731fdb098fb3a0b166132e97faf0c923757787ca4eb1e26da8cb0"
        ]
       }
      },
      "frontier": [
       {
        "board": "core_metal",
-       "ci_high": 0.977978,
-       "ci_low": 0.961068,
-       "commit": "86f9dcb217742b629196dea684ba18da6a83ef80",
+       "ci_high": 0.397715,
+       "ci_low": 0.380132,
+       "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
        "covers": [],
        "credit_replaces": [],
        "dispatches": null,
-       "energy_j": 11.416899,
+       "energy_j": 6.601323,
        "epoch": 2,
        "evidence_kind": "promotion",
-       "evidence_sha256": "sha256:3d38afd07799a32f5e83908517ef44518d5a2a3fbc6f9e96853412ea7de98112",
+       "evidence_sha256": "sha256:e57d02afd7a81311c1fdee2ba496cf6f4a70afff6de7c962924cffe1d148a605",
        "gates": "G1..G5:pass",
-       "harness_commit": "55260603bbbe",
+       "harness_commit": "a9bf238c4fdc",
        "holdout": "none",
-       "judged_at_utc": "2026-07-21T23:19:43Z",
-       "judged_r": 0.970515,
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "judged_r": 0.390284,
        "measurement_rounds": 5,
-       "measurement_seconds": 53.317711,
+       "measurement_seconds": 57.746006,
        "native_mhz": 0.0,
-       "observation_id": "sha256:bc22869f072ac25d16f8e813c1b81319e660d774c3985b0ddf261832eb42af4b",
+       "observation_id": "sha256:1a943c83756731fdb098fb3a0b166132e97faf0c923757787ca4eb1e26da8cb0",
        "outcome": "promoted",
-       "peak_rss_mib": 517.29834,
-       "predecessor": "7f00554f9df4",
+       "peak_rss_mib": 516.923386,
+       "predecessor": "bca6540a3fbe",
        "proof_bytes": 74328,
-       "prove_ms": 408.540458,
-       "row_id": "sha256:ffda7bedf7fe7855472658055882aaedadb0c714435b064aeba9eed18c88e466",
+       "prove_ms": 160.480416,
+       "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43",
        "schema_version": 3,
        "scope": "s3",
-       "submission_id": "2026-07-21-shared-umin-native-metal-lde",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
        "supersedes": "",
        "verdict_kind": "claimed",
        "waits": null,
@@ -6056,34 +6377,34 @@
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.977978,
-      "ci_low": 0.961068,
-      "commit": "86f9dcb217742b629196dea684ba18da6a83ef80",
+      "ci_high": 0.397715,
+      "ci_low": 0.380132,
+      "commit": "4ac2266ee7e9e2444b48b8956a04f8eee05bc1cf",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 11.416899,
+      "energy_j": 6.601323,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:3d38afd07799a32f5e83908517ef44518d5a2a3fbc6f9e96853412ea7de98112",
+      "evidence_sha256": "sha256:e57d02afd7a81311c1fdee2ba496cf6f4a70afff6de7c962924cffe1d148a605",
       "gates": "G1..G5:pass",
-      "harness_commit": "55260603bbbe",
+      "harness_commit": "a9bf238c4fdc",
       "holdout": "none",
-      "judged_at_utc": "2026-07-21T23:19:43Z",
-      "judged_r": 0.970515,
+      "judged_at_utc": "2026-07-22T02:33:40Z",
+      "judged_r": 0.390284,
       "measurement_rounds": 5,
-      "measurement_seconds": 53.317711,
+      "measurement_seconds": 57.746006,
       "native_mhz": 0.0,
-      "observation_id": "sha256:bc22869f072ac25d16f8e813c1b81319e660d774c3985b0ddf261832eb42af4b",
+      "observation_id": "sha256:1a943c83756731fdb098fb3a0b166132e97faf0c923757787ca4eb1e26da8cb0",
       "outcome": "promoted",
-      "peak_rss_mib": 517.29834,
-      "predecessor": "7f00554f9df4",
+      "peak_rss_mib": 516.923386,
+      "predecessor": "bca6540a3fbe",
       "proof_bytes": 74328,
-      "prove_ms": 408.540458,
-      "row_id": "sha256:ffda7bedf7fe7855472658055882aaedadb0c714435b064aeba9eed18c88e466",
+      "prove_ms": 160.480416,
+      "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-21-shared-umin-native-metal-lde",
+      "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -6101,10 +6422,10 @@
    "suite_score": {
     "active_credit_events": {
      "deep": 0,
-     "huge": 0,
+     "huge": 1,
      "small": 0,
      "wide": 0,
-     "xlarge": 1
+     "xlarge": 2
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -6116,10 +6437,10 @@
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
      "deep": 1.0,
-     "huge": 1.0,
+     "huge": 0.559136,
      "small": 1.0,
      "wide": 1.0,
-     "xlarge": 0.977978
+     "xlarge": 0.38895652027
     },
     "classes": [
      "small",
@@ -6129,10 +6450,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 99.55562818452654,
+    "index": 73.70275164739442,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.9955562818452653,
-    "speedup": 1.004463552925906
+    "ratio_geomean": 0.7370275164739442,
+    "speedup": 1.3568014458729543
    }
   },
   "heavy_cairo": {
@@ -6154,8 +6475,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6195,8 +6516,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6236,8 +6557,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 104,
-       "seconds": 31488
+       "commits": 121,
+       "seconds": 35173
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7395,7 +7716,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "3feb2219c5b28941389d623430f9370ccdf40416b21a2e1c39484489d13694a5",
+   "autoresearch/ledger/promotions.tsv": "1218741ba27c3318e258dff50a70e7b01691addb513ff677ac1293f47d1302d1",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -7505,11 +7826,15 @@
    "autoresearch/submissions/2026-07-21-quotient-pipeline-compound/verdict.json": "927454e9f945931822351bfc950a8d4444d5382792c955dd8279db731632e812",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict-core_metal-xlarge.json": "5014675896cb369b5893a60e5e0df7228729ebcb52b62bafb4edb00676ce3778",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict.json": "de5a885f42529c423d03efe4e7a866cc179abc319556381be30a002cb102c468",
+   "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-core_metal-huge.json": "e657c06b0a9804ffa6dd65e1e8445db9cff056910387fd633cc65a1e27d3020f",
+   "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-core_metal-xlarge.json": "031bfce9c3f93cc978ab54f0dbc56e2192da5a8496ba38e3f42589befdcb1fe3",
+   "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-huge.json": "2c58f399cf77ca2b846c66229f13b5ec9dfece15dea34406ffb9b2878308de01",
+   "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict.json": "fa0b8a77f77063c0034e441b447ca21ad54193ba498f29388622f88b190d8b46",
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "4767b1cef29c",
-  "repo_commit_time": "2026-07-22T01:32:15Z"
+  "repo_commit": "6d50a122a390",
+  "repo_commit_time": "2026-07-22T02:33:40Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -14365,31 +14690,37 @@
      },
      "huge": {
       "available": true,
-      "available_points": 1,
+      "available_points": 2,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 4.341949306244321,
         "judged_at_utc": "2026-07-21T23:19:43Z",
         "points": 1,
         "row_id": "sha256:8030a450ec622756980bb773ce6c4ba790b8ae2cdfbcc5006e276ed13fc8c33b"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 6.07879340744394,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "points": 2,
+        "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42"
        }
       ],
       "latest": {
-       "actual_rounds": 3,
+       "actual_rounds": 5,
        "actual_rounds_per_workload": {
-        "wf_log20x100": 3
+        "wf_log20x100": 5
        },
-       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.04381083164731051,
-       "credited_ln_improvement_per_measurement_hour": 4.341949306244321,
-       "gradient_snr": 5.855135290109696,
-       "judged_at_utc": "2026-07-21T23:19:43Z",
-       "measurement_wall_hours": 0.010090129699189371,
-       "row_id": "sha256:8030a450ec622756980bb773ce6c4ba790b8ae2cdfbcc5006e276ed13fc8c33b",
-       "submission_id": "2026-07-21-shared-umin-native-metal-lde",
+       "credited_ln_improvement": 0.09602973862469023,
+       "credited_ln_improvement_per_measurement_hour": 7.435790759888978,
+       "gradient_snr": 1.85551843031938,
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "measurement_wall_hours": 0.012914529432794855,
+       "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -14410,14 +14741,32 @@
         "row_id": "sha256:8030a450ec622756980bb773ce6c4ba790b8ae2cdfbcc5006e276ed13fc8c33b",
         "submission_id": "2026-07-21-shared-umin-native-metal-lde",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "wf_log20x100": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.09602973862469023,
+        "credited_ln_improvement_per_measurement_hour": 7.435790759888978,
+        "gradient_snr": 1.85551843031938,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "measurement_wall_hours": 0.012914529432794855,
+        "row_id": "sha256:f042e3137bc52f49a976562e5afa991cd74f9e6f96d590aba8cdca7272a04d42",
+        "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.04381083164731051,
-       "credited_ln_improvement_per_measurement_hour": 4.341949306244321,
-       "measurement_wall_hours": 0.010090129699189371,
-       "median_gradient_snr": 5.855135290109696,
-       "points": 1
+       "credited_ln_improvement": 0.13984057027200075,
+       "credited_ln_improvement_per_measurement_hour": 6.07879340744394,
+       "measurement_wall_hours": 0.023004659131984226,
+       "median_gradient_snr": 3.855326860214538,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -14741,17 +15090,60 @@
       "unavailable_points": 14
      },
      "xlarge": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 28.582810431291055,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "points": 1,
+        "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 5,
+       "actual_rounds_per_workload": {
+        "wf_log18x100": 5
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 9,
+       "available": true,
+       "configured_rounds": 9,
+       "credited_ln_improvement": 0.2564844843038483,
+       "credited_ln_improvement_per_measurement_hour": 28.582810431291055,
+       "gradient_snr": 54.70979791697888,
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "measurement_wall_hours": 0.00897338226835321,
+       "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "wf_log18x100": 5
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 9,
+        "available": true,
+        "configured_rounds": 9,
+        "credited_ln_improvement": 0.2564844843038483,
+        "credited_ln_improvement_per_measurement_hour": 28.582810431291055,
+        "gradient_snr": 54.70979791697888,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "measurement_wall_hours": 0.00897338226835321,
+        "row_id": "sha256:14dd4cdd33103cfbabd95cdd7945d4569c5ba1368f56103960af9efe38965411",
+        "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.2564844843038483,
+       "credited_ln_improvement_per_measurement_hour": 28.582810431291055,
+       "measurement_wall_hours": 0.00897338226835321,
+       "median_gradient_snr": 54.70979791697888,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -14914,17 +15306,60 @@
       "unavailable_points": 17
      },
      "huge": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "points": 1,
+        "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 5,
+       "actual_rounds_per_workload": {
+        "mwf_log20x100": 5
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.5813625438255092,
+       "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
+       "gradient_snr": 2.7945331422588597,
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "measurement_wall_hours": 0.020056651307774398,
+       "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "mwf_log20x100": 5
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.5813625438255092,
+        "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
+        "gradient_snr": 2.7945331422588597,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "measurement_wall_hours": 0.020056651307774398,
+        "row_id": "sha256:72edb6a6f451c3dae9faa55847ee74f7e1bfc69eb8367d7d66400af84dae964b",
+        "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.5813625438255092,
+       "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
+       "measurement_wall_hours": 0.020056651307774398,
+       "median_gradient_snr": 2.7945331422588597,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -15197,13 +15632,19 @@
      },
      "xlarge": {
       "available": true,
-      "available_points": 1,
+      "available_points": 2,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 1.503537429661192,
         "judged_at_utc": "2026-07-21T23:19:43Z",
         "points": 1,
         "row_id": "sha256:ffda7bedf7fe7855472658055882aaedadb0c714435b064aeba9eed18c88e466"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 30.60797758226029,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "points": 2,
+        "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43"
        }
       ],
       "latest": {
@@ -15211,17 +15652,17 @@
        "actual_rounds_per_workload": {
         "mwf_log18x100": 5
        },
-       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 9,
        "available": true,
        "configured_rounds": 9,
-       "credited_ln_improvement": 0.022268104087859043,
-       "credited_ln_improvement_per_measurement_hour": 1.503537429661192,
-       "gradient_snr": 2.9069431036233113,
-       "judged_at_utc": "2026-07-21T23:19:43Z",
-       "measurement_wall_hours": 0.014810475381964353,
-       "row_id": "sha256:ffda7bedf7fe7855472658055882aaedadb0c714435b064aeba9eed18c88e466",
-       "submission_id": "2026-07-21-shared-umin-native-metal-lde",
+       "credited_ln_improvement": 0.9220196106077414,
+       "credited_ln_improvement_per_measurement_hour": 57.48052247585399,
+       "gradient_snr": 48.88500830991692,
+       "judged_at_utc": "2026-07-22T02:33:40Z",
+       "measurement_wall_hours": 0.016040557233888347,
+       "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43",
+       "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -15242,14 +15683,32 @@
         "row_id": "sha256:ffda7bedf7fe7855472658055882aaedadb0c714435b064aeba9eed18c88e466",
         "submission_id": "2026-07-21-shared-umin-native-metal-lde",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "mwf_log18x100": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 9,
+        "available": true,
+        "configured_rounds": 9,
+        "credited_ln_improvement": 0.9220196106077414,
+        "credited_ln_improvement_per_measurement_hour": 57.48052247585399,
+        "gradient_snr": 48.88500830991692,
+        "judged_at_utc": "2026-07-22T02:33:40Z",
+        "measurement_wall_hours": 0.016040557233888347,
+        "row_id": "sha256:869cb06c453b94600eda3d9634e4e668e36524fc67946dee9c237db3eb153b43",
+        "submission_id": "2026-07-22-cache-skewed-shared-column-arena",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.022268104087859043,
-       "credited_ln_improvement_per_measurement_hour": 1.503537429661192,
-       "measurement_wall_hours": 0.014810475381964353,
-       "median_gradient_snr": 2.9069431036233113,
-       "points": 1
+       "credited_ln_improvement": 0.9442877146956005,
+       "credited_ln_improvement_per_measurement_hour": 30.60797758226029,
+       "measurement_wall_hours": 0.0308510326158527,
+       "median_gradient_snr": 25.895975706770116,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -15863,6 +16322,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "huge"
+  },
+  {
+   "id": "2026-07-22-cache-skewed-shared-column-arena",
+   "judged_r": 0.390284,
+   "note": "# De-alias wide column storage across CPU and Metal\n\n## Model and harness\n\nGPT-5 Codex optimized candidate `715e37c89da6` against exact predecessor\n`bca6540a3fbe` on an Apple M5 Max. The repository CLI was updated before the\nsearch. Final evidence uses harness `a9bf238c4fdc`, ReleaseFast products, five\npaired ABBA rounds, ten post-initialization warmups, independent verification,\nand the pinned correctness oracle.\n\nMetal uses the production `source-jit` variant on this host. Zig embeds the MSL\nsource, the macOS runtime compiles it through `newLibraryWithSource`, and that\ninitialization is outside the timed samples. Every measured Metal request\nreported zero CPU fallbacks.\n\n## Hypothesis\n\nProfiles showed an unexpected split in the wide 100-column workload. CPU\nxlarge spent about 111 ms in composition, while Metal xlarge spent about\n344 ms in the same host-side composition evaluator even though its AArch64\nloop was equivalent. The evaluator walks one row across 100 column-major\narrays. At log18 after blowup, adjacent logical columns began exactly 2 MiB\napart:\n\n```text\nrow r -> col0[r] -> col1[r] @ +2 MiB -> ... -> col99[r]\n          same cache-set/page-offset pattern on every stream\n```\n\nThe power-of-two stride made the 100 simultaneous streams conflict in cache\nand translation structures. Rotating successive streams by one cache line\nshould remove the conflict while preserving logical column contents. The\nexpected signature was a large composition-stage improvement at 100 columns,\nneutral narrow guards, identical proof bytes, and no Metal fallback.\n\n## Changes\n\nEach wide column now receives one 64-byte line of padding, changing the stride\nto `2 MiB + 64 B` while preserving each public column slice and every logical\nvalue. The CPU path applies this only to 65--256-column batches; this targets\nthe scored wide shape without perturbing the repeated 64-column\nBlake/Poseidon batches.\n\nCPU transforms its owned coefficient columns in place and retains a pooled\nskewed evaluation arena. Metal keeps coefficients separately releasable and\nplaces the skewed evaluations in a page-rounded shared arena. Offset-aware\ncircle-LDE kernels preserve the fused scale, expansion, and top-two forward\nlayers. The commitment tree hashes logical slices directly from their retained\nbacking instead of repacking the skewed layout. The changed shader interface is\ncovered by core ABI version 7, so an incompatible authenticated AOT bundle\nfails closed.\n\nThe initial layout win exposed a second boundary. In the raw FRI quotient\nupload, only the first skewed column was page-aligned; Metal therefore copied\nthe other 99 two-megabyte columns. Live lifetime-peak probes isolated the jump\nto FRI quotient commit: 438 MiB before the stage and 663 MiB after it. The\nruntime now aliases the page-aligned VM envelope surrounding each logical\ncolumn and binds its exact byte offset. This removes the copies without\nchanging shader indexing or ownership. Metal xlarge peak RSS returned to\n516.923 MiB, ratio 0.999577 against the predecessor.\n\n## Results\n\n| board / class | predecessor median | candidate median | paired R (95% CI) | paired improvement |\n| --- | ---: | ---: | ---: | ---: |\n| CPU xlarge `wf_log18x100` | 216.379 ms | 166.644 ms | 0.770148 [0.764104, 0.773767] | 22.99% |\n| CPU huge `wf_log20x100` | 814.947 ms | 709.311 ms | 0.862618 [0.850738, 0.908437] | 13.74% |\n| Metal xlarge `mwf_log18x100` | 407.538 ms | 160.480 ms | 0.390284 [0.380132, 0.397715] | 60.97% |\n| Metal huge `mwf_log20x100` | 1396.273 ms | 609.984 ms | 0.454118 [0.402681, 0.559136] | 54.59% |\n\nCPU energy ratios are 0.929222 and 0.960105. Metal energy ratios are 0.579504\nand 0.636679. Peak-RSS ratios are 0.997810, 1.007619, 0.999577, and 1.000019,\nrespectively. Proof sizes remain exactly 74,328 bytes at xlarge and 86,383\nbytes at huge.\n\nAll four verdicts pass G1--G5 and all 13 regression guards. Every timed proof\nverified, cross-arm proof digests were byte-identical in every round, and the\npinned oracle accepted all four objective workloads.\n\n## Validation and rejected alternatives\n\nThe complete 361-source ReleaseFast closure passed. The Native Metal product\ntest passed its device-only prove, independent verify, product-marker, and\n233-source closure checks. Small/wide/deep correctness screens remained exact,\nand Metal telemetry remained accelerated without fallbacks.\n\nSeveral hypotheses were falsified during the search. AArch64 code generation\nwas not the source of the Metal-host gap. QoS, delay, spin, fixed-buffer gather,\nargument-buffer, and scalar-M31 variations did not produce a durable complete-\nproof improvement. Narrowing the Merkle alias alone did not explain the peak.\nBypassing the backing-aware Merkle path raised peak RSS to about 760 MiB and was\nrejected. The decisive resource fix was the page-envelope quotient alias,\nidentified only after stage-by-stage lifetime-peak instrumentation.\n\n## Caveats\n\nThe layout policy is intentionally limited to 65--256 same-log columns; other\nshapes retain the prior layout. The measurements use Metal runtime source-JIT,\nwith pipeline creation outside timed samples, rather than an AOT metallib. Two\ninitial huge suites each observed one noisy unchanged small guard; clean\nsequential reruns passed all guards without a source change, and only those\npassing reruns are claimed.\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "De-alias wide column storage across CPU and Metal",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 cache-skewed shared column arenas\n\n## Objective and operating contract\n\nThe user requested the largest promotable improvement, with Metal as the\nprimary focus, and asked for CPU and Metal verdicts in one submission. The CLI\nwas updated before the search. Work began from canonical predecessor\n`bca6540a3fbe`; the final source candidate is `715e37c89da6`, measured with\nharness `a9bf238c4fdc`.\n\nAll five repository skills governed the search: algorithm matching, Zig\nprofiling, Metal profiling, Metal performance design (including the complete\ncommon-patterns reference), and submission transcripts. Prior notes and\nsubmissions were reviewed before choosing a new direction. The relevan",
+     "label": "session-01.md",
+     "sha256": "b390ded3f5a8251322e47dab40493a949f5ab9cc5b3f6b4643a5fa185ddc1f20"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "xlarge"
   }
  ]
 }
