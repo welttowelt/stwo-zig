@@ -2188,8 +2188,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2512,8 +2512,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2698,8 +2698,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2916,8 +2916,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3239,8 +3239,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5396,6 +5396,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.649457,
+     "ci_low": 0.610409,
+     "commit": "c357bc103ffc538ffd4ead19a117c392d8aa3306",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.383887,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:5941a6d4820ef98d037790fe85fdb1cbceb9b13aa79eee7164e5b9131cd6e97d",
+     "gates": "G1..G5:pass",
+     "harness_commit": "2b0be386f6ea",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T11:09:31Z",
+     "judged_r": 0.637985,
+     "measurement_rounds": 15,
+     "measurement_seconds": 6.1242,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0",
+     "outcome": "promoted",
+     "peak_rss_mib": 161.65712,
+     "predecessor": "0d7f457364e7",
+     "proof_bytes": 41840,
+     "prove_ms": 4.83025,
+     "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -5403,8 +5438,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5864,8 +5899,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6051,8 +6086,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6337,8 +6372,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6347,12 +6382,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.649457,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -6367,8 +6402,10 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0"
+       ]
       }
      },
      "frontier": [
@@ -6756,38 +6793,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "wide"
+      },
+      {
+       "board": "core_metal",
+       "ci_high": 0.649457,
+       "ci_low": 0.610409,
+       "commit": "c357bc103ffc538ffd4ead19a117c392d8aa3306",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 0.383887,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:5941a6d4820ef98d037790fe85fdb1cbceb9b13aa79eee7164e5b9131cd6e97d",
+       "gates": "G1..G5:pass",
+       "harness_commit": "2b0be386f6ea",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T11:09:31Z",
+       "judged_r": 0.637985,
+       "measurement_rounds": 15,
+       "measurement_seconds": 6.1242,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0",
+       "outcome": "promoted",
+       "peak_rss_mib": 161.65712,
+       "predecessor": "0d7f457364e7",
+       "proof_bytes": 41840,
+       "prove_ms": 4.83025,
+       "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
       }
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.781306,
-      "ci_low": 0.739638,
-      "commit": "3065d951c3924bfba852ef1abfbbc3fd579a775a",
+      "ci_high": 0.649457,
+      "ci_low": 0.610409,
+      "commit": "c357bc103ffc538ffd4ead19a117c392d8aa3306",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": null,
-      "epoch": 1,
+      "energy_j": 0.383887,
+      "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:e3d4a2b50329132af6871b64faea2249ab0ac34a7f63694e2b64301033d6643f",
+      "evidence_sha256": "sha256:5941a6d4820ef98d037790fe85fdb1cbceb9b13aa79eee7164e5b9131cd6e97d",
       "gates": "G1..G5:pass",
-      "harness_commit": "6f3edb9c3f99",
+      "harness_commit": "2b0be386f6ea",
       "holdout": "none",
-      "judged_at_utc": "2026-07-21T12:32:21Z",
-      "judged_r": 0.759787,
-      "measurement_rounds": null,
-      "measurement_seconds": null,
+      "judged_at_utc": "2026-07-22T11:09:31Z",
+      "judged_r": 0.637985,
+      "measurement_rounds": 15,
+      "measurement_seconds": 6.1242,
       "native_mhz": 0.0,
-      "observation_id": "sha256:fbbef3d0c8e39dd08f41392ae93b9e5faacdb59b1bd31046c53046755cfb3f55",
+      "observation_id": "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0",
       "outcome": "promoted",
-      "peak_rss_mib": 0.0,
-      "predecessor": "1c3f3ca758d1",
-      "proof_bytes": null,
-      "prove_ms": 8.096208,
-      "row_id": "sha256:f823a467c8f9043a1b718fc1eac73736531a465d21d8042b7b826a76c6b4d74a",
-      "schema_version": 2,
+      "peak_rss_mib": 161.65712,
+      "predecessor": "0d7f457364e7",
+      "proof_bytes": 41840,
+      "prove_ms": 4.83025,
+      "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+      "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-21-qm31-direct-lane-base-multiply-cpu-metal",
+      "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -6798,8 +6870,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6959,7 +7031,7 @@
      "deep": 0,
      "huge": 5,
      "small": 0,
-     "wide": 0,
+     "wide": 1,
      "xlarge": 5
     },
     "audited_class_ratios": {
@@ -6974,7 +7046,7 @@
      "deep": 1.0,
      "huge": 0.16355205831921588,
      "small": 1.0,
-     "wide": 1.0,
+     "wide": 0.649457,
      "xlarge": 0.12265380593314489
     },
     "classes": [
@@ -6985,10 +7057,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 45.75803947174353,
+    "index": 41.97372269965951,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.4575803947174353,
-    "speedup": 2.18540831631897
+    "ratio_geomean": 0.4197372269965951,
+    "speedup": 2.3824429564073712
    }
   },
   "heavy_cairo": {
@@ -7010,8 +7082,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7051,8 +7123,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7092,8 +7164,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 171,
-       "seconds": 64378
+       "commits": 176,
+       "seconds": 66124
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8251,7 +8323,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "0a76c98cfd381ec0a1fb097f0cbf75ea9d3fb1a0c8a0d7137fbe48c2c281b55d",
+   "autoresearch/ledger/promotions.tsv": "f64ed302f3543d1c0511d88f382a6517e0952fa1d734c0f6761bc8fe56ff4ec5",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -8370,6 +8442,7 @@
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-huge.json": "c703859123f8f0a23ff2f2fa2f40abc7876e9a9431fd81cfa0be4f734cfb6e23",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict.json": "f9b4545f7e925f0f8401f381981f66b19178af00ec385cb25fe72b71be56a114",
    "autoresearch/submissions/2026-07-22-metal-circle-commit-epoch/verdict.json": "b3e30b1a4b72e31d09496a1f5e71d68ebe3da3732e85ca74e0a29cf97c1a00e6",
+   "autoresearch/submissions/2026-07-22-metal-mid-size-recurrence-crossover/verdict.json": "60f7464f30adf5f7ccec057cb574fc18a48977146957525e47d0bc45acdbe057",
    "autoresearch/submissions/2026-07-22-metal-row-parallel-air-composition/verdict-core_metal-huge.json": "0c12c9d7e9f16cb05eae4550b72932d9cc30e4c37bfc9a9e310e95cd72aa8c34",
    "autoresearch/submissions/2026-07-22-metal-row-parallel-air-composition/verdict.json": "45915415d4c1d5291f0fe4663d2dc0cc21489ed155fa40f376bb91c1d01b0a6b",
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict-core_metal-huge.json": "6c6d40ddec9e7cc484538929c994ff32cef70feab6a4e0bd9f0a25530c140a32",
@@ -8378,8 +8451,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "bd368b926c8b",
-  "repo_commit_time": "2026-07-22T10:40:25Z"
+  "repo_commit": "02c3e8c3a9d5",
+  "repo_commit_time": "2026-07-22T11:09:31Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -16207,10 +16280,34 @@
       "unavailable_points": 14
      },
      "wide": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 253.7191868736705,
+        "judged_at_utc": "2026-07-22T11:09:31Z",
+        "points": 1,
+        "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 15,
+       "actual_rounds_per_workload": {
+        "mwf_log14x32": 15
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 15,
+       "available": true,
+       "configured_rounds": 15,
+       "credited_ln_improvement": 0.43161864983601783,
+       "credited_ln_improvement_per_measurement_hour": 253.7191868736705,
+       "gradient_snr": 24.218500273968147,
+       "judged_at_utc": "2026-07-22T11:09:31Z",
+       "measurement_wall_hours": 0.0017011667708478246,
+       "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+       "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
+       "verdict_kind": "claimed"
+      },
       "time_series": [
        {
         "available": false,
@@ -16331,14 +16428,32 @@
         "submission_id": "2026-07-21-qm31-direct-lane-base-multiply-cpu-metal",
         "unavailable_reason": "legacy_row_has_no_search_health_evidence",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 15,
+        "actual_rounds_per_workload": {
+         "mwf_log14x32": 15
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": 0.43161864983601783,
+        "credited_ln_improvement_per_measurement_hour": 253.7191868736705,
+        "gradient_snr": 24.218500273968147,
+        "judged_at_utc": "2026-07-22T11:09:31Z",
+        "measurement_wall_hours": 0.0017011667708478246,
+        "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+        "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.43161864983601783,
+       "credited_ln_improvement_per_measurement_hour": 253.7191868736705,
+       "measurement_wall_hours": 0.0017011667708478246,
+       "median_gradient_snr": 24.218500273968147,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 15
@@ -17161,6 +17276,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "huge"
+  },
+  {
+   "id": "2026-07-22-metal-mid-size-recurrence-crossover",
+   "judged_r": 0.637985,
+   "note": "# Admit mid-size recurrence composition to Metal\n\n## Model and harness\n\nGPT-5 Codex performed the investigation on promoted main `0d7f457364e7` using the repository's updated `stwo-perf` CLI, source-JIT Metal runtime, stage profiler, focused ReleaseFast tests, ReleaseSafe aggregate closure, canonical proof hashing, independent verification, and the pinned Rust Stwo oracle. The claimed verdict is an immutable S3 A-B-B-A comparison of candidate `1078cd89c393` against that predecessor on `core_metal/wide`.\n\n## Hypothesis\n\nThe surprising log16 x 100 result (46.252 ms, slightly slower than log18) was an admission cliff, not a GPU throughput limit. Stage profiling attributed 20.355 ms to composition evaluation. Both secure IFFT and recurrence composition used one log19 crossover, causing the log17 constraint domain for a log16 trace to run through the generic CPU evaluator even though the exact same recurrence AIR and existing Metal kernel were already validated at larger domains.\n\n## Changes\n\nSplit the shared threshold into independent policy constants. Secure IFFT remains at log19. The existing recurrence-composition Metal path now admits evaluation domains from log15 when the shape has at least 32 columns. No shader source, pipeline, binding, proof format, protocol parameter, or synchronization contract changed. The first newly admitted warmup still computes the complete generic domain and byte-compares all four secure-field coordinates; any mismatch or runtime failure retains the generic path.\n\n## Results\n\nThe governed log14 x 32 objective improved from 7.502 ms to 4.830 ms: ratio 0.637985, 95% CI [0.610409, 0.649143], with all 15 independent rounds winning. Request ratio was 0.675248, energy ratio 0.647543 (upper CI 0.666793), RSS ratio 0.999372 (upper CI 0.999517), and proof size remained 41,840 bytes. Every timed proof verified, cross-arm proof digests were byte-identical, the pinned Rust oracle passed, and Metal reported zero CPU fallbacks.\n\nThe architectural effect generalizes across the intended crossover: log14 x 100 improved from 12.407 to 7.749 ms (37.5%), log16 x 100 from 46.252 to 27.103 ms (41.4%), and profiled log14 x 32 composition evaluation fell from 2.348 to 0.309 ms (7.6x). Focused prover/native CPU/native Metal/AOT/downstream tests and ReleaseSafe aggregate closure passed.\n\n## Caveats\n\nThe submitted objective verdict used `--guards none`; the locked judge still runs its mandatory guard matrix. Two additional local `--guards all` diagnostics each passed 12/13 guards. Only the structurally unaffected log10 x 8 latency canary missed because its center ratios were approximately neutral (1.0126 and 1.0003) while sub-millisecond variance widened the upper CIs above 1.05. All other guards passed, including newly admitted wide-Fibonacci shapes. Source-JIT initialization is excluded from post-warmup timing, matching the declared Metal runtime policy; authenticated AOT CI uses the unchanged kernel ABI.\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Admit mid-size recurrence composition to Metal",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01: Metal recurrence crossover\n\nModel: GPT-5 Codex\n\n## Objective\n\nFind and submit the largest safe Metal-backend improvement after promoted main `0d7f457364e7`, prioritizing the wide-Fibonacci points that remained unexpectedly slow on GPU.\n\n## Grounding measurements\n\nThe promoted source-JIT Metal matrix, each with ten warmups and seven verified samples, measured:\n\n- log14 x 100: 12.407 ms prove\n- log16 x 100: 46.252 ms prove\n- log18 x 100: 45.555 ms prove\n- log20 x 100: 162.357 ms prove\n\nThe inversion between log16 and log18 was the useful anomaly. A profiled log16 proof spent 20.355 ms of 52.055 ms in composition evaluation. Reading `secure_composition.zig` showed that secure IFFT",
+     "label": "session-01.md",
+     "sha256": "1f34cad4060ac5a162794cceca56da85e372a401d91d00a9fcb505372540db44"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   },
   {
    "id": "2026-07-22-metal-row-parallel-air-composition",
