@@ -2181,6 +2181,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.936165,
+     "ci_low": 0.912942,
+     "commit": "fd176a74eadf442881f7511371b50a8936805598",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 31.825959,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:48a77f4bed6a635e5cda225fe970dd0969dcf9a0691f72ded00334eb54aad67a",
+     "gates": "G1..G5:pass",
+     "harness_commit": "64878f802743",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T19:05:58Z",
+     "judged_r": 0.923939,
+     "measurement_rounds": 5,
+     "measurement_seconds": 50.003035,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:e3870c6b27c77b73802b15ce1ab3d32e742b64847595f633ac50193c4a0822a5",
+     "outcome": "promoted",
+     "peak_rss_mib": 1646.892639,
+     "predecessor": "354da109e02a",
+     "proof_bytes": 86383,
+     "prove_ms": 332.792208,
+     "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-cpu-adv-simd-fft-tails",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "huge"
     }
    ],
    "frontier_by_class": {
@@ -2188,8 +2223,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2512,8 +2547,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2522,9 +2557,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.458441639401779,
+      "effective_score": 0.42917701735056646,
       "evidence_share": {
-       "claimed": 4,
+       "claimed": 5,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -2542,12 +2577,13 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 4,
+       "count": 5,
        "observation_ids": [
         "sha256:5c483687162a71bfe61886e42073f9c2cdd0eff02b9656853b14710e0750719a",
         "sha256:3c5aea49448aaebde0616186b67e170c7973dcad7c4261a9f4be27f2a6f19f54",
         "sha256:c2881477464635aa24cdabe7caeaeb892f785cdc91192570c08a701f5fc271aa",
-        "sha256:4e1e5be8c4e1ffdc92de44397a73f5d46c087ebc7371e4dcd66ee9fbc5acc07a"
+        "sha256:4e1e5be8c4e1ffdc92de44397a73f5d46c087ebc7371e4dcd66ee9fbc5acc07a",
+        "sha256:e3870c6b27c77b73802b15ce1ab3d32e742b64847595f633ac50193c4a0822a5"
        ]
       }
      },
@@ -2589,41 +2625,6 @@
       },
       {
        "board": "core_cpu",
-       "ci_high": 0.883551,
-       "ci_low": 0.875646,
-       "commit": "2f02b8e4416170e171f3532b434dfb43878dd91c",
-       "covers": [],
-       "credit_replaces": [],
-       "dispatches": null,
-       "energy_j": 34.367085,
-       "epoch": 2,
-       "evidence_kind": "promotion",
-       "evidence_sha256": "sha256:3061cefb3277de4b696f436f88d744a88f303064adb6d8679b652e00b5bcc6c1",
-       "gates": "G1..G5:pass",
-       "harness_commit": "8d9c30a5778c",
-       "holdout": "none",
-       "judged_at_utc": "2026-07-22T05:11:15Z",
-       "judged_r": 0.878685,
-       "measurement_rounds": 3,
-       "measurement_seconds": 37.628404,
-       "native_mhz": 0.0,
-       "observation_id": "sha256:c2881477464635aa24cdabe7caeaeb892f785cdc91192570c08a701f5fc271aa",
-       "outcome": "promoted",
-       "peak_rss_mib": 1661.283241,
-       "predecessor": "5bf964b78643",
-       "proof_bytes": 86383,
-       "prove_ms": 601.6305,
-       "row_id": "sha256:fbb4a2c790acd366e5d59761bef352ff6d6263991a20fd5dfdad33c95cf560ae",
-       "schema_version": 3,
-       "scope": "s3",
-       "submission_id": "2026-07-22-large-column-page-rotation",
-       "supersedes": "",
-       "verdict_kind": "claimed",
-       "waits": null,
-       "workload_class": "huge"
-      },
-      {
-       "board": "core_cpu",
        "ci_high": 0.596739,
        "ci_low": 0.593967,
        "commit": "8d164dfa5c5dfaeeb842a9bdddbce3d26f8b5cae",
@@ -2656,38 +2657,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "huge"
+      },
+      {
+       "board": "core_cpu",
+       "ci_high": 0.936165,
+       "ci_low": 0.912942,
+       "commit": "fd176a74eadf442881f7511371b50a8936805598",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 31.825959,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:48a77f4bed6a635e5cda225fe970dd0969dcf9a0691f72ded00334eb54aad67a",
+       "gates": "G1..G5:pass",
+       "harness_commit": "64878f802743",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T19:05:58Z",
+       "judged_r": 0.923939,
+       "measurement_rounds": 5,
+       "measurement_seconds": 50.003035,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:e3870c6b27c77b73802b15ce1ab3d32e742b64847595f633ac50193c4a0822a5",
+       "outcome": "promoted",
+       "peak_rss_mib": 1646.892639,
+       "predecessor": "354da109e02a",
+       "proof_bytes": 86383,
+       "prove_ms": 332.792208,
+       "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-cpu-adv-simd-fft-tails",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "huge"
       }
      ],
      "head": {
       "board": "core_cpu",
-      "ci_high": 0.596739,
-      "ci_low": 0.593967,
-      "commit": "8d164dfa5c5dfaeeb842a9bdddbce3d26f8b5cae",
+      "ci_high": 0.936165,
+      "ci_low": 0.912942,
+      "commit": "fd176a74eadf442881f7511371b50a8936805598",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 34.707902,
+      "energy_j": 31.825959,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:9b97d915e4162fd0034c51d7c603932faa7738f2a72704436174ff345b51f6ff",
+      "evidence_sha256": "sha256:48a77f4bed6a635e5cda225fe970dd0969dcf9a0691f72ded00334eb54aad67a",
       "gates": "G1..G5:pass",
-      "harness_commit": "4c483c015b6e",
+      "harness_commit": "64878f802743",
       "holdout": "none",
-      "judged_at_utc": "2026-07-22T09:59:57Z",
-      "judged_r": 0.595877,
-      "measurement_rounds": 3,
-      "measurement_seconds": 30.881418,
+      "judged_at_utc": "2026-07-22T19:05:58Z",
+      "judged_r": 0.923939,
+      "measurement_rounds": 5,
+      "measurement_seconds": 50.003035,
       "native_mhz": 0.0,
-      "observation_id": "sha256:4e1e5be8c4e1ffdc92de44397a73f5d46c087ebc7371e4dcd66ee9fbc5acc07a",
+      "observation_id": "sha256:e3870c6b27c77b73802b15ce1ab3d32e742b64847595f633ac50193c4a0822a5",
       "outcome": "promoted",
-      "peak_rss_mib": 1646.861343,
-      "predecessor": "a77e59d43ec1",
+      "peak_rss_mib": 1646.892639,
+      "predecessor": "354da109e02a",
       "proof_bytes": 86383,
-      "prove_ms": 370.501041,
-      "row_id": "sha256:297af6b20be5bd22d32980b4b476e5993261c48915ee237ca66226d54d9fc102",
+      "prove_ms": 332.792208,
+      "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-22-pr6-batched-cpu-composition",
+      "submission_id": "2026-07-22-cpu-adv-simd-fft-tails",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -2698,8 +2734,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2916,8 +2952,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3239,8 +3275,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3395,7 +3431,7 @@
    "suite_score": {
     "active_credit_events": {
      "deep": 1,
-     "huge": 4,
+     "huge": 5,
      "small": 0,
      "wide": 0,
      "xlarge": 2
@@ -3410,7 +3446,7 @@
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
      "deep": 0.966256,
-     "huge": 0.458441639401779,
+     "huge": 0.42917701735056646,
      "small": 1.0,
      "wide": 1.0,
      "xlarge": 0.6884909126969999
@@ -3423,10 +3459,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 78.8596589667716,
+    "index": 77.82611916069897,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.7885965896677161,
-    "speedup": 1.2680754813070663
+    "ratio_geomean": 0.7782611916069897,
+    "speedup": 1.2849156694234667
    }
   },
   "core_hybrid": {
@@ -5438,8 +5474,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5899,8 +5935,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6086,8 +6122,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6372,8 +6408,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6870,8 +6906,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7076,14 +7112,85 @@
    "suite_score": null
   },
   "riscv": {
-   "entries": [],
+   "entries": [
+    {
+     "board": "riscv",
+     "ci_high": 0.726258,
+     "ci_low": 0.723189,
+     "commit": "7fae755594ecbb3fd351e1029214c93b3a153bc3",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 74.661342,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:323cdd1b47b64fe29cc141fc0d0e1909c27a94320cf1cf947031ae9000098f79",
+     "gates": "G1..G5:pass",
+     "harness_commit": "a83513e14102",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T19:53:27Z",
+     "judged_r": 0.724575,
+     "measurement_rounds": 23,
+     "measurement_seconds": 225.141156,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
+     "outcome": "promoted",
+     "peak_rss_mib": 1344.282106,
+     "predecessor": "9095ecec918f",
+     "proof_bytes": 67692,
+     "prove_ms": 1780.298098,
+     "row_id": "sha256:dd2e466c2c1a1a29f3855efc6e007ed056cefb296a74429d497a7a9e40b6dbf2",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-2026-07-22-riscv-lifted-run-strength-reduction",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.962133,
+     "ci_low": 0.954944,
+     "commit": "610f42d21eab083dcf594194ff58066dc317e59d",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 63.322467,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:9ffd90e838f300479369d8b12412e3d95101e7faf0d082f0b03a12ff57f65753",
+     "gates": "G1..G5:pass",
+     "harness_commit": "69eda368bf49",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T20:57:39Z",
+     "judged_r": 0.958426,
+     "measurement_rounds": 33,
+     "measurement_seconds": 279.423719,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
+     "outcome": "promoted",
+     "peak_rss_mib": 1344.188736,
+     "predecessor": "e20d72ac90af",
+     "proof_bytes": 67692,
+     "prove_ms": 1710.721072,
+     "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    }
+   ],
    "frontier_by_class": {
     "deep": {
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7092,12 +7199,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.698756788314,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 2,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -7112,19 +7219,92 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 2,
+       "observation_ids": [
+        "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
+        "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "riscv",
+       "ci_high": 0.962133,
+       "ci_low": 0.954944,
+       "commit": "610f42d21eab083dcf594194ff58066dc317e59d",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 63.322467,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:9ffd90e838f300479369d8b12412e3d95101e7faf0d082f0b03a12ff57f65753",
+       "gates": "G1..G5:pass",
+       "harness_commit": "69eda368bf49",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T20:57:39Z",
+       "judged_r": 0.958426,
+       "measurement_rounds": 33,
+       "measurement_seconds": 279.423719,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
+       "outcome": "promoted",
+       "peak_rss_mib": 1344.188736,
+       "predecessor": "e20d72ac90af",
+       "proof_bytes": 67692,
+       "prove_ms": 1710.721072,
+       "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "deep"
+      }
+     ],
+     "head": {
+      "board": "riscv",
+      "ci_high": 0.962133,
+      "ci_low": 0.954944,
+      "commit": "610f42d21eab083dcf594194ff58066dc317e59d",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 63.322467,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:9ffd90e838f300479369d8b12412e3d95101e7faf0d082f0b03a12ff57f65753",
+      "gates": "G1..G5:pass",
+      "harness_commit": "69eda368bf49",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-22T20:57:39Z",
+      "judged_r": 0.958426,
+      "measurement_rounds": 33,
+      "measurement_seconds": 279.423719,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
+      "outcome": "promoted",
+      "peak_rss_mib": 1344.188736,
+      "predecessor": "e20d72ac90af",
+      "proof_bytes": 67692,
+      "prove_ms": 1710.721072,
+      "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "deep"
+     }
     },
     "small": {
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7164,8 +7344,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 195,
+       "seconds": 101412
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7209,7 +7389,7 @@
    ],
    "suite_score": {
     "active_credit_events": {
-     "deep": 0,
+     "deep": 2,
      "small": 0,
      "wide": 0
     },
@@ -7220,7 +7400,7 @@
     },
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
-     "deep": 1.0,
+     "deep": 0.698756788314,
      "small": 1.0,
      "wide": 1.0
     },
@@ -7230,10 +7410,10 @@
      "deep"
     ],
     "epoch": 2,
-    "index": 100.0,
+    "index": 88.73780461409545,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 1.0,
-    "speedup": 1.0
+    "ratio_geomean": 0.8873780461409545,
+    "speedup": 1.126915415981743
    }
   },
   "stream": {
@@ -8110,6 +8290,18 @@
     "scored": true,
     "wall_clock_cap_seconds": 600
    },
+   "extreme": {
+    "command_timeout_seconds": 7200,
+    "resource_profile": "extreme",
+    "sampling": {
+     "max_rounds": 15,
+     "min_rounds": 7,
+     "samples_per_round": 1,
+     "warmups": 10
+    },
+    "scored": false,
+    "wall_clock_cap_seconds": 7200
+   },
    "huge": {
     "command_timeout_seconds": 1200,
     "resource_profile": "large",
@@ -8170,6 +8362,7 @@
     "board": "core_metal",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "native_proof_v7",
     "workloads": {
      "mplonk_log14": {
@@ -8198,6 +8391,7 @@
     "board": "core_cpu",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "native_proof_v7",
     "workloads": {
      "plonk_log14": {
@@ -8222,10 +8416,92 @@
      }
     }
    },
+   "pr6_supremacy": {
+    "board": "pr6_supremacy",
+    "disabled_reason": "PR6 Supremacy remains disabled until every exact workload port, log22 oracle vector, both timing boundaries, locked-M5 statistical gate, and authenticated judged verdict are complete.",
+    "enabled": false,
+    "promotion_eligible": false,
+    "report_schema": "pr6_supremacy_v1",
+    "workloads": {
+     "pr6_blake_log10": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log12": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log14": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log16": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_fixed_wide_fibonacci_log4": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log5": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log6": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log7": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log8": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_plonk_log12": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_plonk_log14": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_plonk_log16": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_state_machine_log8": {
+      "class": "small",
+      "native_unit": "state-machine rows"
+     },
+     "pr6_wide_fibonacci_log14": {
+      "class": "wide",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log16": {
+      "class": "wide",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log18": {
+      "class": "xlarge",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log20": {
+      "class": "huge",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log22": {
+      "class": "extreme",
+      "native_unit": "committed cells"
+     }
+    }
+   },
    "riscv": {
     "board": "riscv",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "riscv_proof_v2",
     "workloads": {
      "riscv_alu_test": {
@@ -8315,21 +8591,25 @@
    "core_cpu",
    "core_metal",
    "riscv"
+  ],
+  "staged_boards": [
+   "pr6_supremacy"
   ]
  },
  "provenance": {
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
+   "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "f64ed302f3543d1c0511d88f382a6517e0952fa1d734c0f6761bc8fe56ff4ec5",
+   "autoresearch/ledger/promotions.tsv": "64b55b4439c15efa8c31444622e175d1dbd11750994366a47b94f12d077bacfe",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
-   "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
+   "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
    "autoresearch/reference/peer-rust-simd.json": "ce288cb814b134306a5b7cab8ea3ec7a19b6d231684d6434a337bfb35d130cbf",
    "autoresearch/reference/peer-series-point.schema.json": "e0b1d6ece5e107ab72172fbf3a9a96f918e16e3c876e310072b2c2de18f1bb26",
    "autoresearch/reference/peer-series/runs/0c3cd97c500dfb69391aa77682f0e7c656e8bd49.json": "4299628cac4283bbe5ba565da2fc68caef780a48933185da8083bdf65ed0526c",
+   "autoresearch/reference/pr6-wide-series-point.schema.json": "c84d9b4d4c34a070b1d71c63442abd02209033954a730e70e709791e4f4a0377",
    "autoresearch/reference/riscv-calibration-epoch-2.json": "6828deeadcf7807becaa724196f34fe5f5b01609745bb757b86f376d9c651135",
    "autoresearch/submissions/2026-07-20-deeper-merkle-pool-parallelism/verdict.json": "5b5467d17a0d90cb20836b91279d6026661b8d3a54de27d94f5473ee7ac6c603",
    "autoresearch/submissions/2026-07-20-four-way-fri-leaf-cascade/verdict.json": "0126af7e3098622480086a6fc2f2db66911964d20ab7d86bcd138fe6746f7aa1",
@@ -8433,10 +8713,12 @@
    "autoresearch/submissions/2026-07-21-quotient-pipeline-compound/verdict.json": "927454e9f945931822351bfc950a8d4444d5382792c955dd8279db731632e812",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict-core_metal-xlarge.json": "5014675896cb369b5893a60e5e0df7228729ebcb52b62bafb4edb00676ce3778",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict.json": "de5a885f42529c423d03efe4e7a866cc179abc319556381be30a002cb102c468",
+   "autoresearch/submissions/2026-07-22-2026-07-22-riscv-lifted-run-strength-reduction/verdict.json": "6bae3e758de8acab7324392cf74e4efae9f5fd1c6a08ae85a354b8bf70f194fa",
    "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-core_metal-huge.json": "e657c06b0a9804ffa6dd65e1e8445db9cff056910387fd633cc65a1e27d3020f",
    "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-core_metal-xlarge.json": "031bfce9c3f93cc978ab54f0dbc56e2192da5a8496ba38e3f42589befdcb1fe3",
    "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict-huge.json": "2c58f399cf77ca2b846c66229f13b5ec9dfece15dea34406ffb9b2878308de01",
    "autoresearch/submissions/2026-07-22-cache-skewed-shared-column-arena/verdict.json": "fa0b8a77f77063c0034e441b447ca21ad54193ba498f29388622f88b190d8b46",
+   "autoresearch/submissions/2026-07-22-cpu-adv-simd-fft-tails/verdict.json": "93ccaa8a25c8ee41d310786e0048d7aaae71ea8daddd753070802079f0c67c0b",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-core_metal-huge.json": "08c2edbe135b256f5fc4c19e1ce067e9eace4c7c72dfdf2422cf2a99e4df10a2",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-core_metal-xlarge.json": "1c1e64f14f56865dee95b27bf06053bc8a98d4313a64ac46faa78062777599eb",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-huge.json": "c703859123f8f0a23ff2f2fa2f40abc7876e9a9431fd81cfa0be4f734cfb6e23",
@@ -8448,11 +8730,12 @@
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict-core_metal-huge.json": "6c6d40ddec9e7cc484538929c994ff32cef70feab6a4e0bd9f0a25530c140a32",
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict.json": "470ae0e0af29211894ce533ff845ec3d4b56fb0432010c6c36427599961844ff",
    "autoresearch/submissions/2026-07-22-pr6-batched-cpu-composition/verdict.json": "ed531c8dadf8dc77aaf2e9c7a4ba4b822c51b1605fb341bbc568c06a3d739080",
+   "autoresearch/submissions/2026-07-22-riscv-register-grouped-quotients/verdict.json": "2ed91769c3537a1049a0c6dc2541feaedbad25f9b7a09eb7f3e2b7d80d4bf3e4",
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "02c3e8c3a9d5",
-  "repo_commit_time": "2026-07-22T11:09:31Z"
+  "repo_commit": "acc67d280947",
+  "repo_commit_time": "2026-07-22T20:57:39Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -8742,7 +9025,15 @@
    },
    "measurement": {
     "cadence": "every direct end-to-end audit point",
-    "interleaving": "balanced four-lane rotation per size and round",
+    "extreme_resource_profile": {
+     "accounted_bytes": 6710886400,
+     "committed_cells": 419430400,
+     "log_n_rows": [
+      22
+     ],
+     "name": "extreme"
+    },
+    "interleaving": "independent peer/candidate A-B-B-A comparisons for CPU and Metal, at least seven rounds",
     "large_resource_profile": {
      "log_n_rows": [
       18,
@@ -8750,13 +9041,17 @@
      ],
      "name": "large"
     },
-    "primary_metric": "verified_request_ms",
+    "legacy_v1_run_schema": "autoresearch/reference/peer-series-point.schema.json",
+    "primary_metrics": [
+     "verified_request_ms",
+     "cold_process_ms"
+    ],
     "protocols": {
      "peer": "Blake2sM31Channel/Blake2sM31MerkleChannel with PcsConfig::default(); concrete security, FRI, PoW, commitment, and proof-size values retained per sample",
      "stwo_zig": "functional"
     },
     "run_glob": "autoresearch/reference/peer-series/runs/*.json",
-    "run_schema": "autoresearch/reference/peer-series-point.schema.json",
+    "run_schema": "autoresearch/reference/pr6-wide-series-point.schema.json",
     "runner": "autoresearch/reference/measure_peer_series.py"
    },
    "name": "peer-relative-wide-fibonacci",
@@ -8775,18 +9070,20 @@
    },
    "publication": {
     "empty_series_meaning": "not calibrated; never infer parity or a performance milestone",
-    "series_runs_are_immutable": true
+    "series_runs_are_immutable": true,
+    "supremacy_limitation": "This series closes only the five wide-Fibonacci cells. It cannot satisfy PR6 Supremacy without exact Blake, Plonk, fixed-wide-Fibonacci, and state-machine evidence."
    },
    "reference_kind": "peer-relative-series",
-   "schema": "peer-relative-series-contract-v1",
-   "series_id": "clementwalter-pr6-wide-fibonacci-v1",
+   "schema": "peer-relative-series-contract-v2",
+   "series_id": "clementwalter-pr6-wide-fibonacci-v2",
    "title": "Wide-Fibonacci position versus ClementWalter/stwo PR #6",
    "workload": {
     "log_n_rows": [
      14,
      16,
      18,
-     20
+     20,
+     22
     ],
     "name": "wide_fibonacci",
     "sequence_len_columns": 100
@@ -15308,7 +15605,7 @@
      },
      "huge": {
       "available": true,
-      "available_points": 4,
+      "available_points": 5,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 4.341949306244321,
@@ -15333,24 +15630,30 @@
         "judged_at_utc": "2026-07-22T09:59:57Z",
         "points": 4,
         "row_id": "sha256:297af6b20be5bd22d32980b4b476e5993261c48915ee237ca66226d54d9fc102"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 15.125388873160544,
+        "judged_at_utc": "2026-07-22T19:05:58Z",
+        "points": 5,
+        "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de"
        }
       ],
       "latest": {
-       "actual_rounds": 3,
+       "actual_rounds": 5,
        "actual_rounds_per_workload": {
-        "wf_log20x100": 3
+        "wf_log20x100": 5
        },
        "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.5162754471128141,
-       "credited_ln_improvement_per_measurement_hour": 60.184788619363,
-       "gradient_snr": 357.1451574328599,
-       "judged_at_utc": "2026-07-22T09:59:57Z",
-       "measurement_wall_hours": 0.008578171643635465,
-       "row_id": "sha256:297af6b20be5bd22d32980b4b476e5993261c48915ee237ca66226d54d9fc102",
-       "submission_id": "2026-07-22-pr6-batched-cpu-composition",
+       "credited_ln_improvement": 0.06596353598911796,
+       "credited_ln_improvement_per_measurement_hour": 4.749086305815846,
+       "gradient_snr": 5.017882799687385,
+       "judged_at_utc": "2026-07-22T19:05:58Z",
+       "measurement_wall_hours": 0.013889731990833145,
+       "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de",
+       "submission_id": "2026-07-22-cpu-adv-simd-fft-tails",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -15425,14 +15728,32 @@
         "row_id": "sha256:297af6b20be5bd22d32980b4b476e5993261c48915ee237ca66226d54d9fc102",
         "submission_id": "2026-07-22-pr6-batched-cpu-composition",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "wf_log20x100": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.06596353598911796,
+        "credited_ln_improvement_per_measurement_hour": 4.749086305815846,
+        "gradient_snr": 5.017882799687385,
+        "judged_at_utc": "2026-07-22T19:05:58Z",
+        "measurement_wall_hours": 0.013889731990833145,
+        "row_id": "sha256:8c2e0568edde990480a178aa6bda3a48b0c8b5810d22a72a8d24b5e3136ec5de",
+        "submission_id": "2026-07-22-cpu-adv-simd-fft-tails",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.779922281315667,
-       "credited_ln_improvement_per_measurement_hour": 18.554043456072744,
-       "measurement_wall_hours": 0.04203516517368068,
-       "median_gradient_snr": 14.13673846417652,
-       "points": 4
+       "credited_ln_improvement": 0.845885817304785,
+       "credited_ln_improvement_per_measurement_hour": 15.125388873160544,
+       "measurement_wall_hours": 0.05592489716451382,
+       "median_gradient_snr": 5.855135290109696,
+       "points": 5
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -16615,7 +16936,7 @@
      }
     }
    },
-   "riscv": {
+   "pr6_supremacy": {
     "classes": {
      "deep": {
       "available": false,
@@ -16629,6 +16950,191 @@
        "measurement_wall_hours": null,
        "median_gradient_snr": null,
        "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "extreme": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "huge": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "small": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "wide": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "xlarge": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     }
+    }
+   },
+   "riscv": {
+    "classes": {
+     "deep": {
+      "available": true,
+      "available_points": 2,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
+        "judged_at_utc": "2026-07-22T19:53:27Z",
+        "points": 1,
+        "row_id": "sha256:dd2e466c2c1a1a29f3855efc6e007ed056cefb296a74429d497a7a9e40b6dbf2"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.5575088671935826,
+        "judged_at_utc": "2026-07-22T20:57:39Z",
+        "points": 2,
+        "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 33,
+       "actual_rounds_per_workload": {
+        "riscv_fib_iter": 3,
+        "riscv_gcd_euclid": 5,
+        "riscv_multi_shard_addi": 5,
+        "riscv_sha2_1024b": 5,
+        "riscv_sha2_2048b": 5,
+        "riscv_sha2_512b": 5,
+        "riscv_xorshift_prng": 5
+       },
+       "auto_boost_reason": "trailing_median_at_or_above_threshold",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.038602584234330384,
+       "credited_ln_improvement_per_measurement_hour": 0.497342543638995,
+       "gradient_snr": 9.99979073449899,
+       "judged_at_utc": "2026-07-22T20:57:39Z",
+       "measurement_wall_hours": 0.07761769976861413,
+       "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+       "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 23,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 5,
+         "riscv_sha2_1024b": 3,
+         "riscv_sha2_2048b": 3,
+         "riscv_sha2_512b": 3,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.31984995538615263,
+        "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
+        "gradient_snr": 137.86353599909668,
+        "judged_at_utc": "2026-07-22T19:53:27Z",
+        "measurement_wall_hours": 0.06253921003472189,
+        "row_id": "sha256:dd2e466c2c1a1a29f3855efc6e007ed056cefb296a74429d497a7a9e40b6dbf2",
+        "submission_id": "2026-07-22-2026-07-22-riscv-lifted-run-strength-reduction",
+        "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 33,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 5,
+         "riscv_multi_shard_addi": 5,
+         "riscv_sha2_1024b": 5,
+         "riscv_sha2_2048b": 5,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.038602584234330384,
+        "credited_ln_improvement_per_measurement_hour": 0.497342543638995,
+        "gradient_snr": 9.99979073449899,
+        "judged_at_utc": "2026-07-22T20:57:39Z",
+        "measurement_wall_hours": 0.07761769976861413,
+        "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+        "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+        "verdict_kind": "claimed"
+       }
+      ],
+      "trailing": {
+       "credited_ln_improvement": 0.358452539620483,
+       "credited_ln_improvement_per_measurement_hour": 2.5575088671935826,
+       "measurement_wall_hours": 0.140156909803336,
+       "median_gradient_snr": 73.93166336679784,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -17224,6 +17730,24 @@
    "workload_class": "huge"
   },
   {
+   "id": "2026-07-22-2026-07-22-riscv-lifted-run-strength-reduction",
+   "judged_r": 0.724575,
+   "note": "# Strength-reduce repeated lifted quotient runs\n\n## Model and harness\n\nModel: GPT-5 Codex. The repository-resident `stwo-perf` harness ran on the\ndesignated Apple M5 Max in ReleaseFast mode. The claimed S3 `riscv/deep`\ncomparison used immutable candidate `3084fe1985db` and current-main predecessor\n`9095ecec918f`, round-level A-B-B-A ordering, verified proof artifacts, complete\nmechanism telemetry, and the pinned Stark-V correctness oracle.\n\nThe first local run completed objective sampling but exposed a harness bug when\nautomatic guards were expanded: thirteen Native AIR guards were parsed as\nRISC-V workloads and rejected for lacking the RISC-V-only `{admission}` token.\nThat attempt and all of its raw reports were archived. The clean objective run\nwas repeated with local guard expansion disabled; repository product gates were\nrun separately, and the submission still requires the remote judged guard\nmatrix before promotion.\n\n## Hypothesis\n\nA fresh seven-row deep baseline put 17.22 of 19.35 aggregate request seconds in\nproving. A verified three-second macOS sample of SHA2-2048 attributed 3,261\nactive samples to `quotient_tile_executor.execute`, versus 738 in packed Merkle\nleaf updates and 717 in `memmove`. The quotient executor was the dominant shared\nprover frame.\n\nFor every non-direct lifted column, the source index is\n`((position >> shift) << 1) + (position & 1)`. A structural `2^shift`-row run\ntherefore repeats one even/odd source pair, yet the scalar loop recomputed four\nM31 coefficient products on every row. The hypothesis was that loop-invariant\nproduct hoisting plus packed alternating broadcasts would remove most of that\narithmetic without changing contribution order, scratch bounds, proof bytes,\nor protocol behavior. The falsifiers were any scalar differential mismatch,\nproof-byte drift, oracle rejection, resource regression, or a portfolio result\nbelow 3%.\n\n## Changes\n\nThe quotient tile executor now routes every structurally non-direct input view\nthrough a run-wise accumulator. For each source run and each of four extension\ncoordinates, it computes the even and odd M31 products once, builds two packed\nalternating vectors, and adds them directly into the existing output-stationary\nnumerator planes. Misaligned boundaries and final lanes retain a scalar tail.\n\nThis reduces multiplication work per contribution from four products per output\nrow to eight products per source run\u2014an approximately `2^(shift-1)` reduction\u2014\nwhile leaving additions and their order unchanged. It creates no combined\nmatrix, no second pass, no workload-name or size special case, and no new Metal\ndispatch, synchronization, residency, or ABI state. Direct views retain their\nexisting packed path. A differential test covers shifts 2, 3, and 7 and aligned\nand misaligned tile starts.\n\nAlternatives rejected during design were a packed gather/multiply loop, which\nkept the same field-operation count; full combined-column materialization,\nwhich violated the bounded-memory design and added large traffic; and\ncross-column coefficient aggregation, which introduced grouping/audit\ncomplexity. The selected design is the narrowest general strength reduction.\n\n## Results\n\nThe clean claimed verdict is a statistically significant improvement with\nportfolio proving-time ratio **0.724575**, 95% CI **[0.723189, 0.726258]**.\nThat is 27.5% lower proving latency / 1.38x throughput. The verified-request\nratio geometric mean is **0.753773**, or 24.6% lower request latency.\n\n| workload | prove ratio | 95% CI | main prove | candidate prove | request ratio |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| xorshift PRNG | 0.7268 | [0.7241, 0.7314] | 2006.1 ms | 1456.3 ms | 0.7383 |\n| iterative Fibonacci | 0.7690 | [0.7655, 0.7742] | 2119.9 ms | 1622.7 ms | 0.7790 |\n| Euclidean GCD | 0.7397 | [0.7366, 0.7448] | 2097.8 ms | 1552.9 ms | 0.7542 |\n| multi-shard ADDI | 0.7607 | [0.7542, 0.7670] | 2105.7 ms | 1602.5 ms | 0.7727 |\n| SHA2-512 | 0.6693 | [0.6686, 0.6695] | 2759.2 ms | 1847.2 ms | 0.7262 |\n| SHA2-1024 | 0.6996 | [0.6959, 0.7041] | 3103.9 ms | 2160.1 ms | 0.7458 |\n| SHA2-2048 | 0.7120 | [0.7116, 0.7131] | 3394.4 ms | 2415.6 ms | 0.7616 |\n\nEvery individual row wins; no average conceals a regression. Energy has a\n0.53736 portfolio ratio (upper CI 0.54104), peak RSS is 0.99978x (upper CI\n1.00103), and proof size is exactly 1.0x for every workload. Candidate peak RSS\nranges from 1,265 to 1,499 MiB.\n\n## Correctness and validation\n\nEvery timed sample verified. Cross-arm proof digests are byte-identical in\nevery round, all seven mechanism-telemetry records are present and stable, and\nthe pinned Stark-V correctness oracle accepted 7/7 workloads. Format, source\nconformance, the aggregate ReleaseFast test root, the focused scalar lifting\ndifferential, RISC-V CPU product closure, Native CPU product closure, and the\ndevice-only Native Metal lifecycle all pass. Metal independently verifies its\nproof and reports no CPU fallback.\n\n## Caveats\n\nThis is a claimed local result; only the judge's rerun counts. Local automatic\nguard expansion is absent from the verdict because of the recorded cross-board\nparser defect, so promotion must remain conditional on the remote judged guard\nmatrix. The source change is shared and product correctness is green, but no\nunmeasured Native performance claim is made here.\n\nThis result materially improves the RISC-V prover and reinforces the resident\nMetal pipeline architecture, but it does not complete the exact PR6 workload,\ncold-process, log22, and judged-evidence contract.\n\n**PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Strength-reduce repeated lifted quotient runs",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Autoresearch session 01 \u2014 largest RISC-V portfolio\n\n## Objective and session contract\n\nThis iteration begins immediately after the AdvSIMD M31/FFT-tail submission\nmerged as PR #80. The standing objective is a repeated improvement -> claimed\nverdict -> PR -> green CI -> merge loop, prioritizing the largest and longest\ncoordinates and especially the live RISC-V board. A result must preserve the\nNative CPU, Metal, and RISC-V correctness and resource portfolios; a narrow\nkernel result is not a submission.\n\nThe canonical checkout was updated from `354da109` to `9095ecec`, including\nthe recorded PR #80 promotion. Two pre-existing untracked Metal research notes\nwere moved aside during the fast-fo",
+     "label": "session-01.md",
+     "sha256": "625350ed0124d71846b1f11769c7dd4c6cf32d6a8a58e3771733ab08c10a5c01"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
    "id": "2026-07-22-cache-skewed-shared-column-arena",
    "judged_r": 0.390284,
    "note": "# De-alias wide column storage across CPU and Metal\n\n## Model and harness\n\nGPT-5 Codex optimized candidate `715e37c89da6` against exact predecessor\n`bca6540a3fbe` on an Apple M5 Max. The repository CLI was updated before the\nsearch. Final evidence uses harness `a9bf238c4fdc`, ReleaseFast products, five\npaired ABBA rounds, ten post-initialization warmups, independent verification,\nand the pinned correctness oracle.\n\nMetal uses the production `source-jit` variant on this host. Zig embeds the MSL\nsource, the macOS runtime compiles it through `newLibraryWithSource`, and that\ninitialization is outside the timed samples. Every measured Metal request\nreported zero CPU fallbacks.\n\n## Hypothesis\n\nProfiles showed an unexpected split in the wide 100-column workload. CPU\nxlarge spent about 111 ms in composition, while Metal xlarge spent about\n344 ms in the same host-side composition evaluator even though its AArch64\nloop was equivalent. The evaluator walks one row across 100 column-major\narrays. At log18 after blowup, adjacent logical columns began exactly 2 MiB\napart:\n\n```text\nrow r -> col0[r] -> col1[r] @ +2 MiB -> ... -> col99[r]\n          same cache-set/page-offset pattern on every stream\n```\n\nThe power-of-two stride made the 100 simultaneous streams conflict in cache\nand translation structures. Rotating successive streams by one cache line\nshould remove the conflict while preserving logical column contents. The\nexpected signature was a large composition-stage improvement at 100 columns,\nneutral narrow guards, identical proof bytes, and no Metal fallback.\n\n## Changes\n\nEach wide column now receives one 64-byte line of padding, changing the stride\nto `2 MiB + 64 B` while preserving each public column slice and every logical\nvalue. The CPU path applies this only to 65--256-column batches; this targets\nthe scored wide shape without perturbing the repeated 64-column\nBlake/Poseidon batches.\n\nCPU transforms its owned coefficient columns in place and retains a pooled\nskewed evaluation arena. Metal keeps coefficients separately releasable and\nplaces the skewed evaluations in a page-rounded shared arena. Offset-aware\ncircle-LDE kernels preserve the fused scale, expansion, and top-two forward\nlayers. The commitment tree hashes logical slices directly from their retained\nbacking instead of repacking the skewed layout. The changed shader interface is\ncovered by core ABI version 7, so an incompatible authenticated AOT bundle\nfails closed.\n\nThe initial layout win exposed a second boundary. In the raw FRI quotient\nupload, only the first skewed column was page-aligned; Metal therefore copied\nthe other 99 two-megabyte columns. Live lifetime-peak probes isolated the jump\nto FRI quotient commit: 438 MiB before the stage and 663 MiB after it. The\nruntime now aliases the page-aligned VM envelope surrounding each logical\ncolumn and binds its exact byte offset. This removes the copies without\nchanging shader indexing or ownership. Metal xlarge peak RSS returned to\n516.923 MiB, ratio 0.999577 against the predecessor.\n\n## Results\n\n| board / class | predecessor median | candidate median | paired R (95% CI) | paired improvement |\n| --- | ---: | ---: | ---: | ---: |\n| CPU xlarge `wf_log18x100` | 216.379 ms | 166.644 ms | 0.770148 [0.764104, 0.773767] | 22.99% |\n| CPU huge `wf_log20x100` | 814.947 ms | 709.311 ms | 0.862618 [0.850738, 0.908437] | 13.74% |\n| Metal xlarge `mwf_log18x100` | 407.538 ms | 160.480 ms | 0.390284 [0.380132, 0.397715] | 60.97% |\n| Metal huge `mwf_log20x100` | 1396.273 ms | 609.984 ms | 0.454118 [0.402681, 0.559136] | 54.59% |\n\nCPU energy ratios are 0.929222 and 0.960105. Metal energy ratios are 0.579504\nand 0.636679. Peak-RSS ratios are 0.997810, 1.007619, 0.999577, and 1.000019,\nrespectively. Proof sizes remain exactly 74,328 bytes at xlarge and 86,383\nbytes at huge.\n\nAll four verdicts pass G1--G5 and all 13 regression guards. Every timed proof\nverified, cross-arm proof digests were byte-identical in every round, and the\npinned oracle accepted all four objective workloads.\n\n## Validation and rejected alternatives\n\nThe complete 361-source ReleaseFast closure passed. The Native Metal product\ntest passed its device-only prove, independent verify, product-marker, and\n233-source closure checks. Small/wide/deep correctness screens remained exact,\nand Metal telemetry remained accelerated without fallbacks.\n\nSeveral hypotheses were falsified during the search. AArch64 code generation\nwas not the source of the Metal-host gap. QoS, delay, spin, fixed-buffer gather,\nargument-buffer, and scalar-M31 variations did not produce a durable complete-\nproof improvement. Narrowing the Merkle alias alone did not explain the peak.\nBypassing the backing-aware Merkle path raised peak RSS to about 760 MiB and was\nrejected. The decisive resource fix was the page-envelope quotient alias,\nidentified only after stage-by-stage lifetime-peak instrumentation.\n\n## Caveats\n\nThe layout policy is intentionally limited to 65--256 same-log columns; other\nshapes retain the prior layout. The measurements use Metal runtime source-JIT,\nwith pipeline creation outside timed samples, rather than an AOT metallib. Two\ninitial huge suites each observed one noisy unchanged small guard; clean\nsequential reruns passed all guards without a source change, and only those\npassing reruns are claimed.\n",
@@ -17240,6 +17764,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "xlarge"
+  },
+  {
+   "id": "2026-07-22-cpu-adv-simd-fft-tails",
+   "judged_r": 0.923939,
+   "note": "# Fold M31 products with AArch64 AdvSIMD and fuse CPU FFT tails\n\n## Model and harness\n\nModel: GPT-5 Codex. The repository-resident `stwo-perf` harness ran on the\ndesignated Apple M5 Max in ReleaseFast mode. The claimed S3 `core_cpu/huge`\ncomparison used immutable candidate `ee3316f3685f` and current-main predecessor\n`354da109e02a`, paired A-B-B-A rounds, verified proofs, the pinned Rust oracle,\nand the automatic 13-workload Native regression portfolio. The complete exact\nPR6 width-100 diagnostic separately used ten warmups and seven ABBA rounds at\nlogs 14, 16, 18, 20, and 22 for both verified-request and cold-process lanes.\n\n## Hypothesis\n\nM31 multiplication was still paying scalar widening and reduction costs in the\nCPU prover's densest loops. On AArch64, a four-lane `mul.4s` plus `sqdmulh.4s`\nrecovers the low product and doubled signed high product needed for an exact\nMersenne fold; masking, folding, and `umin` then canonicalize four products at\nonce. Fusing only the final three, four, or five FFT layers should complement\nthat arithmetic win while preserving radix-8 scheduling and cache locality.\n\nThe falsifiers were any field mismatch, transform mismatch, proof-byte drift,\noracle rejection, guard regression, or an insignificant end-to-end result.\n\n## Changes\n\n`M31.mulVec4` now selects an AArch64 AdvSIMD reduction built from full-lane\n`mul` and `sqdmulh`; other architectures retain the portable implementation.\nThe circle transform scheduler selects size-aligned fused 3/4/5-layer tails so\nearlier passes remain radix-8. A differential test compares every output with\nthe generic transform across relevant sizes.\n\nThe search also produced useful negative results. A direct 2x-LDE reuse idea\nwas invalid because the canonical base and extended circle cosets are disjoint.\nA compact Blake compressor removed a spill frame but increased instructions.\nDynamic heterogeneous tiling damaged locality, packed radix-16 increased\nregister pressure, and an earlier volatile `sqdmull` experiment regressed\ncodegen; all were removed. The retained binary contains 213 `sqdmulh`\ninstructions and uses the nonvolatile exact fold.\n\n## Results\n\nThe clean S3 huge CPU verdict measures 356.401 -> 332.792 ms: ratio **0.9239**,\n95% CI **[0.9129, 0.9362]**, a statistically significant 7.6% reduction.\nEnergy is 0.9130x (95% upper 0.9158), peak RSS is 0.9992x (upper 1.0097), and\nproof size is unchanged at 86,383 bytes. Every timed proof verified, proof\ndigests matched across arms, the pinned Rust oracle accepted the workload, and\nall 13 automatic regression guards remained within budget.\n\nThe broader cumulative PR6 research branch measured 0.7556x on the same class,\nbut carried unrelated earlier architecture changes. This submission deliberately\nisolates only the four-file arithmetic/FFT mechanism onto current main so all\nrepository identity and editable-path gates pass.\n\nThe exact PR6 diagnostic confirms broad CPU gains: both request and cold lanes\npass the 0.80 target at logs 14, 16, and 18; logs 20 and 22 improve materially\nand win both ABBA halves but remain above the task's unusually strict 0.80\nratio. Clean single-process medians were 10.876, 20.534, 69.962, 268.833, and\n1145.818 ms across logs 14..22. The apparent earlier 132--135/523--539 ms\ndiscrepancy was resolved: those figures were Metal verified-request timings,\nnot CPU timings.\n\nReleaseFast canonical and deep roots, core/prover/CPU/Metal/RISC-V products,\nfield and transform differentials, source conformance, and a 13-row CPU/Metal\nholistic smoke all pass. The smoke produced identical canonical CPU/Metal\nproof bytes and zero Metal CPU fallbacks.\n\n## Caveats\n\nThis is a claimed local result; only the locked judge can issue a judged\nverdict. G1--G5 pass, including a clean identity gate with no locked or\nout-of-scope path. The full PR6 Supremacy task still lacks exact Blake,\nPlonk, fixed-wide, and state-machine peer ports, complete oracle vectors,\nsynchronization telemetry, and a passing log20/log22 CPU ratio at both timing\nboundaries. Accordingly, this submission claims the significant repository\nCPU improvement only, not PR6 Supremacy.\n\n**PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Fold M31 products with AArch64 AdvSIMD and fuse CPU FFT tails",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01: PR6 Supremacy Gate\n\nModel: GPT-5 Codex\n\n## User objective\n\nBuild one clean `stwo-zig` candidate that is oracle-correct and at least 1.25x faster than ClementWalter/stwo commit `07ea1ccca13351028da94e66babf79e7ce91437f` at every directly comparable PR6 cell, for both verified-request and cold-process boundaries, with a 95% ratio-CI upper bound at most 0.90 and no broad portfolio regression. Missing or merely claimed cells are failures.\n\n## Initial status\n\nPR6 Supremacy is not achieved. The promoted frontier is `edb5be92ac09`, including the merged Metal mid-size recurrence crossover from PR #77. The repository CLI reports current at this commit. Two unrelated untracked researcher",
+     "label": "session-01.md",
+     "sha256": "d9e5c8f25dff83a1321c5094e7301f66628ad0387c8b738c8bf3468f67fb1c88"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "huge"
   },
   {
    "id": "2026-07-22-large-column-page-rotation",
@@ -17348,6 +17890,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "huge"
+  },
+  {
+   "id": "2026-07-22-riscv-register-grouped-quotients",
+   "judged_r": 0.958426,
+   "note": "# Group lifted quotient contributions in worker-local registers\n\n## Model and harness\n\nModel: GPT-5 Codex. The repository-resident `stwo-perf` harness ran on the\ndesignated Apple M5 Max in ReleaseFast mode. The clean claimed S3\n`riscv/deep` comparison used immutable candidate `19ca3b8863ee` and current-main\npredecessor `e20d72ac90af`, round-level A-B-B-A ordering, verified artifacts,\ncomplete resource/mechanism telemetry, and the pinned Stark-V oracle. Every raw\nA/B report records `implementation_dirty=false`.\n\nThe CLI's known automatic-guard classifier still parses Native guard IDs as\nRISC-V and rejects their missing RISC-V-only admission token. The final local\nverdict therefore sampled the objective with `--guards none`; aggregate,\nRISC-V CPU, Native CPU, source-conformance, and device-only Native Metal product\nchecks were run separately. Promotion remains conditional on the remote judged\nguard matrix.\n\n## Hypothesis\n\nAfter the promoted run-wise strength reduction, a fresh verified SHA2-2048\nsample still put the quotient tile executor first with 1,705 top-of-stack\nsamples, ahead of packed Merkle leaves (749), `memmove` (708), and four-way\nBlake compression (573). The live quotient plan had 2,162 contributions but\nonly 35 unique `(sample batch, source geometry)` groups.\n\nLifting is a linear index transform over exact M31 arithmetic. Contributions\nsharing a batch and geometry can therefore be reduced before their repeated\noutput-row addition. The prediction was that one even/odd group reduction per\nsource run would replace per-contribution output additions while preserving the\nAIR, transcript, proof bytes, contribution values, bounded ownership, and\nparallel work distribution.\n\n## Changes\n\nPlanning now creates a checked, immutable descriptor plan for every structurally\nnon-direct lifted contribution. Each group owns a slice of members; a member is\nonly a borrowed compact source column and its four M31 coefficients. The plan\nis capped at 1 MiB, uses checked arithmetic, and is optional: allocation or\nbudget failure leaves every contribution on the unchanged direct/run-wise path.\nNo workload name, statement digest, input digest, benchmark size, or RISC-V-\nspecific key participates in admission.\n\nWithin each bounded quotient worker, all members in one group reduce into two\nfour-coordinate register accumulators for the current even/odd source pair.\nThe executor builds packed alternating values and adds the group once across\nthe lifted run. Multiplications remain parallel; output additions scale with\ngroups rather than contributions. Direct columns retain their packed path.\nScalar fallback, serial and parallel tile execution, retained-byte telemetry,\npartial initialization cleanup, and direct fallback are all wired explicitly.\n\nThe compact reducer and direct planner were split into focused modules so the\ntile scheduler remains below the repository's 850-line ceiling. Differential\ntests cover shifts 2, 3, and 8 plus misaligned boundaries. A planning test\ncovers repeated geometry, multiple batches, direct exclusion, checked retained\nbytes, and budget fallback.\n\n## Rejected architecture\n\nThe first implementation materialized coefficient-weighted compact arrays for\n27 high-shift groups. It used only 10.7 MiB and cut process instructions to\n0.749x, but a process sample found 116 main-thread samples in serial plan\nconstruction. It had moved products out of parallel workers and onto the\ncritical path; verified proving time did not improve. Full 35-group\nmaterialization was also rejected at 153.3 MiB. Both dead ends and their\nmeasurements are retained in the transcript.\n\n## Results\n\nThe clean claimed proving-time portfolio ratio is **0.958426**, bootstrap 95%\nCI **[0.954944, 0.962133]**. That is a 4.16% proving-latency reduction, above\nthe class's 1.2888% significance floor. Verified-request ratio geomean is\n**0.964371**.\n\n| workload | prove ratio | 95% CI | rounds | main | candidate | request ratio |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n| xorshift PRNG | 0.961191 | [0.954873, 0.966907] | 5 | 1468.060 ms | 1408.839 ms | 0.962210 |\n| iterative Fibonacci | 0.960254 | [0.958887, 0.964196] | 3 | 1636.723 ms | 1569.976 ms | 0.962307 |\n| Euclidean GCD | 0.959542 | [0.953218, 0.962870] | 5 | 1560.442 ms | 1494.326 ms | 0.961622 |\n| multi-shard ADDI | 0.968090 | [0.959831, 0.976283] | 5 | 1620.772 ms | 1570.431 ms | 0.974301 |\n| SHA2-512 | 0.945873 | [0.933950, 0.966858] | 5 | 1843.937 ms | 1756.293 ms | 0.962728 |\n| SHA2-1024 | 0.954801 | [0.939027, 0.963837] | 5 | 2149.973 ms | 2051.770 ms | 0.964895 |\n| SHA2-2048 | 0.959373 | [0.952284, 0.964520] | 5 | 2379.370 ms | 2292.504 ms | 0.962600 |\n\nEvery workload wins; no portfolio average hides a regression. Energy ratio is\n0.834744 (upper CI 0.839936), peak RSS is 0.999729 (upper CI 1.000914), and\nproof-size ratio is exactly 1.0. Candidate/epoch-anchor ratio is 0.6626.\n\n## Correctness and validation\n\nEvery timed proof verified, cross-arm canonical proof digests are byte-identical\nper round, mechanism telemetry is stable for 7/7 workloads, and the pinned\nStark-V oracle accepted 7/7. Statement and transcript digests match the current\nmain arm. The ReleaseFast aggregate test root, focused compact reducer/planner\ntests, source conformance, RISC-V CPU product closure, Native CPU product\nmarkers, Native Metal closure, and device-only Metal prove plus independent\nverification all pass. The change introduces no Metal dispatch, CPU fallback,\nresident object, synchronization point, shader, or ABI change.\n\n## Caveats\n\nThis is a claimed same-host result; only the judge's rerun counts. Local\nautomatic guard expansion is absent because of the documented cross-board\nclassifier defect, so promotion remains conditional on remote aggregate CPU,\nMetal, and RISC-V guards. This submission improves the shared CPU prover and\nRISC-V portfolio, but it does not complete the exact PR6 workload, log22,\ncold-process, and authenticated judged-evidence contract.\n\n**PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Group lifted quotient contributions in worker-local registers",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Autoresearch session 01 \u2014 post-run-strength-reduction RISC-V epoch\n\n## Objective and inherited frontier\n\nThis iteration begins immediately after PR #81 merged and its claimed promotion\nwas recorded on canonical main `e20d72ac90af`. The standing loop is improvement\n-> PR -> green CI -> merge -> repeat, prioritizing the largest and longest\ncoordinates and especially RISC-V. The promoted run-wise lifted quotient\naccumulator reduced the `riscv/deep` proving-time portfolio to ratio 0.724575\nwith 95% CI [0.723189, 0.726258], preserved proof bytes and RSS, cut measured\nenergy to 0.537x, passed the pinned oracle for 7/7 rows, and cleared aggregate\nCPU, Metal, and RISC-V CI before merge.\n\nThe curre",
+     "label": "session-01.md",
+     "sha256": "0b2dd5d34dc790b4b20c2d0f3701cd952d03cda33c0a409c41cefd058461ec67"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   }
  ]
 }

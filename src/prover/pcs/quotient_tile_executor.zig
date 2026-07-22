@@ -8,6 +8,8 @@ const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
+const compact_groups = @import("quotient_compact_groups.zig");
+const direct_plan = @import("quotient_direct_plan.zig");
 const constraints = @import("stwo_core").constraints;
 const domain_walk = @import("quotient_domain_walk.zig");
 const work_pool_mod = @import("../work_pool.zig");
@@ -25,59 +27,8 @@ pub inline fn shouldUseBoundedInput(lifting_log_size: u32) bool {
     return lifting_log_size >= 13;
 }
 
-pub const DirectContributionPlan = struct {
-    views: []row_executor.LiftingColumnView,
-    ranges: []row_executor.ColumnContributionRange,
-
-    pub fn deinit(self: *DirectContributionPlan, allocator: std.mem.Allocator) void {
-        allocator.free(self.views);
-        allocator.free(self.ranges);
-        self.* = undefined;
-    }
-};
-
-pub fn buildDirectContributionPlan(
-    allocator: std.mem.Allocator,
-    flat_columns: anytype,
-    active_column_indices: []const usize,
-    contribution_ranges: []const row_executor.ColumnContributionRange,
-    nonzero_columns: []const bool,
-    lifting_log_size: u32,
-) !DirectContributionPlan {
-    if (active_column_indices.len != contribution_ranges.len or
-        flat_columns.len != nonzero_columns.len)
-    {
-        return error.ShapeMismatch;
-    }
-
-    var nonzero_count: usize = 0;
-    for (active_column_indices) |column_index| {
-        if (column_index >= flat_columns.len) return error.ShapeMismatch;
-        if (nonzero_columns[column_index]) nonzero_count += 1;
-    }
-    const views = try allocator.alloc(row_executor.LiftingColumnView, nonzero_count);
-    errdefer allocator.free(views);
-    const ranges = try allocator.alloc(row_executor.ColumnContributionRange, nonzero_count);
-    errdefer allocator.free(ranges);
-
-    var write_index: usize = 0;
-    for (active_column_indices, contribution_ranges) |column_index, contribution_range| {
-        if (!nonzero_columns[column_index]) continue;
-        const column = flat_columns[column_index];
-        if (column.log_size > lifting_log_size) return error.InvalidColumnLogSize;
-        const log_shift = lifting_log_size - column.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return error.InvalidColumnLogSize;
-        views[write_index] = .{
-            .values = column.values,
-            .shift_amt = @intCast(log_shift + 1),
-            .is_direct = column.log_size == lifting_log_size,
-        };
-        ranges[write_index] = contribution_range;
-        write_index += 1;
-    }
-    std.debug.assert(write_index == nonzero_count);
-    return .{ .views = views, .ranges = ranges };
-}
+pub const DirectContributionPlan = direct_plan.Plan;
+pub const buildDirectContributionPlan = direct_plan.build;
 
 pub const Scratch = struct {
     row_scratch: row_executor.Scratch,
@@ -202,6 +153,7 @@ pub const Work = struct {
     workspace: *quotients.RowQuotientWorkspace,
     scratch: ?*Scratch,
     domain: CircleDomain,
+    compact_groups: []const compact_groups.Group = &.{},
     column_views: []const row_executor.LiftingColumnView,
     contribution_ranges: []const row_executor.ColumnContributionRange,
     contributions: []const row_executor.ColumnContribution,
@@ -289,6 +241,16 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
 }
 
 fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count: usize) void {
+    for (work.compact_groups) |group| {
+        compact_groups.accumulate(
+            scratch.numerators,
+            scratch.row_capacity,
+            scratch.batch_count,
+            group,
+            start,
+            row_count,
+        );
+    }
     var view_index: usize = 0;
     while (view_index < work.column_views.len) {
         if (canAccumulateFourDirect(work, view_index)) {
@@ -323,6 +285,18 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
                 accumulateDirectPacked(
                     scratch,
                     view.values[start..][0..row_count],
+                    contribution.batch_index,
+                    coefficients,
+                );
+                continue;
+            }
+            if (!view.is_direct) {
+                accumulateLiftedRuns(
+                    scratch,
+                    view.values,
+                    view.shift_amt,
+                    start,
+                    row_count,
                     contribution.batch_index,
                     coefficients,
                 );
@@ -412,6 +386,69 @@ fn accumulateFourDirectPacked(
     }
 }
 
+/// Accumulates an implicitly lifted column without repeating its field
+/// products for every output row. A non-direct view repeats one even/odd source
+/// pair across each `2^shift_amt`-row run. Products are invariant within that
+/// run, so compute the two parity values once and broadcast packed additions
+/// into the output-stationary numerator planes.
+fn accumulateLiftedRuns(
+    scratch: *Scratch,
+    values: []const M31,
+    shift_amt: std.math.Log2Int(usize),
+    start: usize,
+    row_count: usize,
+    batch: usize,
+    coefficients: [qm31.SECURE_EXTENSION_DEGREE]M31,
+) void {
+    std.debug.assert(shift_amt >= 2);
+    const end = start + row_count;
+    var position = start;
+    while (position < end) {
+        const source_block = position >> shift_amt;
+        const block_end = @min(end, (source_block + 1) << shift_amt);
+        const source_index = source_block << 1;
+        std.debug.assert(source_index + 1 < values.len);
+
+        var products: [qm31.SECURE_EXTENSION_DEGREE][2]M31 = undefined;
+        var even_first: [qm31.SECURE_EXTENSION_DEGREE]m31.PackedM31 = undefined;
+        var odd_first: [qm31.SECURE_EXTENSION_DEGREE]m31.PackedM31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            products[coordinate] = .{
+                values[source_index].mul(coefficients[coordinate]),
+                values[source_index + 1].mul(coefficients[coordinate]),
+            };
+            var even_lanes: [m31.PACK_WIDTH]u32 = undefined;
+            var odd_lanes: [m31.PACK_WIDTH]u32 = undefined;
+            inline for (0..m31.PACK_WIDTH) |lane| {
+                even_lanes[lane] = products[coordinate][lane & 1].v;
+                odd_lanes[lane] = products[coordinate][1 - (lane & 1)].v;
+            }
+            even_first[coordinate] = @bitCast(even_lanes);
+            odd_first[coordinate] = @bitCast(odd_lanes);
+        }
+
+        while (block_end - position >= m31.PACK_WIDTH) : (position += m31.PACK_WIDTH) {
+            const local_row = position - start;
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                const plane = batch * qm31.SECURE_EXTENSION_DEGREE + coordinate;
+                const numerators = scratch.numerators.ptr + plane * scratch.row_capacity + local_row;
+                const addend = if ((position & 1) == 0)
+                    even_first[coordinate]
+                else
+                    odd_first[coordinate];
+                m31.storePacked(numerators, m31.addPacked(m31.loadPacked(numerators), addend));
+            }
+        }
+        while (position < block_end) : (position += 1) {
+            const parity = position & 1;
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                const numerator = scratch.numerator(batch, coordinate, position - start);
+                numerator.* = numerator.add(products[coordinate][parity]);
+            }
+        }
+    }
+}
+
 /// Accumulates one direct-column contribution across a tile in native packed
 /// row lanes. Contribution order is unchanged for every output cell; only the
 /// four independent coordinate planes are traversed separately.
@@ -475,6 +512,12 @@ fn executeScalar(work: *Work) !void {
                             contribution.value_coeff.mulM31(base),
                         );
                 }
+            }
+            for (work.compact_groups) |group| {
+                work.workspace.batch_numerators[group.batch_index] =
+                    work.workspace.batch_numerators[group.batch_index].add(
+                        compact_groups.scalarValueAt(group, position),
+                    );
             }
             try writeRow(work, position, domain_point.y, work.workspace.denominator_inverses);
         }
@@ -588,12 +631,14 @@ pub const ParallelRequest = struct {
     use_batched_inversion: bool,
     allow_parallel_scalar: bool,
     domain: CircleDomain,
+    compact_groups: []const compact_groups.Group = &.{},
     column_views: []const row_executor.LiftingColumnView,
     contribution_ranges: []const row_executor.ColumnContributionRange,
     contributions: []const row_executor.ColumnContribution,
     quotient_constants: *const quotients.QuotientConstants,
     lifting_log_size: u32,
     factory: ?tile_sink.Factory,
+    combined_intermediate_bytes: usize = 0,
 };
 
 pub fn executeParallel(
@@ -661,6 +706,7 @@ pub fn executeParallel(
             .workspace = &workspaces[worker_index],
             .scratch = if (scratches) |values| &values[worker_index] else null,
             .domain = request.domain,
+            .compact_groups = request.compact_groups,
             .column_views = request.column_views,
             .contribution_ranges = request.contribution_ranges,
             .contributions = request.contributions,
@@ -703,7 +749,7 @@ pub fn executeParallel(
         .peak_scratch_bytes_per_worker = peak_scratch_bytes,
         .total_scratch_bytes = total_scratch_bytes,
         .bounded_numerator_tile_bytes_per_worker = peak_numerator_bytes,
-        .complete_column_combined_intermediate_bytes = 0,
+        .complete_column_combined_intermediate_bytes = request.combined_intermediate_bytes,
         .post_compute_leaf_pass_count = if (request.factory == null) 1 else 0,
     };
 }
@@ -728,6 +774,36 @@ test "quotient tile input policy selects only the measured batched domain" {
     try std.testing.expect(!shouldUseBoundedInput(12));
     try std.testing.expect(shouldUseBoundedInput(13));
     try std.testing.expect(shouldUseBoundedInput(14));
+}
+
+test "lifted run accumulation matches scalar lifting across boundaries" {
+    var scratch = try Scratch.init(std.testing.allocator, 1, 37);
+    defer scratch.deinit(std.testing.allocator);
+    var values: [64]M31 = undefined;
+    for (&values, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(i * 97 + 11));
+    const coefficients = [qm31.SECURE_EXTENSION_DEGREE]M31{
+        M31.fromCanonical(3), M31.fromCanonical(5),
+        M31.fromCanonical(7), M31.fromCanonical(11),
+    };
+    const Case = struct { shift: u6, start: usize, len: usize };
+    for ([_]Case{
+        .{ .shift = 2, .start = 0, .len = 37 },
+        .{ .shift = 3, .start = 3, .len = 31 },
+        .{ .shift = 7, .start = 5, .len = 29 },
+    }) |case| {
+        @memset(scratch.numerators, M31.zero());
+        accumulateLiftedRuns(&scratch, &values, case.shift, case.start, case.len, 0, coefficients);
+        for (0..case.len) |row| {
+            const position = case.start + row;
+            const source_index = ((position >> case.shift) << 1) + (position & 1);
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                try std.testing.expectEqual(
+                    values[source_index].mul(coefficients[coordinate]).v,
+                    scratch.numerator(0, coordinate, row).v,
+                );
+            }
+        }
+    }
 }
 
 test "packed finalize matches scalar finalizeRowQuotients for all batch counts" {
