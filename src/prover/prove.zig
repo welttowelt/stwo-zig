@@ -76,6 +76,12 @@ pub fn proveEx(
     );
 }
 
+/// Internal-only: surfaced when a deferred first-prove validation
+/// mismatches after proof assembly; the editable drivers (runner/tools)
+/// catch it and re-prove on the latched safe path. Never part of the
+/// healthy-path public behavior.
+pub const DeferredValidationError = error{DeferredCompositionMismatch};
+
 pub fn proveExWithRecorder(
     comptime B: type,
     comptime H: type,
@@ -87,7 +93,11 @@ pub fn proveExWithRecorder(
     include_all_preprocessed_columns: bool,
     recorder: ?*stage_profile.Recorder,
 ) !proof_mod.ExtendedStarkProof(H) {
-    return proveExComponentsWithRecorder(
+    // Join any deferred composition validation before the proof can
+    // leave this call — including on error paths (worker reads borrowed
+    // trace/component memory; join bounds that borrow).
+    defer _ = component_prover.joinPendingCompositionValidation();
+    const extended = try proveExComponentsWithRecorder(
         B,
         H,
         MC,
@@ -98,6 +108,12 @@ pub fn proveExWithRecorder(
         include_all_preprocessed_columns,
         recorder,
     );
+    if (component_prover.joinPendingCompositionValidation() == .mismatch) {
+        var owned = extended;
+        owned.deinit(allocator);
+        return DeferredValidationError.DeferredCompositionMismatch;
+    }
+    return extended;
 }
 
 /// Sampled-points proving entrypoint.
@@ -206,6 +222,21 @@ fn proveExComponents(
     );
 }
 
+var deferred_join_stage_cache: ?u8 = null;
+fn deferredJoinStage() u8 {
+    if (deferred_join_stage_cache) |v| return v;
+    const v: u8 = blk: {
+        const val = std.process.getEnvVarOwned(std.heap.page_allocator, "STWO_DEFER_JOIN_STAGE") catch break :blk 4;
+        defer std.heap.page_allocator.free(val);
+        break :blk std.fmt.parseInt(u8, val, 10) catch 4;
+    };
+    deferred_join_stage_cache = v;
+    return v;
+}
+fn maybeJoinDeferred(stage: u8) void {
+    if (deferredJoinStage() == stage) _ = component_prover.joinPendingCompositionValidation();
+}
+
 fn proveExComponentsWithRecorder(
     comptime B: type,
     comptime H: type,
@@ -270,6 +301,7 @@ fn proveExComponentsWithRecorder(
             );
         };
         defer composition_eval.deinit(allocator);
+        maybeJoinDeferred(1);
 
         var composition_split = blk: {
             var composition_interpolate_stage = try stage_profile.StageScope.begin(
@@ -311,6 +343,7 @@ fn proveExComponentsWithRecorder(
         }
     }
 
+    maybeJoinDeferred(2);
     var components_view = try component_provers.componentsView(allocator);
     defer components_view.deinit(allocator);
     const core_components = components_view.asCore();
@@ -357,6 +390,7 @@ fn proveExComponentsWithRecorder(
     errdefer ext_proof.deinit(allocator);
 
     {
+        maybeJoinDeferred(3);
         var constraint_stage = try stage_profile.StageScope.begin(
             recorder,
             "constraint_check_and_assembly",

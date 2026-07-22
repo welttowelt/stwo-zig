@@ -25,6 +25,7 @@ var validation_vtable: ?*const prover.air.component_prover.ComponentProverVTable
 var recurrence_validation: u8 = validation_unknown;
 
 pub fn install() void {
+    prover.air.component_prover.installCompositionValidationJoin(joinPendingValidation);
     prover.air.component_prover.installBackendCompositionEvaluationHook(
         evaluateLargeRecurrenceComposition,
     );
@@ -101,6 +102,9 @@ fn evaluateLargeRecurrenceComposition(
     random_coeff: QM31,
     trace: *const Trace,
 ) !?SecureColumnByCoords {
+    // A previous prove's deferred validation must fully settle before any
+    // decision here reads the tri-state.
+    _ = joinPendingValidation();
     const shape = recurrenceShape(components, trace) orelse return null;
     if (validationStatus(components[0].vtable) == validation_rejected) return null;
 
@@ -170,20 +174,148 @@ fn evaluateLargeRecurrenceComposition(
 
     if (validationStatus(components[0].vtable) == validation_accepted) return output;
 
-    // The public shape is deliberately insufficient as a type identity. The
-    // first prove checks the specialized semantics over every row against
-    // the parallel scalar oracle (see OracleWorker); the locked reference
-    // stays the root of trust via the packaging equivalence test, and an
-    // oracle fault can only cause rejection-and-fallback, never acceptance.
-    var expected = try oracleComposition(allocator, components, random_coeff, trace);
-    if (!secureColumnsEqual(output, expected)) {
-        setValidationStatus(components[0].vtable, validation_rejected);
-        output.deinit(allocator);
-        return expected;
-    }
-    expected.deinit(allocator);
-    setValidationStatus(components[0].vtable, validation_accepted);
+    // Deferred-overlap validation (design ruling 07-23): the byte-identical
+    // serial reference still checks EVERY row of the first prove, but runs
+    // on a dedicated thread overlapped with the prove's post-composition
+    // stages. prove() joins before any proof is returned. The fast output
+    // is committed to a digest here (RSS rider: 32 bytes retained, never a
+    // column copy); the worker compares the reference digest against it.
+    // On mismatch the join reports it, the tri-state latches rejected, and
+    // the driver re-proves on the safe path — deferred validation can
+    // still only reject, never accept a wrong column.
+    const fast_digest = digestSecureColumn(output);
+    spawnDeferredValidation(allocator, components, random_coeff, trace, fast_digest) catch {
+        // Spawn failure: fall back to the original synchronous check.
+        var expected = try referenceComposition(allocator, components, random_coeff, trace);
+        if (!secureColumnsEqual(output, expected)) {
+            setValidationStatus(components[0].vtable, validation_rejected);
+            output.deinit(allocator);
+            return expected;
+        }
+        expected.deinit(allocator);
+        setValidationStatus(components[0].vtable, validation_accepted);
+        return output;
+    };
     return output;
+}
+
+const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
+
+fn digestSecureColumn(column: SecureColumnByCoords) [Blake2s256.digest_length]u8 {
+    var hasher = Blake2s256.init(.{});
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        hasher.update(std.mem.sliceAsBytes(column.columns[coordinate]));
+    }
+    var digest: [Blake2s256.digest_length]u8 = undefined;
+    hasher.final(&digest);
+    return digest;
+}
+
+const JoinVerdict = prover.air.component_prover.JoinVerdict;
+
+const PendingValidation = struct {
+    thread: std.Thread,
+    verdict: JoinVerdict = .none,
+};
+
+var pending_mutex: std.Thread.Mutex = .{};
+var pending_validation: ?*PendingValidation = null;
+var pending_allocator: std.mem.Allocator = undefined;
+
+const DeferredCtx = struct {
+    allocator: std.mem.Allocator,
+    components: []const ComponentProver,
+    random_coeff: QM31,
+    // Deep-copied slice headers: the hook's `trace` may be a call-scoped
+    // view; only the column DATA is long-lived. We own these arrays.
+    trace_polys: [][]const Poly,
+    trace_value: Trace,
+    fast_digest: [Blake2s256.digest_length]u8,
+    slot: *PendingValidation,
+
+    fn deinitTraceCopy(self: *DeferredCtx) void {
+        for (self.trace_polys) |inner| self.allocator.free(inner);
+        self.allocator.free(self.trace_polys);
+    }
+};
+
+const Poly = prover.air.component_prover.Poly;
+
+fn spawnDeferredValidation(
+    allocator: std.mem.Allocator,
+    components: []const ComponentProver,
+    random_coeff: QM31,
+    trace: *const Trace,
+    fast_digest: [Blake2s256.digest_length]u8,
+) !void {
+    pending_mutex.lock();
+    defer pending_mutex.unlock();
+    if (pending_validation != null) return error.ValidationAlreadyPending;
+    const slot = try allocator.create(PendingValidation);
+    errdefer allocator.destroy(slot);
+    const ctx = try allocator.create(DeferredCtx);
+    errdefer allocator.destroy(ctx);
+    const outer = try allocator.alloc([]const Poly, trace.polys.items.len);
+    errdefer allocator.free(outer);
+    var copied: usize = 0;
+    errdefer for (outer[0..copied]) |inner| allocator.free(inner);
+    for (trace.polys.items, 0..) |inner, i| {
+        outer[i] = try allocator.dupe(Poly, inner);
+        copied += 1;
+    }
+    ctx.* = .{
+        .allocator = allocator,
+        .components = components,
+        .random_coeff = random_coeff,
+        .trace_polys = outer,
+        .trace_value = .{ .polys = .{ .items = @constCast(outer) } },
+        .fast_digest = fast_digest,
+        .slot = slot,
+    };
+    slot.* = .{ .thread = try std.Thread.spawn(.{}, deferredValidationMain, .{ctx}) };
+    pending_validation = slot;
+    pending_allocator = allocator;
+}
+
+fn deferredValidationMain(ctx: *DeferredCtx) void {
+    defer ctx.allocator.destroy(ctx);
+    defer ctx.deinitTraceCopy();
+    var expected = referenceComposition(
+        ctx.allocator,
+        ctx.components,
+        ctx.random_coeff,
+        &ctx.trace_value,
+    ) catch {
+        // Reference failed to run: refuse to trust; latch rejected.
+        setValidationStatus(ctx.components[0].vtable, validation_rejected);
+        ctx.slot.verdict = .mismatch;
+        return;
+    };
+    defer expected.deinit(ctx.allocator);
+    const reference_digest = digestSecureColumn(expected);
+    if (std.mem.eql(u8, &reference_digest, &ctx.fast_digest)) {
+        setValidationStatus(ctx.components[0].vtable, validation_accepted);
+        ctx.slot.verdict = .accepted;
+    } else {
+        setValidationStatus(ctx.components[0].vtable, validation_rejected);
+        ctx.slot.verdict = .mismatch;
+    }
+}
+
+/// Registered into the prover's join surface; also called on hook
+/// re-entry so a second prove can never race a pending validation.
+pub fn joinPendingValidation() JoinVerdict {
+    pending_mutex.lock();
+    const slot = pending_validation orelse {
+        pending_mutex.unlock();
+        return .none;
+    };
+    pending_validation = null;
+    pending_mutex.unlock();
+    slot.thread.join();
+    const verdict = slot.verdict;
+    pending_allocator.destroy(slot);
+    return verdict;
 }
 
 fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?RecurrenceShape {
@@ -236,112 +368,6 @@ fn setValidationStatus(
     defer validation_mutex.unlock();
     validation_vtable = vtable;
     recurrence_validation = status;
-}
-
-/// Validation oracle: a deliberately naive, scalar, unfused twin of the
-/// packed Worker kernel — same extracted shape, same powers/denominators,
-/// different arithmetic path (scalar M31 ops, no fusion, no packing).
-/// Used for the first-prove every-row check instead of the serial locked
-/// reference so validation parallelizes; the locked reference remains the
-/// root of trust via the packaging-time equivalence test. An incorrect
-/// oracle can only cause validation REJECTION (fallback to the locked
-/// path), never an accepted-wrong column.
-const OracleWorker = struct {
-    first_column: [*]const M31,
-    outputs: [qm31.SECURE_EXTENSION_DEGREE][*]M31,
-    powers: []const QM31,
-    denominator_inverses: [2]M31,
-    row_count: usize,
-    column_count: usize,
-    column_stride: usize,
-    row_start: usize,
-    row_end: usize,
-
-    fn run(self: *OracleWorker) void {
-        const half = self.row_count / 2;
-        var row = self.row_start;
-        while (row < self.row_end) : (row += 1) {
-            var a = self.first_column[row];
-            var b = self.first_column[self.column_stride + row];
-            var accumulators: [qm31.SECURE_EXTENSION_DEGREE]M31 = .{
-                M31.zero(), M31.zero(), M31.zero(), M31.zero(),
-            };
-            var column: usize = 2;
-            while (column < self.column_count) : (column += 1) {
-                const c = self.first_column[column * self.column_stride + row];
-                const expected = a.mul(a).add(b.mul(b));
-                const recurrence = c.sub(expected);
-                const power = self.powers[self.column_count - 1 - column].toM31Array();
-                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-                    accumulators[coordinate] = accumulators[coordinate].add(
-                        recurrence.mul(power[coordinate]),
-                    );
-                }
-                a = b;
-                b = c;
-            }
-            const denominator = self.denominator_inverses[@intFromBool(row >= half)];
-            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-                self.outputs[coordinate][row] = accumulators[coordinate].mul(denominator);
-            }
-        }
-    }
-};
-
-fn oracleComposition(
-    allocator: std.mem.Allocator,
-    components: []const ComponentProver,
-    random_coeff: QM31,
-    trace: *const Trace,
-) !SecureColumnByCoords {
-    const shape = recurrenceShape(components, trace).?;
-    const powers = try prover.air.accumulation.generateSecurePowers(
-        allocator,
-        random_coeff,
-        shape.constraint_count,
-    );
-    defer allocator.free(powers);
-    const eval_domain = canonic.CanonicCoset.new(shape.eval_log_size).circleDomain();
-    const trace_coset = canonic.CanonicCoset.new(shape.eval_log_size - 1).coset();
-    const denominator_inverses = [2]M31{
-        try constraints.cosetVanishing(M31, trace_coset, eval_domain.at(0)).inv(),
-        try constraints.cosetVanishing(M31, trace_coset, eval_domain.at(1)).inv(),
-    };
-
-    var output = try SecureColumnByCoords.uninitialized(allocator, shape.row_count);
-    errdefer output.deinit(allocator);
-    var output_pointers: [qm31.SECURE_EXTENSION_DEGREE][*]M31 = undefined;
-    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-        output_pointers[coordinate] = output.columns[coordinate].ptr;
-    }
-
-    const pool = prover.work_pool.getGlobalPool();
-    const requested_workers = if (pool) |active| active.workerCount() else 1;
-    const worker_count = @max(1, @min(requested_workers, shape.row_count));
-    const workers = try allocator.alloc(OracleWorker, worker_count);
-    defer allocator.free(workers);
-    for (workers, 0..) |*worker, index| {
-        worker.* = .{
-            .first_column = shape.first_column,
-            .outputs = output_pointers,
-            .powers = powers,
-            .denominator_inverses = denominator_inverses,
-            .row_count = shape.row_count,
-            .column_count = shape.column_count,
-            .column_stride = shape.column_stride,
-            .row_start = shape.row_count * index / worker_count,
-            .row_end = shape.row_count * (index + 1) / worker_count,
-        };
-    }
-    if (pool) |active| {
-        var wait_group = std.Thread.WaitGroup{};
-        for (workers[1..]) |*worker| active.spawnWg(&wait_group, OracleWorker.run, .{worker});
-        OracleWorker.run(&workers[0]);
-        wait_group.wait();
-    } else {
-        OracleWorker.run(&workers[0]);
-    }
-    return output;
 }
 
 fn referenceComposition(

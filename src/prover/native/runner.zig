@@ -573,7 +573,7 @@ fn runGatedSample(
 ) !GatedSampleOutcome(Spec.Statement) {
     if (comptime backend == .metal_hybrid) {
         const before = try Engine.telemetrySnapshot();
-        var sample = try runSample(
+        var sample = runSample(
             Engine,
             Spec,
             session,
@@ -582,15 +582,41 @@ fn runGatedSample(
             request,
             workload_geometry,
             profiled,
-        );
+        ) catch |err| switch (err) {
+            // Deferred first-prove validation mismatched after assembly:
+            // the tri-state is latched rejected, so one internal re-run
+            // proves on the safe reference path and returns a valid proof
+            // (design ruling 07-23, rider 1 — no new public error class).
+            error.DeferredCompositionMismatch => try runSample(
+                Engine,
+                Spec,
+                session,
+                allocator,
+                pcs_config,
+                request,
+                workload_geometry,
+                profiled,
+            ),
+            else => return err,
+        };
         errdefer sample.deinit(allocator);
         const after = try Engine.telemetrySnapshot();
         const delta = after.delta(before);
         try delta.requireMetalDispatch();
         return .{ .sample = sample, .telemetry = telemetry.request(delta) };
     }
-    return .{
-        .sample = try runSample(
+    const sample = runSample(
+        Engine,
+        Spec,
+        session,
+        allocator,
+        pcs_config,
+        request,
+        workload_geometry,
+        profiled,
+    ) catch |err| switch (err) {
+        // See the hybrid-path comment: rider-1 internal re-prove.
+        error.DeferredCompositionMismatch => try runSample(
             Engine,
             Spec,
             session,
@@ -600,6 +626,10 @@ fn runGatedSample(
             workload_geometry,
             profiled,
         ),
+        else => return err,
+    };
+    return .{
+        .sample = sample,
         .telemetry = null,
     };
 }

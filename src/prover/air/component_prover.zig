@@ -167,6 +167,23 @@ pub const BackendCompositionEvaluationHook = *const fn (
 // CPU and unsupported component types keep the exact reference evaluator.
 var backend_composition_evaluation_hook: ?BackendCompositionEvaluationHook = null;
 
+/// Deferred-validation join surface: backends whose composition hook
+/// defers its first-prove reference validation register a join here.
+/// prove() joins before any proof is returned, so no proof ever leaves
+/// the process unvalidated (deferred-overlap design, ruling 07-23).
+pub const CompositionValidationJoin = *const fn () JoinVerdict;
+pub const JoinVerdict = enum { none, accepted, mismatch };
+var validation_join_hook: ?CompositionValidationJoin = null;
+
+pub fn installCompositionValidationJoin(hook: CompositionValidationJoin) void {
+    validation_join_hook = hook;
+}
+
+pub fn joinPendingCompositionValidation() JoinVerdict {
+    const hook = validation_join_hook orelse return .none;
+    return hook();
+}
+
 pub fn installBackendCompositionEvaluationHook(hook: BackendCompositionEvaluationHook) void {
     if (backend_composition_evaluation_hook) |installed| {
         std.debug.assert(installed == hook);
