@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const stream4 = @import("blake2s_stream4.zig");
 
 pub const Blake2sHash = [32]u8;
 
@@ -363,6 +364,52 @@ pub const Blake2sHasher = struct {
         compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
 
         return parallelStatesToDigests(&states);
+    }
+
+    pub fn finalizeEqualTail4(
+        hashers: *const [4]Self,
+        tails: *const [4][]const u8,
+    ) [4]Blake2sHash {
+        return stream4.finalizeEqualTail4(
+            Self,
+            V4,
+            Blake2sHash,
+            hashers,
+            tails,
+            loadParallelBlock4,
+            compressParallel4,
+            parallelStatesToDigests,
+        );
+    }
+
+    pub fn updateEqual4(
+        hashers: *[4]Self,
+        data: *const [4][]const u8,
+    ) void {
+        stream4.updateEqual4(
+            Self,
+            V4,
+            hashers,
+            data,
+            loadParallelBlock4,
+            compressParallel4,
+        );
+    }
+
+    pub fn updateM31Columns4(
+        hashers: *[4]Self,
+        columns: anytype,
+        position: usize,
+    ) void {
+        stream4.updateM31Columns4(
+            Self,
+            V4,
+            hashers,
+            columns,
+            position,
+            loadParallelBlock4,
+            compressParallel4,
+        );
     }
 
     /// Hashes four equal-length M31 leaf messages directly from column-major

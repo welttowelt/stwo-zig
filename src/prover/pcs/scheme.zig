@@ -353,10 +353,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         ///   1. Call `streamingTreeBuilder()` to obtain a builder.
         ///   2. Call `builder.addColumns(batch)` for each batch of
         ///      `ColumnEvaluation` (owned values).  The batch data is prepared
-        ///      (interpolated + extended), hashed into the Merkle leaf layer,
-        ///      and the extended column data is freed immediately.
-        ///   3. Call `builder.commit(channel)` to finalise the Merkle tree and
-        ///      append it to the commitment scheme.
+        ///      (interpolated + extended) and retained for decommitment.
+        ///   3. Call `builder.commit(channel)` to hash the complete sorted shape,
+        ///      finalise the Merkle tree, and append it to the scheme.
         ///
         /// The final Merkle root is bit-identical to `commitOwned()`.
         pub fn streamingTreeBuilder(
@@ -372,12 +371,11 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
         }
 
         /// Commits owned evaluation columns in streaming batches to reduce peak
-        /// memory.  Semantically identical to `commitOwned()` but processes
-        /// columns in groups of `batch_size`, freeing each batch's extended
-        /// evaluation data before the next batch is prepared.
+        /// memory. Semantically identical to `commitOwned()` but prepares
+        /// columns in groups of `batch_size` before one shape-aware leaf pass.
         ///
-        /// `batch_size` controls the number of columns prepared and hashed in
-        /// each round.  A value of 0 uses the default (64).
+        /// `batch_size` controls the number of columns prepared in each round.
+        /// A value of 0 uses the default (64).
         pub fn commitOwnedStreaming(
             self: *Self,
             allocator: std.mem.Allocator,
