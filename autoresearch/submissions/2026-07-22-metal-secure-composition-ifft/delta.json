@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "predecessor_commit": "40cd456fd998",
+  "declared_objective": {
+    "board": "core_metal",
+    "workload_class": "xlarge",
+    "dimension": "time"
+  },
+  "declared_scope": "s3",
+  "files": {
+    "src/backends/metal/commit_backend.zig": "sha256:0ecb58355498a72f6c5d5ac8eda4a4bb6032517ed0ac3c9b7ad35d7cd740b19e",
+    "src/backends/metal/runtime/circle_legacy.m": "sha256:333dd2a028bf98f78fab5c8db0c3c1ea3454914b8f46c2395b9c9b7c2c8232a8",
+    "src/backends/metal/secure_composition.zig": "sha256:5fadcbf52c83ce3f9b00f0f1da9197bfd38b5db51a153998a6e46ad1c9696f5d",
+    "src/prover/poly/circle/secure_poly.zig": "sha256:f1a37e76bf5b2dce673f0e02e51e512101c1be7bb62f8f701702654906f9af24"
+  },
+  "transcripts": {
+    "transcripts/session-01.md": {
+      "sha256": "5dc9164b9f93f8262f6b0da31c2dd80b4ecfa3fb11dae0a16e8c62e6f7ebe69b",
+      "captured_by": "submitter"
+    }
+  },
+  "transcripts_declined": false
+}
