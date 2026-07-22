@@ -253,6 +253,33 @@ pub const MetalCommitBackend = struct {
         return resident_tree;
     }
 
+    /// Hashes logical column slices directly from their retained shared arena.
+    /// Offset-aware leaves avoid flattening cache-skewed columns into a second
+    /// allocation before the resident parent chain begins.
+    pub fn commitMerkleWithBacking(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        columns: []const []const @import("stwo_core").fields.m31.M31,
+        backing_buffers: []const []@import("stwo_core").fields.m31.M31,
+    ) !MerkleTree(H) {
+        var cells: usize = 0;
+        for (columns) |column| cells = try std.math.add(usize, cells, column.len);
+        if (cells == 0 or !commit_policy.usesResidentMerkle(cells) or backing_buffers.len != 1) {
+            return commitMerkle(H, allocator, columns);
+        }
+
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const resident_tree = try MerkleTree(H).commitSharedBacking(
+            lease.runtime,
+            allocator,
+            columns,
+            backing_buffers[0],
+        );
+        telemetry.record(.resident_merkle_commit);
+        return resident_tree;
+    }
+
     pub fn adoptHostMerkle(
         comptime H: type,
         tree: merkle.MerkleProverLifted(H),
@@ -391,6 +418,9 @@ pub const MetalCommitBackend = struct {
         source_values: []const []const @import("stwo_core").fields.m31.M31,
         base_values: []const []@import("stwo_core").fields.m31.M31,
         extended_values: []const []@import("stwo_core").fields.m31.M31,
+        transform_buffer: []@import("stwo_core").fields.m31.M31,
+        extended_start: usize,
+        extended_stride: usize,
         base_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
         base_twiddles: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
         extended_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
@@ -422,6 +452,9 @@ pub const MetalCommitBackend = struct {
             source_values,
             base_values,
             extended_values,
+            transform_buffer,
+            extended_start,
+            extended_stride,
             base_twiddles.itwiddles,
             extended_twiddles.twiddles,
             base_domain.logSize(),

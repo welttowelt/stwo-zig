@@ -248,10 +248,23 @@ bool stwo_zig_metal_compute_quotients(
                 }
                 size_t run_bytes = run_words * sizeof(uint32_t);
                 uintptr_t address = (uintptr_t)raw_columns[run_start];
-                bool no_copy = (address % page_size) == 0u && (run_bytes % page_size) == 0u;
-                id<MTLBuffer> source = no_copy
-                    ? [runtime.device newBufferWithBytesNoCopy:(void *)raw_columns[run_start]
-                                                        length:run_bytes
+                // Cache-skewed columns intentionally begin inside a VM page.
+                // Alias the complete page envelope and bind the logical byte
+                // offset instead of copying every non-page-aligned column.
+                uintptr_t alias_address = address - (address % page_size);
+                size_t source_binding_offset = address - alias_address;
+                bool alias_shared = runtime.device.hasUnifiedMemory &&
+                    run_bytes <= SIZE_MAX - source_binding_offset;
+                size_t alias_length = 0u;
+                if (alias_shared) {
+                    size_t alias_span = source_binding_offset + run_bytes;
+                    alias_shared = alias_span <= SIZE_MAX - (page_size - 1u);
+                    if (alias_shared)
+                        alias_length = (alias_span + page_size - 1u) / page_size * page_size;
+                }
+                id<MTLBuffer> source = alias_shared
+                    ? [runtime.device newBufferWithBytesNoCopy:(void *)alias_address
+                                                        length:alias_length
                                                        options:MTLResourceStorageModeShared
                                                    deallocator:nil]
                     : [runtime.device newBufferWithBytes:raw_columns[run_start]
@@ -279,7 +292,9 @@ bool stwo_zig_metal_compute_quotients(
                     [raw_sources addObject:run_views];
                     id<MTLComputeCommandEncoder> numerator_encoder = [command computeCommandEncoder];
                     [numerator_encoder setComputePipelineState:runtime.quotientNumerator];
-                    [numerator_encoder setBuffer:source offset:0 atIndex:0];
+                    [numerator_encoder setBuffer:source
+                                           offset:alias_shared ? source_binding_offset : 0u
+                                          atIndex:0];
                     [numerator_encoder setBuffer:run_views offset:0 atIndex:1];
                     [numerator_encoder setBytes:&run_view_count length:sizeof(run_view_count) atIndex:2];
                     [numerator_encoder setBuffer:numerators offset:0 atIndex:3];

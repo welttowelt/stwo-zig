@@ -31,6 +31,10 @@ const QM31 = qm31_mod.QM31;
 /// Satisfies the full `backend.assertBackend` contract by delegating
 /// to the existing scalar implementations in `core/` and `prover/`.
 pub const CpuBackend = struct {
+    pub const combined_commit_min_columns: usize = 65;
+    pub const combined_commit_max_columns: usize = 256;
+    pub const combined_base_in_place = true;
+
     // ---------------------------------------------------------------
     // ColumnOps
     // ---------------------------------------------------------------
@@ -97,6 +101,92 @@ pub const CpuBackend = struct {
         _ = coeffs;
         _ = point;
         return QM31.zero(); // Placeholder — full impl in Phase 3
+    }
+
+    /// Retains large CPU commitment columns in the same cache-skewed backing
+    /// layout used by the shared-memory Metal path while preserving one FFT
+    /// task per column on the global worker pool.
+    pub fn interpolateAndEvaluateCircleBuffers(
+        allocator: std.mem.Allocator,
+        source_values: []const []const M31,
+        base_values: []const []M31,
+        extended_values: []const []M31,
+        transform_buffer: []M31,
+        extended_start: usize,
+        extended_stride: usize,
+        base_domain: anytype,
+        base_twiddles: anytype,
+        extended_domain: anytype,
+        extended_twiddles: anytype,
+    ) !void {
+        _ = transform_buffer;
+        _ = extended_start;
+        _ = extended_stride;
+        if (source_values.len == 0 or source_values.len != base_values.len or
+            base_values.len != extended_values.len)
+        {
+            return error.InvalidColumns;
+        }
+
+        const prover = @import("stwo_prover_impl");
+        const BaseDomain = @TypeOf(base_domain);
+        const BaseTwiddles = @TypeOf(base_twiddles);
+        const ExtendedDomain = @TypeOf(extended_domain);
+        const ExtendedTwiddles = @TypeOf(extended_twiddles);
+        const Job = struct {
+            base: []M31,
+            extended: []M31,
+            base_domain: BaseDomain,
+            base_twiddles: BaseTwiddles,
+            extended_domain: ExtendedDomain,
+            extended_twiddles: ExtendedTwiddles,
+            err: ?anyerror = null,
+
+            fn run(job: *@This()) void {
+                var base_batch = [_][]M31{job.base};
+                prover.poly.circle.poly.interpolateBuffersWithTwiddles(
+                    &base_batch,
+                    job.base_domain,
+                    job.base_twiddles,
+                ) catch |err| {
+                    job.err = err;
+                    return;
+                };
+                @memcpy(job.extended[0..job.base.len], job.base);
+                var extended_batch = [_][]M31{job.extended};
+                prover.poly.circle.poly.evaluateExtensionBuffersWithTwiddles(
+                    &extended_batch,
+                    job.extended_domain,
+                    job.extended_twiddles,
+                ) catch |err| {
+                    job.err = err;
+                };
+            }
+        };
+
+        const jobs = try allocator.alloc(Job, source_values.len);
+        defer allocator.free(jobs);
+        for (source_values, base_values, extended_values, jobs) |source, base, extended, *job| {
+            if (source.ptr != base.ptr) @memcpy(base, source);
+            job.* = .{
+                .base = base,
+                .extended = extended,
+                .base_domain = base_domain,
+                .base_twiddles = base_twiddles,
+                .extended_domain = extended_domain,
+                .extended_twiddles = extended_twiddles,
+            };
+        }
+
+        if (prover.work_pool.getGlobalPool()) |pool| {
+            var wait_group: std.Thread.WaitGroup = .{};
+            for (jobs[1..]) |*job| pool.spawnWg(&wait_group, Job.run, .{job});
+            Job.run(&jobs[0]);
+            wait_group.wait();
+        } else {
+            for (jobs) |*job| Job.run(job);
+        }
+        for (jobs) |job| if (job.err) |err| return err;
     }
 
     // ---------------------------------------------------------------

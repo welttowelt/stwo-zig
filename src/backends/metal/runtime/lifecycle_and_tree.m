@@ -26,6 +26,8 @@ void *stwo_zig_metal_merkle_commit(
     const uint32_t *const *columns,
     const size_t *column_lengths,
     const uint32_t *column_log_sizes,
+    const uint32_t *backing_words,
+    size_t backing_word_count,
     uint32_t column_count,
     uint32_t lifting_log_size,
     const uint32_t *leaf_seed,
@@ -59,13 +61,54 @@ void *stwo_zig_metal_merkle_commit(
             contiguous_words += column_lengths[column];
         }
         size_t page_size = (size_t)getpagesize();
-        bool alias_shared = flat_bytes >= (1u * 1024u * 1024u) &&
+        bool backing_requested = backing_words != NULL || backing_word_count != 0u;
+        bool backing_valid = backing_words != NULL &&
+            backing_word_count <= SIZE_MAX / sizeof(uint32_t);
+        uintptr_t backing_begin = (uintptr_t)backing_words;
+        uintptr_t backing_end = backing_begin;
+        uintptr_t column_min = UINTPTR_MAX;
+        uintptr_t column_max = 0u;
+        if (backing_valid) {
+            size_t backing_bytes = backing_word_count * sizeof(uint32_t);
+            backing_valid = backing_begin <= UINTPTR_MAX - backing_bytes;
+            if (backing_valid) backing_end = backing_begin + backing_bytes;
+            for (uint32_t column = 0u; backing_valid && column < column_count; ++column) {
+                uintptr_t column_begin = (uintptr_t)columns[column];
+                size_t column_bytes = column_lengths[column] * sizeof(uint32_t);
+                backing_valid = column_begin >= backing_begin && column_begin <= backing_end &&
+                    column_bytes <= backing_end - column_begin;
+                if (backing_valid) {
+                    if (column_begin < column_min) column_min = column_begin;
+                    if (column_begin + column_bytes > column_max)
+                        column_max = column_begin + column_bytes;
+                }
+            }
+        }
+        if (backing_requested && !backing_valid) {
+            write_error(error_message, error_message_len, @"Metal Merkle backing layout is invalid");
+            return NULL;
+        }
+        size_t backing_bytes = backing_valid ? backing_word_count * sizeof(uint32_t) : 0u;
+        bool alias_backing = flat_bytes >= (1u * 1024u * 1024u) &&
+            runtime.device.hasUnifiedMemory && backing_valid &&
+            (backing_begin % page_size) == 0u && (backing_bytes % page_size) == 0u;
+        uintptr_t alias_backing_begin = backing_begin;
+        size_t alias_backing_bytes = backing_bytes;
+        if (alias_backing) {
+            alias_backing_begin = column_min - (column_min % page_size);
+            uintptr_t alias_backing_end = column_max;
+            if (alias_backing_end % page_size != 0u)
+                alias_backing_end += page_size - (alias_backing_end % page_size);
+            alias_backing_bytes = alias_backing_end - alias_backing_begin;
+        }
+        bool alias_contiguous = flat_bytes >= (1u * 1024u * 1024u) &&
             runtime.device.hasUnifiedMemory && contiguous_columns &&
             ((uintptr_t)columns[0] % page_size) == 0u && (flat_bytes % page_size) == 0u;
+        bool alias_shared = alias_backing || alias_contiguous;
         bool gpu_upload = !alias_shared && flat_bytes >= (64u * 1024u * 1024u) && column_count >= 16u;
         id<MTLBuffer> staging = alias_shared
-            ? [runtime.device newBufferWithBytesNoCopy:(void *)columns[0]
-                                                length:flat_bytes
+            ? [runtime.device newBufferWithBytesNoCopy:(void *)(alias_backing ? alias_backing_begin : (uintptr_t)columns[0])
+                                                length:alias_backing ? alias_backing_bytes : flat_bytes
                                                options:MTLResourceStorageModeShared
                                            deallocator:nil]
             : [runtime.device newBufferWithLength:flat_bytes
@@ -91,7 +134,14 @@ void *stwo_zig_metal_merkle_commit(
                 write_error(error_message, error_message_len, @"Metal column arena exceeds u32 offsets");
                 return NULL;
             }
-            offset_values[column] = (uint32_t)cursor;
+            size_t column_offset = alias_backing
+                ? ((uintptr_t)columns[column] - alias_backing_begin) / sizeof(uint32_t)
+                : cursor;
+            if (column_offset > UINT32_MAX) {
+                write_error(error_message, error_message_len, @"Metal column backing exceeds u32 offsets");
+                return NULL;
+            }
+            offset_values[column] = (uint32_t)column_offset;
             if (!gpu_upload && !alias_shared)
                 memcpy(staging_values + cursor, columns[column], column_lengths[column] * sizeof(uint32_t));
             cursor += column_lengths[column];

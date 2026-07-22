@@ -88,6 +88,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> leafAbsorbCompactResident;
 @property(nonatomic, strong) id<MTLComputePipelineState> parentsPlainSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> clearArenaSpans;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleExpandFusedSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpandSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleCopySparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFirstSparse;
@@ -578,6 +579,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.leafAbsorbCompactResident = make_pipeline(device, library, @"stwo_zig_blake2s_leaf_absorb_compact_resident", error_message, error_message_len);
         runtime.parentsPlainSparse = make_pipeline(device, library, @"stwo_zig_blake2s_parents_plain_sparse", error_message, error_message_len);
         runtime.clearArenaSpans = make_pipeline(device, library, @"stwo_zig_clear_arena_spans", error_message, error_message_len);
+        runtime.circleExpandFusedSparse = make_pipeline(device, library, @"stwo_zig_circle_expand_fused_sparse", error_message, error_message_len);
         runtime.circleExpandSparse = make_pipeline(device, library, @"stwo_zig_circle_expand_sparse", error_message, error_message_len);
         runtime.circleCopySparse = make_pipeline(device, library, @"stwo_zig_circle_copy_sparse", error_message, error_message_len);
         runtime.circleIfftFirstSparse = make_pipeline(device, library, @"stwo_zig_circle_ifft_first_sparse", error_message, error_message_len);
@@ -632,7 +634,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.decommitSparseLeafGroupResident == nil || runtime.clearArenaSpans == nil ||
             runtime.leafAbsorbResident == nil || runtime.leafAbsorbCompactResident == nil ||
             runtime.parentsPlainSparse == nil ||
-            runtime.circleExpandSparse == nil || runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
+            runtime.circleExpandFusedSparse == nil || runtime.circleExpandSparse == nil ||
+            runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftRadix4Sparse == nil ||
             runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||

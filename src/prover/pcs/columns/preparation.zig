@@ -127,7 +127,19 @@ pub fn prepareColumnsForCommitOwnedForBackend(
         };
     }
 
-    if (log_blowup_factor != 0 and comptime @hasDecl(B, "interpolateAndEvaluateCircleBuffers")) {
+    const combined_commit_min_columns = if (comptime @hasDecl(B, "combined_commit_min_columns"))
+        B.combined_commit_min_columns
+    else
+        0;
+    const combined_commit_max_columns = if (comptime @hasDecl(B, "combined_commit_max_columns"))
+        B.combined_commit_max_columns
+    else
+        std.math.maxInt(usize);
+    if (log_blowup_factor != 0 and
+        (comptime @hasDecl(B, "interpolateAndEvaluateCircleBuffers")) and
+        owned_columns.len >= combined_commit_min_columns and
+        owned_columns.len <= combined_commit_max_columns)
+    {
         return prepareColumnsCombinedForBackend(
             B,
             allocator,
@@ -232,10 +244,36 @@ fn prepareColumnsCombinedForBackend(
         const base_twiddles = try twiddle_source.get(allocator, group.log_size);
         const extended_twiddles = try twiddle_source.get(allocator, extended_log_size);
 
-        const base_buffer = try allocator.alloc(M31, group.indices.items.len * base_domain.size());
-        try coefficient_buffers.append(allocator, base_buffer);
-        const extended_buffer = try allocator.alloc(M31, group.indices.items.len * extended_domain.size());
-        try column_buffers.append(allocator, extended_buffer);
+        const column_count = group.indices.items.len;
+        const page_words = std.heap.pageSize() / @sizeOf(M31);
+        const base_in_place = comptime @hasDecl(B, "combined_base_in_place") and
+            B.combined_base_in_place;
+        // Keep Metal coefficients independently releasable from the skewed
+        // evaluation arena; CPU backends transform their owned inputs in place.
+        const base_buffer: []M31 = if (base_in_place)
+            &.{}
+        else blk: {
+            const buffer = try allocator.alloc(
+                M31,
+                try std.math.mul(usize, column_count, base_domain.size()),
+            );
+            try coefficient_buffers.append(allocator, buffer);
+            break :blk buffer;
+        };
+        const extended_start: usize = 0;
+        // AIR evaluators walk a row across columns. An exact power-of-two
+        // column stride aliases cache and translation structures; one cache
+        // line of skew rotates both while preserving ordinary column slices.
+        const extended_stride = extended_domain.size() +
+            @as(usize, if (column_count >= 64) 16 else 0);
+        const extended_span = try std.math.add(
+            usize,
+            try std.math.mul(usize, column_count - 1, extended_stride),
+            extended_domain.size(),
+        );
+        const backing_words = std.mem.alignForward(usize, extended_span, page_words);
+        const transform_buffer = try allocator.alloc(M31, backing_words);
+        try column_buffers.append(allocator, transform_buffer);
 
         const base_values = try allocator.alloc([]M31, group.indices.items.len);
         defer allocator.free(base_values);
@@ -244,10 +282,13 @@ fn prepareColumnsCombinedForBackend(
         const extended_values = try allocator.alloc([]M31, group.indices.items.len);
         defer allocator.free(extended_values);
         for (group.indices.items, 0..) |column_index, group_index| {
-            const base = base_buffer[group_index * base_domain.size() ..][0..base_domain.size()];
+            const base = if (base_in_place)
+                @constCast(owned_columns[column_index].values)
+            else
+                base_buffer[group_index * base_domain.size() ..][0..base_domain.size()];
             source_values[group_index] = owned_columns[column_index].values;
             base_values[group_index] = base;
-            const values = extended_buffer[group_index * extended_domain.size() ..][0..extended_domain.size()];
+            const values = transform_buffer[extended_start + group_index * extended_stride ..][0..extended_domain.size()];
             extended_values[group_index] = values;
             extended[column_index] = .{ .log_size = extended_log_size, .values = values };
         }
@@ -256,6 +297,9 @@ fn prepareColumnsCombinedForBackend(
             source_values,
             base_values,
             extended_values,
+            transform_buffer,
+            extended_start,
+            extended_stride,
             base_domain,
             base_twiddles,
             extended_domain,
@@ -263,12 +307,16 @@ fn prepareColumnsCombinedForBackend(
         );
 
         for (group.indices.items, base_values) |column_index, base| {
-            coefficients[column_index] = try prover_circle.CircleCoefficients.initBorrowed(base);
+            coefficients[column_index] = if (base_in_place) blk: {
+                const coefficient = try prover_circle.CircleCoefficients.initOwned(base);
+                owned_columns[column_index].values = &.{};
+                break :blk coefficient;
+            } else try prover_circle.CircleCoefficients.initBorrowed(base);
             try initialized_indices.append(allocator, column_index);
         }
     }
 
-    for (owned_columns) |column| allocator.free(column.values);
+    for (owned_columns) |column| if (column.values.len != 0) allocator.free(column.values);
     allocator.free(owned_columns);
 
     const owned_column_buffers = try allocator.dupe([]M31, column_buffers.items);
@@ -285,8 +333,13 @@ fn prepareColumnsCombinedForBackend(
             .column_backing_buffers = owned_column_buffers,
         };
     }
-    const owned_coefficient_buffers = try allocator.dupe([]M31, coefficient_buffers.items);
-    coefficient_buffers.clearRetainingCapacity();
+    const owned_coefficient_buffers: ?[][]M31 = if (coefficient_buffers.items.len == 0)
+        null
+    else blk: {
+        const buffers = try allocator.dupe([]M31, coefficient_buffers.items);
+        coefficient_buffers.clearRetainingCapacity();
+        break :blk buffers;
+    };
     column_buffers.clearRetainingCapacity();
     return .{
         .columns = extended,

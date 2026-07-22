@@ -136,20 +136,58 @@ kernel void stwo_zig_circle_expand_coefficients(
     extended[(position.y << extended_log_size) + position.x] = value;
 }
 
+// Offset-aware form of the production 2x scale/expand/top-two fusion. The
+// destination columns may carry a small host-cache skew while every thread
+// still owns the same four-value butterfly tuple as the dense kernel.
+kernel void stwo_zig_circle_expand_fused_sparse(
+    device uint *coefficients [[buffer(0)]],
+    device uint *extended [[buffer(1)]],
+    device const uint *source_offsets [[buffer(2)]],
+    device const uint *destination_offsets [[buffer(3)]],
+    device const uint *twiddles [[buffer(4)]],
+    constant uint &base_log_size [[buffer(5)]],
+    constant uint &extended_log_size [[buffer(6)]],
+    constant uint &column_count [[buffer(7)]],
+    constant uint &scale_factor [[buffer(8)]],
+    uint2 position [[thread_position_in_grid]]
+) {
+    uint base_len = 1u << base_log_size;
+    uint half_len = base_len >> 1u;
+    if (position.x >= half_len || position.y >= column_count ||
+        extended_log_size != base_log_size + 1u) return;
+
+    uint coefficient_base = source_offsets[position.y];
+    uint output_base = destination_offsets[position.y];
+    uint lhs = m31_mul(coefficients[coefficient_base + position.x], scale_factor);
+    uint rhs = m31_mul(coefficients[coefficient_base + half_len + position.x], scale_factor);
+    coefficients[coefficient_base + position.x] = lhs;
+    coefficients[coefficient_base + half_len + position.x] = rhs;
+
+    uint pair_count = base_len;
+    uint twiddle_offset = pair_count - 4u;
+    uint product0 = m31_mul(rhs, twiddles[twiddle_offset]);
+    uint product1 = m31_mul(rhs, twiddles[twiddle_offset + 1u]);
+    extended[output_base + position.x] = m31_add(lhs, product0);
+    extended[output_base + half_len + position.x] = m31_sub(lhs, product0);
+    extended[output_base + base_len + position.x] = m31_add(lhs, product1);
+    extended[output_base + base_len + half_len + position.x] = m31_sub(lhs, product1);
+}
+
 kernel void stwo_zig_circle_expand_sparse(
-    device uint *arena [[buffer(0)]],
-    device const ulong *source_offsets [[buffer(1)]],
-    device const ulong *destination_offsets [[buffer(2)]],
-    constant uint &base_log_size [[buffer(3)]],
-    constant uint &extended_log_size [[buffer(4)]],
-    constant uint &column_count [[buffer(5)]],
+    device const uint *coefficients [[buffer(0)]],
+    device uint *extended [[buffer(1)]],
+    device const ulong *source_offsets [[buffer(2)]],
+    device const ulong *destination_offsets [[buffer(3)]],
+    constant uint &base_log_size [[buffer(4)]],
+    constant uint &extended_log_size [[buffer(5)]],
+    constant uint &column_count [[buffer(6)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     uint extended_len = 1u << extended_log_size;
     if (position.x >= extended_len || position.y >= column_count) return;
     uint base_len = 1u << base_log_size;
-    uint value = position.x < base_len ? arena[source_offsets[position.y] + position.x] : 0u;
-    arena[destination_offsets[position.y] + position.x] = value;
+    uint value = position.x < base_len ? coefficients[source_offsets[position.y] + position.x] : 0u;
+    extended[destination_offsets[position.y] + position.x] = value;
 }
 
 kernel void stwo_zig_circle_copy_sparse(
