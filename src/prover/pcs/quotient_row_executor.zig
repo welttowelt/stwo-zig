@@ -7,8 +7,11 @@ const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
 const canonic = @import("stwo_core").poly.circle.canonic;
+const constraints = @import("stwo_core").constraints;
 const core_utils = @import("stwo_core").utils;
 const tile_sink = @import("quotient_tile_sink.zig");
+const scalar_executor = @import("quotient_scalar_executor.zig");
+const domain_walk = @import("quotient_domain_walk.zig");
 
 const CircleDomain = @import("stwo_core").poly.circle.domain.CircleDomain;
 const CirclePointM31 = circle.CirclePointM31;
@@ -215,16 +218,18 @@ pub const MaterializedWork = struct {
 };
 
 pub fn executeMaterialized(item: *const MaterializedWork) !void {
-    const scratch = item.scratch orelse return executeMaterializedScalar(item);
+    const scratch = item.scratch orelse return scalar_executor.executeMaterialized(item);
     const workspace = item.workspace;
     var chunk_start = item.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
+        for (scratch.domain_points[0..row_count]) |*domain_point| {
+            domain_point.* = walk.next();
         }
         try scratch.prepare(workspace, row_count);
 
@@ -251,31 +256,6 @@ pub fn executeMaterialized(item: *const MaterializedWork) !void {
             );
         }
         chunk_start += row_count;
-    }
-}
-
-fn executeMaterializedScalar(item: *const MaterializedWork) !void {
-    const workspace = item.workspace;
-    for (item.start..item.end) |position| {
-        const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
-        try workspace.beginRow(domain_point);
-        for (item.lifted_columns, item.contribution_plan_ranges) |lifted_column, contribution_range| {
-            const base_value = lifted_column[position];
-            for (item.contributions[contribution_range.start..][0..contribution_range.len]) |contribution| {
-                workspace.batch_numerators[contribution.batch_index] =
-                    workspace.batch_numerators[contribution.batch_index].add(
-                        contribution.value_coeff.mulM31(base_value),
-                    );
-            }
-        }
-        try writeQuotientRow(
-            item.out_columns,
-            position,
-            item.quotient_constants,
-            domain_point.y,
-            workspace.batch_numerators,
-            workspace.denominator_inverses,
-        );
     }
 }
 
@@ -308,16 +288,18 @@ pub fn executeStreaming(item: *StreamingWork) !void {
         if (output_end > column.len) return error.ShapeMismatch;
     }
 
-    const scratch = item.scratch orelse return executeStreamingScalar(item);
+    const scratch = item.scratch orelse return scalar_executor.executeStreaming(item);
     const workspace = item.workspace;
     var chunk_start = item.start;
+    var walk = domain_walk.BitReversedCosetWalk.init(
+        item.domain,
+        item.lifting_log_size,
+        item.start,
+    );
     while (chunk_start < item.end) {
         const row_count = @min(scratch.rowCapacity(), item.end - chunk_start);
-        for (scratch.domain_points[0..row_count], 0..) |*domain_point, row| {
-            domain_point.* = item.domain.at(core_utils.bitReverseIndex(
-                chunk_start + row,
-                item.lifting_log_size,
-            ));
+        for (scratch.domain_points[0..row_count]) |*domain_point| {
+            domain_point.* = walk.next();
         }
         try scratch.prepare(workspace, row_count);
 
@@ -352,30 +334,7 @@ pub fn executeStreaming(item: *StreamingWork) !void {
     }
 }
 
-fn executeStreamingScalar(item: *StreamingWork) !void {
-    const workspace = item.workspace;
-    var tile_start = item.start;
-    while (tile_start < item.end) {
-        const tile_end = @min(item.end, tile_start + tile_sink.DEFAULT_TILE_ROWS);
-        for (tile_start..tile_end) |position| {
-            const domain_point = item.domain.at(core_utils.bitReverseIndex(position, item.lifting_log_size));
-            try workspace.beginRow(domain_point);
-            accumulateStreamingNumerators(workspace, item.combined_views, position);
-            try writeQuotientRow(
-                item.out_columns,
-                position - item.output_start,
-                item.quotient_constants,
-                domain_point.y,
-                workspace.batch_numerators,
-                workspace.denominator_inverses,
-            );
-        }
-        try emitCompletedTile(item, tile_start, tile_end);
-        tile_start = tile_end;
-    }
-}
-
-fn emitCompletedTile(item: *StreamingWork, start: usize, end: usize) !void {
+pub fn emitCompletedTile(item: *StreamingWork, start: usize, end: usize) !void {
     const writer = item.tile_writer orelse return;
     if (start < item.output_start or end <= start) return error.ShapeMismatch;
     const output_start = start - item.output_start;
@@ -388,7 +347,7 @@ fn emitCompletedTile(item: *StreamingWork, start: usize, end: usize) !void {
     item.completed_tiles += 1;
 }
 
-fn accumulateStreamingNumerators(
+pub fn accumulateStreamingNumerators(
     workspace: *quotients.RowQuotientWorkspace,
     views: []const CombinedContributionView,
     position: usize,
@@ -415,7 +374,7 @@ pub fn streamingWorker(item: *StreamingWork) void {
     };
 }
 
-fn writeQuotientRow(
+pub fn writeQuotientRow(
     out_columns: [qm31.SECURE_EXTENSION_DEGREE][]M31,
     output_position: usize,
     quotient_constants: *const quotients.QuotientConstants,
