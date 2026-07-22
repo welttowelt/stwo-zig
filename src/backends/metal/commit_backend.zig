@@ -3,6 +3,7 @@ const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const commit_policy = @import("commit_policy.zig");
 const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
+const secure_composition = @import("runtime/secure_composition.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 
@@ -71,13 +72,15 @@ pub const MetalCommitBackend = struct {
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
+        secure_composition.install();
     }
 
     pub fn initializeRuntime(
         allocator: std.mem.Allocator,
         policy: RuntimeInitializationPolicy,
     ) !void {
-        return shared_runtime.initialize(allocator, policy);
+        try shared_runtime.initialize(allocator, policy);
+        secure_composition.install();
     }
 
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
