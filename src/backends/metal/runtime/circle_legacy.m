@@ -258,7 +258,9 @@ bool stwo_zig_metal_circle_lde(
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         NSMutableArray<id<MTLBuffer>> *input_sources = [NSMutableArray array];
-        bool fused_upload = !source_is_base && base_log_size >= 11u;
+        // The compute encoder amortizes only on large domains. Below log 16,
+        // the established blit plus fused tail is faster and less variable.
+        bool fused_upload = !source_is_base && base_log_size >= 16u;
         if (!source_is_base) {
             id<MTLComputeCommandEncoder> fused_upload_encoder = fused_upload
                 ? [command computeCommandEncoder]
