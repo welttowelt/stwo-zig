@@ -15,6 +15,27 @@ const CircleDomain = domain_mod.CircleDomain;
 const CircleCoefficients = poly.CircleCoefficients;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
+pub const BackendCircleIfftHook = *const fn (
+    allocator: std.mem.Allocator,
+    values: []const []M31,
+    domain: CircleDomain,
+    twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
+) anyerror!bool;
+
+// Installed during backend initialization, before any proof worker runs.
+// A null hook keeps CPU and other backends on the reference implementation.
+var backend_circle_ifft_hook: ?BackendCircleIfftHook = null;
+var backend_circle_ifft_min_log_size: u32 = std.math.maxInt(u32);
+
+pub fn installBackendCircleIfftHook(hook: BackendCircleIfftHook, min_log_size: u32) void {
+    if (backend_circle_ifft_hook) |installed| {
+        std.debug.assert(installed == hook);
+        std.debug.assert(backend_circle_ifft_min_log_size == min_log_size);
+    }
+    backend_circle_ifft_min_log_size = min_log_size;
+    backend_circle_ifft_hook = hook;
+}
+
 pub const SecurePolyError = error{
     ShapeMismatch,
 };
@@ -152,19 +173,18 @@ pub fn interpolateAndSplitFromEvaluationWithTwiddles(
 ) !SecureCirclePoly.SplitPair {
     if (domain.size() != values.len() or values.len() < 2) return SecurePolyError.ShapeMismatch;
 
-    var is_constant = true;
-    for (values.columns) |column| {
-        const first = column[0];
-        for (column[1..]) |value| {
-            if (!value.eql(first)) {
-                is_constant = false;
-                break;
+    if (!evaluationIsConstant(values)) {
+        if (domain.logSize() >= backend_circle_ifft_min_log_size) {
+            if (backend_circle_ifft_hook) |backend_ifft| {
+                if (try backend_ifft(
+                    allocator,
+                    values.columns[0..],
+                    domain,
+                    twiddle_tree,
+                )) return splitCoefficientColumns(allocator, values);
             }
         }
-        if (!is_constant) break;
-    }
 
-    if (!is_constant) {
         var polynomial = try interpolateFromEvaluationWithTwiddles(
             allocator,
             domain,
@@ -196,6 +216,44 @@ pub fn interpolateAndSplitFromEvaluationWithTwiddles(
         @memset(right, M31.zero());
         left_polys[coordinate] = try CircleCoefficients.initOwned(left);
         right_polys[coordinate] = try CircleCoefficients.initOwned(right);
+        initialized += 1;
+    }
+
+    return .{
+        .left = try SecureCirclePoly.init(left_polys),
+        .right = try SecureCirclePoly.init(right_polys),
+    };
+}
+
+fn evaluationIsConstant(values: *const SecureColumnByCoords) bool {
+    for (values.columns) |column| {
+        const first = column[0];
+        for (column[1..]) |value| {
+            if (!value.eql(first)) return false;
+        }
+    }
+    return true;
+}
+
+fn splitCoefficientColumns(
+    allocator: std.mem.Allocator,
+    values: *const SecureColumnByCoords,
+) !SecureCirclePoly.SplitPair {
+    var left_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    var right_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    var initialized: usize = 0;
+    errdefer {
+        for (0..initialized) |coordinate| {
+            left_polys[coordinate].deinit(allocator);
+            right_polys[coordinate].deinit(allocator);
+        }
+    }
+
+    for (values.columns, 0..) |column, coordinate| {
+        const polynomial = try CircleCoefficients.initBorrowed(column);
+        const split = try polynomial.splitAtMid(allocator);
+        left_polys[coordinate] = split.left;
+        right_polys[coordinate] = split.right;
         initialized += 1;
     }
 
