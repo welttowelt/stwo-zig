@@ -10,7 +10,7 @@ const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
 const blake2_stream4 = @import("blake2_stream4.zig");
 
-pub fn Operations(comptime H: type) type {
+pub fn Operations(comptime H: type, comptime direct_blake2_leaves: bool) type {
     return struct {
         const ColumnRef = columns_mod.ColumnRef;
         const LayerOps = layers_mod.Operations(H);
@@ -201,7 +201,7 @@ pub fn Operations(comptime H: type) type {
                 }
             }
 
-            if (comptime blake2_leaf_words.supports(H)) {
+            if (comptime direct_blake2_leaves and blake2_leaf_words.supports(H)) {
                 const seed = H.leafSeed();
                 var position = ctx.start;
                 while (position + 4 <= ctx.end) : (position += 4) {

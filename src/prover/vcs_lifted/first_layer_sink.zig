@@ -11,6 +11,14 @@ const blake2_leaf_words = @import("blake2_leaf_words.zig");
 const M31 = m31.M31;
 
 pub fn FirstLayerLeafSink(comptime H: type) type {
+    return FirstLayerLeafSinkConfigured(H, false);
+}
+
+pub fn FirstLayerLeafSinkDirect(comptime H: type) type {
+    return FirstLayerLeafSinkConfigured(H, true);
+}
+
+fn FirstLayerLeafSinkConfigured(comptime H: type, comptime direct_blake2_leaves: bool) type {
     return struct {
         layer_allocator: std.mem.Allocator,
         leaves: []H.Hash,
@@ -54,7 +62,7 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
                     }
                 } else if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
                     const seed = H.leafSeed();
-                    if (comptime blake2_leaf_words.supports(H)) {
+                    if (comptime direct_blake2_leaves and blake2_leaf_words.supports(H)) {
                         const Reader = struct {
                             coordinates: @TypeOf(tile.coordinates),
                             row: usize,

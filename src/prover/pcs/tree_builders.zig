@@ -103,12 +103,17 @@ pub fn TreeBuilder(comptime B: type, comptime H: type, comptime MC: type, compti
     };
 }
 
+fn HostMerkleProverForBackend(comptime B: type, comptime H: type) type {
+    if (comptime @hasDecl(B, "HostMerkleProver")) return B.HostMerkleProver(H);
+    return vcs_lifted_prover.MerkleProverLifted(H);
+}
+
 fn adoptStreamingCommitment(
     comptime B: type,
     comptime H: type,
-    host_tree: vcs_lifted_prover.MerkleProverLifted(H),
+    host_tree: HostMerkleProverForBackend(B, H),
 ) !B.MerkleTree(H) {
-    if (comptime B.MerkleTree(H) == vcs_lifted_prover.MerkleProverLifted(H)) {
+    if (comptime B.MerkleTree(H) == HostMerkleProverForBackend(B, H)) {
         return host_tree;
     }
     if (comptime @hasDecl(B, "adoptHostMerkle")) {
@@ -124,7 +129,7 @@ fn adoptStreamingCommitment(
 /// The resulting Merkle root is bit-identical to building the tree from all
 /// columns at once.
 pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: type, comptime Scheme: type) type {
-    const MerkleProver = vcs_lifted_prover.MerkleProverLifted(H);
+    const MerkleProver = HostMerkleProverForBackend(B, H);
     return struct {
         allocator: std.mem.Allocator,
         commitment_scheme: *Scheme,

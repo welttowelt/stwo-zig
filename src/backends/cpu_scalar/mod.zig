@@ -366,7 +366,11 @@ pub const CpuBackend = struct {
     // ---------------------------------------------------------------
 
     pub fn MerkleTree(comptime H: type) type {
-        return lifted_merkle.MerkleProverLifted(H);
+        return lifted_merkle.MerkleProverLiftedDirect(H);
+    }
+
+    pub fn HostMerkleProver(comptime H: type) type {
+        return MerkleTree(H);
     }
 
     pub fn commitMerkle(

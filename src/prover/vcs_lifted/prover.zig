@@ -20,6 +20,14 @@ const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub fn MerkleProverLifted(comptime H: type) type {
+    return MerkleProverLiftedConfigured(H, false);
+}
+
+pub fn MerkleProverLiftedDirect(comptime H: type) type {
+    return MerkleProverLiftedConfigured(H, true);
+}
+
+fn MerkleProverLiftedConfigured(comptime H: type, comptime direct_blake2_leaves: bool) type {
     comptime lifted_merkle_hasher.assertMerkleHasherLifted(H);
     return struct {
         /// Merkle layers from root to largest layer.
@@ -31,7 +39,11 @@ pub fn MerkleProverLifted(comptime H: type) type {
         layer_allocator: std.mem.Allocator,
 
         const Self = @This();
-        const LeafOps = leaves_mod.Operations(H);
+        const LeafOps = leaves_mod.Operations(H, direct_blake2_leaves);
+        const FirstLayerLeafSink = if (direct_blake2_leaves)
+            first_layer_sink.FirstLayerLeafSinkDirect(H)
+        else
+            first_layer_sink.FirstLayerLeafSink(H);
         const LayerOps = layers_mod.Operations(H);
         const LayerExecutor = LayerOps.Executor;
         const parallel_min_nodes_per_worker = parameters.parallel_min_nodes_per_worker;
@@ -200,7 +212,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 return error.InvalidColumnSize;
             }
 
-            if (comptime !blake2_leaf_words.supports(H)) {
+            if (comptime !direct_blake2_leaves or !blake2_leaf_words.supports(H)) {
                 var column = try SecureColumnByCoords.fromSecureSlice(allocator, values);
                 errdefer column.deinit(allocator);
                 const refs = [_][]const M31{
@@ -280,7 +292,7 @@ pub fn MerkleProverLifted(comptime H: type) type {
 
             const leaves = switch (mode) {
                 .tiled => blk: {
-                    var sink = try first_layer_sink.FirstLayerLeafSink(H).init(
+                    var sink = try FirstLayerLeafSink.init(
                         layer_alloc,
                         domain_size,
                     );
