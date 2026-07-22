@@ -167,23 +167,16 @@ bool stwo_zig_metal_circle_lde(
         id<MTLBuffer> forward_buffer = [runtime.device newBufferWithBytes:forward_twiddles length:(NSUInteger)extended_pairs * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> base_offsets = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> extended_offsets = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> base_offsets_wide = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> extended_offsets_wide = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint64_t) options:MTLResourceStorageModeShared];
         if (coefficients == nil || extended == nil || inverse_buffer == nil || forward_buffer == nil ||
-            base_offsets == nil || extended_offsets == nil ||
-            base_offsets_wide == nil || extended_offsets_wide == nil) {
+            base_offsets == nil || extended_offsets == nil) {
             write_error(error_message, error_message_len, @"Metal circle LDE allocation failed");
             return false;
         }
         uint32_t *base_offset_words = base_offsets.contents;
         uint32_t *extended_offset_words = extended_offsets.contents;
-        uint64_t *base_offset_words_wide = base_offsets_wide.contents;
-        uint64_t *extended_offset_words_wide = extended_offsets_wide.contents;
         for (uint32_t column = 0; column < column_count; ++column) {
             base_offset_words[column] = column * base_len;
             extended_offset_words[column] = extended_start + column * extended_stride;
-            base_offset_words_wide[column] = base_offset_words[column];
-            extended_offset_words_wide[column] = extended_offset_words[column];
         }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
@@ -296,43 +289,19 @@ bool stwo_zig_metal_circle_lde(
         }
 
         id<MTLComputeCommandEncoder> expand = [command computeCommandEncoder];
-        if (skewed_layout) {
-            if (fuse_top_two != 0u) {
-                [expand setComputePipelineState:runtime.circleExpandFusedSparse];
-                [expand setBuffer:coefficients offset:0 atIndex:0];
-                [expand setBuffer:extended offset:0 atIndex:1];
-                [expand setBuffer:base_offsets offset:0 atIndex:2];
-                [expand setBuffer:extended_offsets offset:0 atIndex:3];
-                [expand setBuffer:forward_buffer offset:0 atIndex:4];
-                [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:5];
-                [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:6];
-                [expand setBytes:&column_count length:sizeof(column_count) atIndex:7];
-                [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:8];
-                [expand dispatchThreads:MTLSizeMake(base_len >> 1u, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleExpandFusedSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-            } else {
-                [expand setComputePipelineState:runtime.circleExpandSparse];
-                [expand setBuffer:coefficients offset:0 atIndex:0];
-                [expand setBuffer:extended offset:0 atIndex:1];
-                [expand setBuffer:base_offsets_wide offset:0 atIndex:2];
-                [expand setBuffer:extended_offsets_wide offset:0 atIndex:3];
-                [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:4];
-                [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:5];
-                [expand setBytes:&column_count length:sizeof(column_count) atIndex:6];
-                [expand dispatchThreads:MTLSizeMake(extended_len, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleExpandSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-            }
-        } else {
-            [expand setComputePipelineState:runtime.circleExpand];
-            [expand setBuffer:coefficients offset:0 atIndex:0];
-            [expand setBuffer:extended offset:(NSUInteger)extended_start * sizeof(uint32_t) atIndex:1];
-            [expand setBuffer:forward_buffer offset:0 atIndex:2];
-            [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-            [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:4];
-            [expand setBytes:&column_count length:sizeof(column_count) atIndex:5];
-            [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:6];
-            [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:7];
-            NSUInteger expand_count = fuse_top_two != 0u ? base_len >> 1u : extended_len;
-            [expand dispatchThreads:MTLSizeMake(expand_count, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-        }
+        [expand setComputePipelineState:runtime.circleExpand];
+        [expand setBuffer:coefficients offset:0 atIndex:0];
+        [expand setBuffer:extended offset:0 atIndex:1];
+        [expand setBuffer:forward_buffer offset:0 atIndex:2];
+        [expand setBuffer:base_offsets offset:0 atIndex:3];
+        [expand setBuffer:extended_offsets offset:0 atIndex:4];
+        [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:5];
+        [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:6];
+        [expand setBytes:&column_count length:sizeof(column_count) atIndex:7];
+        [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:8];
+        [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:9];
+        NSUInteger expand_count = fuse_top_two != 0u ? base_len >> 1u : extended_len;
+        [expand dispatchThreads:MTLSizeMake(expand_count, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
         [expand endEncoding];
 
         MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
