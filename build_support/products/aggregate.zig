@@ -40,6 +40,7 @@ const metal_allowed_files = common_allowed_files ++ .{
     metal_facade,
     "src/backends/metal/arena_plan.zig",
     "src/backends/metal/command_epoch.zig",
+    "src/backends/metal/combined_commit.zig",
     "src/backends/metal/commit_backend.zig",
     "src/backends/metal/commit_policy.zig",
     "src/backends/metal/core_aot.zig",
