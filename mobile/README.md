@@ -1,6 +1,26 @@
-# stwo-zig mobile proving board — handover package
+# stwo mobile proving board — handover package (Zig AND Rust flavors)
 
 Status: **80% built, needs a person with real devices for the last 20%.**
+
+## Rust flavor (no Zig anywhere)
+
+`mobile/rust-bench/` wraps the **reference Rust stwo prover** (same pinned
+rev as the parity oracle) behind the identical C ABI, so the same Swift
+shell works unchanged:
+
+```sh
+PATH="$HOME/.cargo/bin:$PATH" cargo +nightly-2025-07-14 build --release \
+  --target aarch64-apple-ios   # from mobile/rust-bench/
+# -> target/aarch64-apple-ios/release/libstwo_mobile_bench.a  (link this)
+```
+
+Proven: `cargo test` runs a real proof through the C ABI natively
+(byte-identical samples asserted); the arm64-iOS static lib builds on a Mac
+without Xcode (blake3 pinned to pure-Rust mode to avoid the iOS-SDK C
+toolchain — revisit for speed later). Report schema: `mobile-proof-rust-v1`,
+proof digests over the canonical wire JSON — the same bytes the parity
+oracle compares, so Rust-vs-Zig rows are directly comparable on one
+leaderboard.
 
 ## What is proven (done on 2026-07-22, no upstream file changes)
 
