@@ -35,7 +35,6 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRescale;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFused;
-@property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFusedUpload;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFused;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientNumerator;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientFinalize;
@@ -127,7 +126,6 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionRandomPowers;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExtParams;
-@property(nonatomic, strong) id<MTLComputePipelineState> recurrenceComposition;
 @property(nonatomic, strong) id<MTLBuffer> compositionTraceBuffer;
 @property(nonatomic) uintptr_t compositionTraceHostBegin;
 @property(nonatomic) NSUInteger compositionTraceWordCount;
@@ -551,7 +549,6 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.circleRescale = make_pipeline(device, library, @"stwo_zig_circle_rescale", error_message, error_message_len);
         runtime.circleExpand = make_pipeline(device, library, @"stwo_zig_circle_expand_coefficients", error_message, error_message_len);
         runtime.circleIfftFused = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_tail", error_message, error_message_len);
-        runtime.circleIfftFusedUpload = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_upload", error_message, error_message_len);
         runtime.circleRfftFused = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail", error_message, error_message_len);
         runtime.quotientNumerator = make_pipeline(device, library, @"stwo_zig_quotient_numerator_raw", error_message, error_message_len);
         runtime.quotientFinalize = make_pipeline(device, library, @"stwo_zig_quotient_finalize", error_message, error_message_len);
@@ -617,13 +614,11 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.compositionExpand = make_pipeline(device, library, @"stwo_zig_composition_expand_sparse", error_message, error_message_len);
         runtime.compositionRandomPowers = make_pipeline(device, library, @"stwo_zig_composition_random_powers", error_message, error_message_len);
         runtime.compositionExtParams = make_pipeline(device, library, @"stwo_zig_composition_ext_params", error_message, error_message_len);
-        runtime.recurrenceComposition = make_pipeline(device, library, @"stwo_zig_recurrence_composition", error_message, error_message_len);
         if (runtime.queue == nil || runtime.leaves == nil || runtime.parents == nil ||
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
             runtime.circleRfftLayer == nil || runtime.circleRfftLast == nil || runtime.circleRescale == nil ||
-            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleIfftFusedUpload == nil ||
-            runtime.circleRfftFused == nil ||
+            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleRfftFused == nil ||
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
             runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
@@ -654,7 +649,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.compactScanBlocks == nil || runtime.compactScanAdd == nil || runtime.compactClearOutputs == nil ||
             runtime.compactScatter == nil || runtime.compactFinalize == nil || runtime.compositionLift == nil ||
             runtime.compositionSplit == nil || runtime.compositionExpand == nil || runtime.compositionRandomPowers == nil ||
-            runtime.compositionExtParams == nil || runtime.recurrenceComposition == nil) return NULL;
+            runtime.compositionExtParams == nil) return NULL;
         if (include_deferred) {
             runtime.witnessFeedCounts = make_pipeline(device, library, @"stwo_zig_witness_feed_counts", error_message, error_message_len);
             runtime.witnessInputGatherResident = make_pipeline(device, library, @"stwo_zig_witness_input_gather_resident", error_message, error_message_len);

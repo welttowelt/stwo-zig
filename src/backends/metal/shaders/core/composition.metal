@@ -63,59 +63,59 @@ kernel void stwo_zig_composition_random_powers(
     arena[destination+2u]=result.c; arena[destination+3u]=result.d;
 }
 
-// Descriptor: destination, kind (0 constant / 1 arena), source, scale, constant[4].
+// Mode 0 writes extended parameters from descriptors. Mode 1 evaluates the
+// admitted row-parallel recurrence without expanding the governed Native ABI.
 kernel void stwo_zig_composition_ext_params(
-    device uint *arena [[buffer(0)]], device const uint *descriptors [[buffer(1)]],
-    constant uint &count [[buffer(2)]], uint index [[thread_position_in_grid]]
-) {
-    if (index >= count) return;
-    device const uint *descriptor = descriptors + index * 8u;
-    Qm31Value value = descriptor[1] == 0u
-        ? Qm31Value{descriptor[4],descriptor[5],descriptor[6],descriptor[7]}
-        : Qm31Value{arena[descriptor[2]],arena[descriptor[2]+1u],arena[descriptor[2]+2u],arena[descriptor[2]+3u]};
-    value = qm_mul_m31(value, descriptor[3]);
-    uint destination = descriptor[0];
-    arena[destination]=value.a; arena[destination+1u]=value.b;
-    arena[destination+2u]=value.c; arena[destination+3u]=value.d;
-}
-
-// Evaluates c_i - a_i^2 - b_i^2 constraints for every domain row and
-// immediately folds them by the transcript powers. Columns remain in the
-// page-colored commitment arena; adjacent GPU lanes walk adjacent rows.
-kernel void stwo_zig_recurrence_composition(
-    device const uint *trace [[buffer(0)]],
-    device const uint *power_words [[buffer(1)]],
+    device uint *primary [[buffer(0)]],
+    device const uint *secondary [[buffer(1)]],
     device uint *output [[buffer(2)]],
-    constant uint &row_count [[buffer(3)]],
-    constant uint &column_count [[buffer(4)]],
-    constant uint &column_stride [[buffer(5)]],
-    constant uint2 &denominator_inverses [[buffer(6)]],
-    uint row [[thread_position_in_grid]]
+    constant uint &arg0 [[buffer(3)]],
+    constant uint &arg1 [[buffer(4)]],
+    constant uint &arg2 [[buffer(5)]],
+    constant uint2 &arg3 [[buffer(6)]],
+    constant uint &mode [[buffer(7)]],
+    uint index [[thread_position_in_grid]]
 ) {
-    if (row >= row_count) return;
-    uint a = trace[row];
-    uint b = trace[column_stride + row];
+    if (mode == 0u) {
+        if (index >= arg0) return;
+        device const uint *descriptor = secondary + index * 8u;
+        Qm31Value value = descriptor[1] == 0u
+            ? Qm31Value{descriptor[4],descriptor[5],descriptor[6],descriptor[7]}
+            : Qm31Value{primary[descriptor[2]],primary[descriptor[2]+1u],primary[descriptor[2]+2u],primary[descriptor[2]+3u]};
+        value = qm_mul_m31(value, descriptor[3]);
+        uint destination = descriptor[0];
+        primary[destination]=value.a; primary[destination+1u]=value.b;
+        primary[destination+2u]=value.c; primary[destination+3u]=value.d;
+        return;
+    }
+
+    uint row_count = arg0;
+    uint column_count = arg1;
+    uint column_stride = arg2;
+    if (index >= row_count) return;
+    uint a = primary[index];
+    uint b = primary[column_stride + index];
     Qm31Value row_evaluation = {0u, 0u, 0u, 0u};
 
     for (uint column = 2u; column < column_count; ++column) {
-        uint c = trace[column * column_stride + row];
+        uint c = primary[column * column_stride + index];
         uint constraint = m31_sub(c, m31_add(m31_mul(a, a), m31_mul(b, b)));
         uint power_offset = (column_count - 1u - column) * 4u;
         Qm31Value power = {
-            power_words[power_offset],
-            power_words[power_offset + 1u],
-            power_words[power_offset + 2u],
-            power_words[power_offset + 3u],
+            secondary[power_offset],
+            secondary[power_offset + 1u],
+            secondary[power_offset + 2u],
+            secondary[power_offset + 3u],
         };
         row_evaluation = qm_add(row_evaluation, qm_mul_m31(power, constraint));
         a = b;
         b = c;
     }
 
-    uint denominator_inverse = denominator_inverses[row >= (row_count >> 1u)];
+    uint denominator_inverse = arg3[index >= (row_count >> 1u)];
     row_evaluation = qm_mul_m31(row_evaluation, denominator_inverse);
-    output[row] = row_evaluation.a;
-    output[row_count + row] = row_evaluation.b;
-    output[2u * row_count + row] = row_evaluation.c;
-    output[3u * row_count + row] = row_evaluation.d;
+    output[index] = row_evaluation.a;
+    output[row_count + index] = row_evaluation.b;
+    output[2u * row_count + index] = row_evaluation.c;
+    output[3u * row_count + index] = row_evaluation.d;
 }

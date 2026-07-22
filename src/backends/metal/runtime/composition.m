@@ -203,9 +203,13 @@ static void encode_composition_front_production(
     [powers endEncoding];
     if (inputs.descriptorCount != 0u) {
         id<MTLComputeCommandEncoder> params = [command computeCommandEncoder];
-        uint32_t descriptor_count = inputs.descriptorCount;
+        uint32_t descriptor_count = inputs.descriptorCount, unused = 0u, mode = 0u;
+        uint32_t unused_pair[2] = {0u, 0u};
         [params setComputePipelineState:runtime.compositionExtParams]; [params setBuffer:arena offset:0 atIndex:0];
-        [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:2];
+        [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBuffer:arena offset:0 atIndex:2];
+        [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:3];
+        [params setBytes:&unused length:sizeof(unused) atIndex:4]; [params setBytes:&unused length:sizeof(unused) atIndex:5];
+        [params setBytes:unused_pair length:sizeof(unused_pair) atIndex:6]; [params setBytes:&mode length:sizeof(mode) atIndex:7];
         [params dispatchThreads:MTLSizeMake(descriptor_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup), 1u, 1u)];
         [params endEncoding];
     }
@@ -263,9 +267,13 @@ bool stwo_zig_metal_composition_front_prepared(
         [powers endEncoding];
         if (inputs.descriptorCount != 0u) {
             id<MTLComputeCommandEncoder> params = [command computeCommandEncoder];
-            uint32_t descriptor_count = inputs.descriptorCount;
+            uint32_t descriptor_count = inputs.descriptorCount, unused = 0u, mode = 0u;
+            uint32_t unused_pair[2] = {0u, 0u};
             [params setComputePipelineState:runtime.compositionExtParams]; [params setBuffer:arena offset:0 atIndex:0];
-            [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:2];
+            [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBuffer:arena offset:0 atIndex:2];
+            [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:3];
+            [params setBytes:&unused length:sizeof(unused) atIndex:4]; [params setBytes:&unused length:sizeof(unused) atIndex:5];
+            [params setBytes:unused_pair length:sizeof(unused_pair) atIndex:6]; [params setBytes:&mode length:sizeof(mode) atIndex:7];
             [params dispatchThreads:MTLSizeMake(descriptor_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup), 1u, 1u)];
             [params endEncoding];
         }
@@ -769,7 +777,7 @@ bool stwo_zig_metal_recurrence_composition(
 
         id<MTLCommandBuffer> recurrence_command = [runtime.queue commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [recurrence_command computeCommandEncoder];
-        [encoder setComputePipelineState:runtime.recurrenceComposition];
+        [encoder setComputePipelineState:runtime.compositionExtParams];
         [encoder setBuffer:trace_buffer offset:trace_offset atIndex:0];
         [encoder setBuffer:powers offset:0 atIndex:1];
         [encoder setBuffer:output offset:0 atIndex:2];
@@ -777,7 +785,9 @@ bool stwo_zig_metal_recurrence_composition(
         [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
         [encoder setBytes:&column_stride length:sizeof(column_stride) atIndex:5];
         [encoder setBytes:denominator_inverses length:2u * sizeof(uint32_t) atIndex:6];
-        NSUInteger width = MIN((NSUInteger)256u, runtime.recurrenceComposition.maxTotalThreadsPerThreadgroup);
+        uint32_t mode = 1u;
+        [encoder setBytes:&mode length:sizeof(mode) atIndex:7];
+        NSUInteger width = MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup);
         [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding];

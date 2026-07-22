@@ -56,9 +56,12 @@ bool stwo_zig_metal_circle_transform(
                 id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
                 [fused setComputePipelineState:runtime.circleIfftFused];
                 [fused setBuffer:values offset:0 atIndex:0];
-                [fused setBuffer:twiddle_buffer offset:0 atIndex:1];
-                [fused setBytes:&log_size length:sizeof(log_size) atIndex:2];
-                [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [fused setBuffer:values offset:0 atIndex:1];
+                [fused setBuffer:twiddle_buffer offset:0 atIndex:2];
+                [fused setBytes:&log_size length:sizeof(log_size) atIndex:3];
+                [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
+                uint32_t source_mode = 0u;
+                [fused setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
                 [fused dispatchThreadgroups:MTLSizeMake(value_count >> 11u, column_count, 1u)
                          threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
                 [fused endEncoding];
@@ -268,8 +271,11 @@ bool stwo_zig_metal_circle_lde(
             id<MTLBlitCommandEncoder> upload = fused_upload
                 ? nil
                 : [command blitCommandEncoder];
-            if (fused_upload)
-                [fused_upload_encoder setComputePipelineState:runtime.circleIfftFusedUpload];
+            uint32_t source_mode = 1u;
+            if (fused_upload) {
+                [fused_upload_encoder setComputePipelineState:runtime.circleIfftFused];
+                [fused_upload_encoder setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
+            }
             size_t column = 0;
             size_t destination_words = 0;
             while (column < column_count) {
@@ -329,9 +335,12 @@ bool stwo_zig_metal_circle_lde(
             id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
             [fused setComputePipelineState:runtime.circleIfftFused];
             [fused setBuffer:coefficients offset:0 atIndex:0];
-            [fused setBuffer:inverse_buffer offset:0 atIndex:1];
-            [fused setBytes:&base_log_size length:sizeof(base_log_size) atIndex:2];
-            [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+            [fused setBuffer:coefficients offset:0 atIndex:1];
+            [fused setBuffer:inverse_buffer offset:0 atIndex:2];
+            [fused setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+            [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
+            uint32_t source_mode = 0u;
+            [fused setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
             [fused dispatchThreadgroups:MTLSizeMake(base_len >> 11u, column_count, 1u)
                      threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
             [fused endEncoding];
