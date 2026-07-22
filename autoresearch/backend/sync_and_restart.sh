@@ -19,8 +19,12 @@ git -C "$REPO" pull --ff-only --quiet
 after=$(git -C "$REPO" rev-parse HEAD)
 [ "$before" = "$after" ] && exit 0
 
-if git -C "$REPO" diff --name-only "$before" "$after" -- \
-     autoresearch/backend/ autoresearch/cli/stwo_perf/ | grep -q .; then
+# The Metrics-v2 backend builds its served feed at startup, so ANY new
+# commit can change what must be served (ledger rows, feed refreshes,
+# references) — restart on every fast-forward, not only on code changes.
+# Restarts are ~2s and smoke-checked below; commits arrive in batches, so
+# this is at most a restart per landed merge.
+if [ "$before" != "$after" ]; then
   sudo /usr/bin/systemctl restart stwo-perf-backend.service
   sleep 2
   for cell in core_cpu/deep core_metal/deep; do
