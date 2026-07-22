@@ -23,7 +23,9 @@ const min_log_size: u32 = 19;
 const validation_unknown: u8 = 0;
 const validation_accepted: u8 = 1;
 const validation_rejected: u8 = 2;
-var recurrence_validation = std.atomic.Value(u8).init(validation_unknown);
+var validation_mutex: std.Thread.Mutex = .{};
+var validation_vtable: ?*const prover_air.component_prover.ComponentProverVTable = null;
+var recurrence_validation: u8 = validation_unknown;
 
 pub fn install() void {
     prover_poly.circle.secure_poly.installBackendCircleIfftHook(
@@ -62,7 +64,7 @@ fn evaluateLargeRecurrenceComposition(
     trace: *const Trace,
 ) !?SecureColumnByCoords {
     const shape = recurrenceShape(components, trace) orelse return null;
-    if (recurrence_validation.load(.acquire) == validation_rejected) return null;
+    if (validationStatus(components[0].vtable) == validation_rejected) return null;
 
     const powers = try prover_air.accumulation.generateSecurePowers(
         allocator,
@@ -105,19 +107,19 @@ fn evaluateLargeRecurrenceComposition(
     };
     std.log.debug("Metal recurrence composition: {d:.3}ms", .{gpu_ms});
 
-    if (recurrence_validation.load(.acquire) == validation_accepted) return output;
+    if (validationStatus(components[0].vtable) == validation_accepted) return output;
 
     // Admission is semantic, not a guessed type cast: the first excluded
     // warmup evaluates both implementations and requires byte identity over
     // the complete domain before this vtable is allowed onto the GPU fast path.
     var expected = try referenceComposition(allocator, components, random_coeff, trace);
     if (!secureColumnsEqual(output, expected)) {
-        recurrence_validation.store(validation_rejected, .release);
+        setValidationStatus(components[0].vtable, validation_rejected);
         output.deinit(allocator);
         return expected;
     }
     expected.deinit(allocator);
-    recurrence_validation.store(validation_accepted, .release);
+    setValidationStatus(components[0].vtable, validation_accepted);
     return output;
 }
 
@@ -133,7 +135,6 @@ const RecurrenceShape = struct {
 fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?RecurrenceShape {
     if (components.len != 1 or trace.polys.items.len != 2) return null;
     const component = components[0];
-    if (std.mem.indexOf(u8, component.implementationName(), "wide_fibonacci") == null) return null;
     if (trace.polys.items[0].len != 0) return null;
     const columns = trace.polys.items[1];
     if (columns.len < 64 or component.nConstraints() != columns.len - 2) return null;
@@ -163,6 +164,22 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         .constraint_count = columns.len - 2,
         .eval_log_size = eval_log_size,
     };
+}
+
+fn validationStatus(vtable: *const prover_air.component_prover.ComponentProverVTable) u8 {
+    validation_mutex.lock();
+    defer validation_mutex.unlock();
+    return if (validation_vtable == vtable) recurrence_validation else validation_unknown;
+}
+
+fn setValidationStatus(
+    vtable: *const prover_air.component_prover.ComponentProverVTable,
+    status: u8,
+) void {
+    validation_mutex.lock();
+    defer validation_mutex.unlock();
+    validation_vtable = vtable;
+    recurrence_validation = status;
 }
 
 fn referenceComposition(

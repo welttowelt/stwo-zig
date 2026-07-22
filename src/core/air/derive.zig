@@ -40,7 +40,6 @@ pub fn ComponentAdapter(
             return .{
                 .ctx = self,
                 .vtable = &.{
-                    .implementation_name = @typeName(Impl),
                     .nConstraints = nConstraints,
                     .maxConstraintLogDegreeBound = maxConstraintLogDegreeBound,
                     .traceLogDegreeBounds = traceLogDegreeBounds,

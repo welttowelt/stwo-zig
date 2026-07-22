@@ -63,9 +63,6 @@ pub const Trace = struct {
 };
 
 pub const ComponentProverVTable = struct {
-    /// Stable compile-time implementation identity used by optional backend
-    /// specialization registries. Hand-written vtables may leave it empty.
-    implementation_name: []const u8 = "",
     nConstraints: *const fn (ctx: *const anyopaque) usize,
     maxConstraintLogDegreeBound: *const fn (ctx: *const anyopaque) u32,
     traceLogDegreeBounds: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator) anyerror!core_air_components.TraceLogDegreeBounds,
@@ -96,10 +93,6 @@ pub const ComponentProver = struct {
 
     pub inline fn nConstraints(self: ComponentProver) usize {
         return self.vtable.nConstraints(self.ctx);
-    }
-
-    pub inline fn implementationName(self: ComponentProver) []const u8 {
-        return self.vtable.implementation_name;
     }
 
     pub inline fn maxConstraintLogDegreeBound(self: ComponentProver) u32 {
