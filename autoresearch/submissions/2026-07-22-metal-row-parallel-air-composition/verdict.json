@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "kind": "claimed",
-  "harness_commit": "81ec9e6b9b99",
-  "repo_commit": "1009418fe0f9",
+  "harness_commit": "f951c0355534",
+  "repo_commit": "3a1997ce81e8",
   "predecessor_commit": "971db238e3e4",
   "scope": "s3",
   "declared_objective": {
@@ -19,7 +19,7 @@
     "judge_lock_held": false,
     "preflight": {
       "load_ok": true,
-      "load1": 2.02
+      "load1": 2.36
     }
   },
   "search_health": {
@@ -45,13 +45,13 @@
       "recorded_before_measurement": true
     },
     "decision_sha256": "sha256:a412ef7ca38ffc384dfcbdd7c75663fc2dbc4260cfaf4e5e034658f2e1d40adc",
-    "actual_rounds": 9,
+    "actual_rounds": 6,
     "actual_rounds_per_workload": {
-      "mwf_log18x100": 9
+      "mwf_log18x100": 6
     },
-    "objective_wall_seconds": 18.675309582962655,
-    "measurement_wall_seconds": 45.60472941596527,
-    "measurement_wall_hours": 0.012667980393323685,
+    "objective_wall_seconds": 12.188740500016138,
+    "measurement_wall_seconds": 12.609316832968034,
+    "measurement_wall_hours": 0.003502588009157787,
     "gradient_snr": null,
     "credited_ln_improvement": null,
     "credited_ln_improvement_per_measurement_hour": null,
@@ -73,7 +73,7 @@
     },
     "G4": {
       "pass": true,
-      "detail": "candidate/anchor 0.1169 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
+      "detail": "candidate/anchor 0.1155 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
     },
     "G5": {
       "pass": true,
@@ -83,34 +83,34 @@
   "score": {
     "per_workload": {
       "mwf_log18x100": {
-        "r": 0.373774,
+        "r": 0.369053,
         "ci": [
-          0.361796,
-          0.385996
+          0.362346,
+          0.376828
         ],
-        "rounds": 9,
-        "a_median_ms": 133.7445,
-        "b_median_ms": 49.371646,
-        "request_ratio": 0.617931,
-        "rss_ratio": 0.997214,
+        "rounds": 6,
+        "a_median_ms": 133.423917,
+        "b_median_ms": 48.75598,
+        "request_ratio": 0.621474,
+        "rss_ratio": 0.997185,
         "resources": {
           "energy_j": {
-            "ratio": 0.619496,
+            "ratio": 0.609407,
             "ci": [
-              0.602361,
-              0.62297
+              0.603185,
+              0.61357
             ],
-            "observations": 9,
-            "candidate": 3.523253877
+            "observations": 6,
+            "candidate": 3.512821011
           },
           "peak_rss_mib": {
-            "ratio": 0.997214,
+            "ratio": 0.997185,
             "ci": [
-              0.997095,
-              0.99729
+              0.996945,
+              0.997275
             ],
-            "observations": 9,
-            "candidate": 517.4857025146484
+            "observations": 6,
+            "candidate": 517.5012588500977
           },
           "proof_bytes": {
             "ratio": 1.0,
@@ -124,26 +124,26 @@
         },
         "mechanism_verified": null,
         "proof_bytes": 74328,
-        "measurement_seconds": 18.619608,
+        "measurement_seconds": 12.160957,
         "resources_complete": null
       }
     },
-    "R_geomean": 0.373774,
+    "R_geomean": 0.369053,
     "portfolio": {
       "ci_method": "independent_workload_round_bootstrap_percentile_v1",
       "ci_level": 0.95,
       "bootstrap_iterations": 4000,
       "seed": 2651074401,
       "ci": [
-        0.361796,
-        0.385996
+        0.362346,
+        0.376828
       ],
       "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
-      "b_median_ms_geomean": 49.371646,
+      "b_median_ms_geomean": 48.75598,
       "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
       "proof_bytes": 74328,
-      "measurement_seconds": 18.619608,
-      "measurement_rounds": 9
+      "measurement_seconds": 12.160957,
+      "measurement_rounds": 6
     },
     "theta": 0.018954,
     "aa_dispersion": 0.009477,
@@ -156,14 +156,14 @@
     },
     "resource_portfolio": {
       "peak_rss_mib": {
-        "ratio_geomean": 0.9972144994024963,
-        "upper_ci_geomean": 0.9972896615452542,
-        "candidate_geomean": 517.4857025146482
+        "ratio_geomean": 0.9971845457982295,
+        "upper_ci_geomean": 0.9972747458145581,
+        "candidate_geomean": 517.5012588500977
       },
       "energy_j": {
-        "ratio_geomean": 0.6194962969632261,
-        "upper_ci_geomean": 0.6229702744648156,
-        "candidate_geomean": 3.5232538770000006
+        "ratio_geomean": 0.6094071132076092,
+        "upper_ci_geomean": 0.6135698900767109,
+        "candidate_geomean": 3.512821011
       },
       "proof_bytes": {
         "ratio_geomean": 1.0,
@@ -173,158 +173,14 @@
     }
   },
   "tiebreakers": {
-    "rss_ratio": 0.997214,
+    "rss_ratio": 0.997185,
     "waits": null,
     "dispatches": null,
-    "energy_j": 3.5232538770000006,
+    "energy_j": 3.512821011,
     "proof_bytes": 74328.00000000003
   },
   "holdout": null,
-  "guards": {
-    "guard_blake_10x10": {
-      "r": 0.984145,
-      "ci": [
-        0.94808,
-        1.01217
-      ],
-      "rounds": 8,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
-    },
-    "guard_blake_12x16": {
-      "r": 0.988779,
-      "ci": [
-        0.981505,
-        0.997937
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
-    },
-    "guard_plonk_14": {
-      "r": 0.993175,
-      "ci": [
-        0.991541,
-        0.9954
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
-    },
-    "guard_plonk_16": {
-      "r": 0.991522,
-      "ci": [
-        0.969703,
-        1.005325
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
-    },
-    "guard_poseidon_10": {
-      "r": 0.990953,
-      "ci": [
-        0.983475,
-        1.00937
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
-    },
-    "guard_poseidon_13": {
-      "r": 0.953533,
-      "ci": [
-        0.942665,
-        0.960568
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
-    },
-    "guard_sm_14": {
-      "r": 1.018324,
-      "ci": [
-        0.997341,
-        1.041505
-      ],
-      "rounds": 6,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
-    },
-    "guard_sm_16": {
-      "r": 0.996822,
-      "ci": [
-        0.977353,
-        1.01723
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
-    },
-    "guard_wf_10x8": {
-      "r": 0.990243,
-      "ci": [
-        0.905869,
-        1.047558
-      ],
-      "rounds": 12,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
-    },
-    "guard_wf_14x32": {
-      "r": 1.013953,
-      "ci": [
-        1.003676,
-        1.043773
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
-    },
-    "guard_wf_16x64": {
-      "r": 1.001318,
-      "ci": [
-        0.976441,
-        1.025649
-      ],
-      "rounds": 6,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
-    },
-    "guard_xor_14": {
-      "r": 0.994976,
-      "ci": [
-        0.987398,
-        1.015966
-      ],
-      "rounds": 3,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
-    },
-    "guard_xor_16": {
-      "r": 0.991052,
-      "ci": [
-        0.965303,
-        1.011088
-      ],
-      "rounds": 8,
-      "budget_upper": 1.05,
-      "pass": true,
-      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
-    }
-  },
+  "guards": {},
   "rust_oracle": [
     {
       "workload": "mwf_log18x100",
@@ -339,37 +195,34 @@
     "per_workload": {
       "mwf_log18x100": {
         "round_ratios": [
-          0.405936,
-          0.387171,
-          0.361796,
-          0.351228,
-          0.385751,
-          0.376372,
-          0.351687,
-          0.37598,
-          0.366056
+          0.361785,
+          0.360765,
+          0.386504,
+          0.363927,
+          0.37734,
+          0.367151
         ],
         "proof_digest": "f845568c14599a08c16a14bf255b2e1938df3df27cfdbf961d06f663909ced8f",
-        "request_ratio": 0.617931,
-        "rss_ratio": 0.997214,
+        "request_ratio": 0.621474,
+        "rss_ratio": 0.997185,
         "resources": {
           "energy_j": {
-            "ratio": 0.619496,
+            "ratio": 0.609407,
             "ci": [
-              0.602361,
-              0.62297
+              0.603185,
+              0.61357
             ],
-            "observations": 9,
-            "candidate": 3.523253877
+            "observations": 6,
+            "candidate": 3.512821011
           },
           "peak_rss_mib": {
-            "ratio": 0.997214,
+            "ratio": 0.997185,
             "ci": [
-              0.997095,
-              0.99729
+              0.996945,
+              0.997275
             ],
-            "observations": 9,
-            "candidate": 517.4857025146484
+            "observations": 6,
+            "candidate": 517.5012588500977
           },
           "proof_bytes": {
             "ratio": 1.0,
@@ -382,24 +235,18 @@
           }
         },
         "report_sha256s": [
-          "ae86f4836b7a5245bad459c07dc615aeb8df4132982e6b69b8cdb05f7ac62055",
-          "69f3cf4ccf3705c81fce0ce0b39aff58d6c1ba862e5ace6ff7be4df98ae392c1",
-          "de992612fb3ad6f8ad291623ea7e44e0bb42c81c07aa91a7a7318e86ded30274",
-          "b22ae8bedf8b5c50bb5781a22fe56e9ac8b48895df0cd86967490b6ebabb24d5",
-          "2ab2e61a890ac0ad663b36aeabbd7c49d3f753f724d020b7a1be8f4829a799ed",
-          "5cf47f32b584cd0fa9338986481cbcef89a4041a1a477072daafeb69552491db",
-          "34b1a83daebf1afefc38822138f66cf666a0fc7d1198409dc1b36bab33aba684",
-          "b64ff8f41aa3933a8a213c610dfccb6232aec4b1f126ef52a9a7ef9dda2d9a9d",
-          "4e21a4eb39911e76a15fb37e0fc08b53d88089e4240af0d5e5a438bf1736a110",
-          "03930b5619440f007fd6e95a4ebd7e877d4969334a01b05fbb6ba825bd458edf",
-          "00dd92a70d2dc0861f6beb249e97041c3fe0492b08722b234ace6b157f04f569",
-          "8ca0004fa6640f3a28aa0a6ee7b38e57c22cbd15ec66e547131adf4fa8a33fc2",
-          "a6f9c48e86fbb4da64eb94c0668e9c79296459a105be92a8a7ab7e70bf81ad1b",
-          "a175eac17e448196d2b931d1a24502e45a04844458d6973298f038735a31898c",
-          "96d62cf46a1ef4fbd386ae93d6ee087cc3a89e11714afb5ae3b6f52eb2812764",
-          "685f8b5883be17ab3a0574c4b12898cb3b3f90df101bfc11511a59cba849d6a9",
-          "0556b96962f3fd4946833e7a8dd38cf1cdc91a5fcec9745a0b5691e183a55a1f",
-          "4612980cec3b45751ef2fa2def44a89378401e389a4ca66f6890a92b1d96237f"
+          "fdd6629be5d61846d69f2c301574e44fa717c0c050729c6833b799a3e318fb7c",
+          "9db070e250b806be4a26400ff8c1e101b14f796582e17bc615e51a4740256433",
+          "b3490aecbf6d98fad9808787490519b5348d1801029dfb5e3d92fa22f058ae2a",
+          "365a574b51bd330025daf237c06d1671971bd77fcfd0925dd4af6f4cbe1a14a5",
+          "85dd74b44c366d251a798c6357d7216ccd7cdeb9ee90c7195a0afa07a6409d5c",
+          "850f7a10ca22be70105742aac7bac06cb506232c7111680acd74adc782d9a4da",
+          "8fc92a379ebd7d04f3e94f10e900ec2b2ecc6197a8d8d3fcd2f746bc9800344f",
+          "6ab1c37287ff59ff35cc7324a4c7c1f0159ef4e45656e81ebce1ddb746edfb99",
+          "324510e03f9db7c4135a4b3210ccb2238aabf5a21c7c0280fc72c4f90d8f49ce",
+          "1dfe3a2acfd639d3a52458c22c28ea4d19ec4d05c9341ec58619285f79c4f5e8",
+          "84501cf787af313968cde6cc46d16d39f1ebd48eb3b67a6d3f7b441006092044",
+          "61f7d037f87c75477d499170c3c506632f0e859735f16e72d766243f958d0877"
         ],
         "mechanism_verified": null,
         "resources_complete": null
@@ -417,13 +264,7 @@
       "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a5.json",
       "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b5.json",
       "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a6.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b6.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a7.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b7.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a8.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b8.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a9.json",
-      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b9.json"
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b6.json"
     ]
   }
 }
