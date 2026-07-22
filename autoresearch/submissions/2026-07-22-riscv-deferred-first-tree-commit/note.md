@@ -34,8 +34,10 @@ observed pending first; 849/850 lines).
 
 ## Results
 
-- riscv small: R 0.9750, significant (theta 0.01), all gates pass
-- riscv deep: R 0.9746, significant (theta 0.0129), all gates pass
+- riscv small: R 0.9788, significant (theta 0.01), all gates pass
+- riscv deep: R 0.9737, significant (theta 0.0129), all gates pass
+- (Refreshed vs 9095ecec after #80 landed; first battery vs 0d7f4573
+  measured 0.9750/0.9746 — mechanism unmoved by the faster FFT baseline.)
 - riscv wide: R 0.9727, NOT significant (theta 0.0296) — no credit
   claimed, verdict attached for the record
 - Peak RSS ~1.000 on all classes; transcript identity verified
