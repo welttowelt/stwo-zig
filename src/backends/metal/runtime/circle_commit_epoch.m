@@ -213,7 +213,23 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
         uint32_t inverse_layer = 11u;
         while (inverse_layer < base_log_size) {
-            if (inverse_layer + 2u < base_log_size) {
+            if (inverse_layer + 3u < base_log_size) {
+                uint32_t layer_mode = inverse_layer | 0xa0000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:coefficients offset:0u atIndex:0];
+                [encoder setBuffer:base_offsets offset:0u atIndex:1];
+                [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
+                [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(base_len >> 4u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                inverse_layer += 4u;
+            } else if (inverse_layer + 2u < base_log_size) {
                 uint32_t layer_mode = inverse_layer | 0xc0000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
@@ -283,7 +299,23 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
         uint32_t layer = extended_log_size - 3u;
         while (layer > 10u) {
-            if (layer >= 13u) {
+            if (layer >= 14u) {
+                uint32_t layer_mode = layer | 0x20000000u;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [encoder setBuffer:extended offset:0u atIndex:0];
+                [encoder setBuffer:extended_offsets offset:0u atIndex:1];
+                [encoder setBuffer:forward_buffer offset:0u atIndex:2];
+                [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                NSUInteger width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [encoder dispatchThreads:MTLSizeMake(extended_len >> 4u, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                [encoder endEncoding];
+                layer -= 4u;
+            } else if (layer >= 13u) {
                 uint32_t layer_mode = layer | 0x40000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
