@@ -171,8 +171,11 @@ fn evaluateLargeRecurrenceComposition(
     if (validationStatus(components[0].vtable) == validation_accepted) return output;
 
     // The public shape is deliberately insufficient as a type identity. The
-    // first excluded warmup proves the specialized semantics over every row.
-    var expected = try referenceComposition(allocator, components, random_coeff, trace);
+    // first prove checks the specialized semantics over every row against
+    // the parallel scalar oracle (see OracleWorker); the locked reference
+    // stays the root of trust via the packaging equivalence test, and an
+    // oracle fault can only cause rejection-and-fallback, never acceptance.
+    var expected = try oracleComposition(allocator, components, random_coeff, trace);
     if (!secureColumnsEqual(output, expected)) {
         setValidationStatus(components[0].vtable, validation_rejected);
         output.deinit(allocator);
@@ -233,6 +236,112 @@ fn setValidationStatus(
     defer validation_mutex.unlock();
     validation_vtable = vtable;
     recurrence_validation = status;
+}
+
+/// Validation oracle: a deliberately naive, scalar, unfused twin of the
+/// packed Worker kernel — same extracted shape, same powers/denominators,
+/// different arithmetic path (scalar M31 ops, no fusion, no packing).
+/// Used for the first-prove every-row check instead of the serial locked
+/// reference so validation parallelizes; the locked reference remains the
+/// root of trust via the packaging-time equivalence test. An incorrect
+/// oracle can only cause validation REJECTION (fallback to the locked
+/// path), never an accepted-wrong column.
+const OracleWorker = struct {
+    first_column: [*]const M31,
+    outputs: [qm31.SECURE_EXTENSION_DEGREE][*]M31,
+    powers: []const QM31,
+    denominator_inverses: [2]M31,
+    row_count: usize,
+    column_count: usize,
+    column_stride: usize,
+    row_start: usize,
+    row_end: usize,
+
+    fn run(self: *OracleWorker) void {
+        const half = self.row_count / 2;
+        var row = self.row_start;
+        while (row < self.row_end) : (row += 1) {
+            var a = self.first_column[row];
+            var b = self.first_column[self.column_stride + row];
+            var accumulators: [qm31.SECURE_EXTENSION_DEGREE]M31 = .{
+                M31.zero(), M31.zero(), M31.zero(), M31.zero(),
+            };
+            var column: usize = 2;
+            while (column < self.column_count) : (column += 1) {
+                const c = self.first_column[column * self.column_stride + row];
+                const expected = a.mul(a).add(b.mul(b));
+                const recurrence = c.sub(expected);
+                const power = self.powers[self.column_count - 1 - column].toM31Array();
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    accumulators[coordinate] = accumulators[coordinate].add(
+                        recurrence.mul(power[coordinate]),
+                    );
+                }
+                a = b;
+                b = c;
+            }
+            const denominator = self.denominator_inverses[@intFromBool(row >= half)];
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                self.outputs[coordinate][row] = accumulators[coordinate].mul(denominator);
+            }
+        }
+    }
+};
+
+fn oracleComposition(
+    allocator: std.mem.Allocator,
+    components: []const ComponentProver,
+    random_coeff: QM31,
+    trace: *const Trace,
+) !SecureColumnByCoords {
+    const shape = recurrenceShape(components, trace).?;
+    const powers = try prover.air.accumulation.generateSecurePowers(
+        allocator,
+        random_coeff,
+        shape.constraint_count,
+    );
+    defer allocator.free(powers);
+    const eval_domain = canonic.CanonicCoset.new(shape.eval_log_size).circleDomain();
+    const trace_coset = canonic.CanonicCoset.new(shape.eval_log_size - 1).coset();
+    const denominator_inverses = [2]M31{
+        try constraints.cosetVanishing(M31, trace_coset, eval_domain.at(0)).inv(),
+        try constraints.cosetVanishing(M31, trace_coset, eval_domain.at(1)).inv(),
+    };
+
+    var output = try SecureColumnByCoords.uninitialized(allocator, shape.row_count);
+    errdefer output.deinit(allocator);
+    var output_pointers: [qm31.SECURE_EXTENSION_DEGREE][*]M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        output_pointers[coordinate] = output.columns[coordinate].ptr;
+    }
+
+    const pool = prover.work_pool.getGlobalPool();
+    const requested_workers = if (pool) |active| active.workerCount() else 1;
+    const worker_count = @max(1, @min(requested_workers, shape.row_count));
+    const workers = try allocator.alloc(OracleWorker, worker_count);
+    defer allocator.free(workers);
+    for (workers, 0..) |*worker, index| {
+        worker.* = .{
+            .first_column = shape.first_column,
+            .outputs = output_pointers,
+            .powers = powers,
+            .denominator_inverses = denominator_inverses,
+            .row_count = shape.row_count,
+            .column_count = shape.column_count,
+            .column_stride = shape.column_stride,
+            .row_start = shape.row_count * index / worker_count,
+            .row_end = shape.row_count * (index + 1) / worker_count,
+        };
+    }
+    if (pool) |active| {
+        var wait_group = std.Thread.WaitGroup{};
+        for (workers[1..]) |*worker| active.spawnWg(&wait_group, OracleWorker.run, .{worker});
+        OracleWorker.run(&workers[0]);
+        wait_group.wait();
+    } else {
+        OracleWorker.run(&workers[0]);
+    }
+    return output;
 }
 
 fn referenceComposition(
