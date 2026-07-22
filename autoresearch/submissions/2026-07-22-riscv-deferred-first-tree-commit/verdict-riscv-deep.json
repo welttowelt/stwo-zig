@@ -1,0 +1,945 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "2b0be386f6ea",
+  "repo_commit": "8cff7ebdbd0a",
+  "predecessor_commit": "0d7f457364e7",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "riscv",
+    "workload_class": "deep",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "da0daaba4b15",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": true,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 7.57
+    }
+  },
+  "search_health": {
+    "schema_version": 1,
+    "decision": {
+      "schema_version": 1,
+      "board": "riscv",
+      "workload_class": "deep",
+      "trailing_window": 8,
+      "trailing_evidence_count": 0,
+      "trailing_median_gradient_snr": null,
+      "gradient_snr_threshold": 2.0,
+      "configured_rounds": 5,
+      "auto_boost_rounds": 5,
+      "maximum_rounds": 25,
+      "target_rounds": 5,
+      "workload_count": 7,
+      "class_wall_deadline_seconds": 600.0,
+      "estimated_seconds_per_round": null,
+      "deadline_round_limit": null,
+      "auto_boost_applied": false,
+      "auto_boost_reason": "insufficient_trailing_evidence",
+      "recorded_before_measurement": true
+    },
+    "decision_sha256": "sha256:ee9fb5f8e6147f840f964898b86460d6b3781cf0de8b4e52b006c3d257f6fbed",
+    "actual_rounds": 25,
+    "actual_rounds_per_workload": {
+      "riscv_fib_iter": 5,
+      "riscv_gcd_euclid": 3,
+      "riscv_multi_shard_addi": 3,
+      "riscv_sha2_1024b": 3,
+      "riscv_sha2_2048b": 3,
+      "riscv_sha2_512b": 3,
+      "riscv_xorshift_prng": 5
+    },
+    "objective_wall_seconds": 255.4320573750083,
+    "measurement_wall_seconds": 256.41261674999987,
+    "measurement_wall_hours": 0.07122572687499996,
+    "gradient_snr": null,
+    "credited_ln_improvement": null,
+    "credited_ln_improvement_per_measurement_hour": null,
+    "credit_status": "pending_ledger_adjudication",
+    "decision_record": "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/search-health-decision.json"
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 7/7 workloads"
+    },
+    "G2": {
+      "pass": true,
+      "detail": "no locked or out-of-scope path touched"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "RISC-V mechanism telemetry present, canonical, and semantically stable for 7/7 workloads"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.9155 vs targeted budget x1.02; matrix row upper CIs 7/7 within budget x1.05; request ratios 7/7 present rows within budget x1.05; resource vectors 7/7 within named budgets"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "riscv_xorshift_prng": {
+        "r": 0.9742,
+        "ci": [
+          0.969785,
+          0.980246
+        ],
+        "rounds": 5,
+        "a_median_ms": 2010.269958,
+        "b_median_ms": 1957.1135,
+        "request_ratio": 0.974858,
+        "rss_ratio": 1.000248,
+        "resources": {
+          "energy_j": {
+            "ratio": 1.000137,
+            "ci": [
+              0.998274,
+              1.000589
+            ],
+            "observations": 5,
+            "candidate": 118.639441374
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000248,
+            "ci": [
+              0.999215,
+              1.001348
+            ],
+            "observations": 5,
+            "candidate": 1263.8144454956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 61123.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 61123,
+        "measurement_seconds": 41.794279,
+        "resources_complete": true
+      },
+      "riscv_fib_iter": {
+        "r": 0.977628,
+        "ci": [
+          0.97488,
+          0.984827
+        ],
+        "rounds": 5,
+        "a_median_ms": 2091.851208,
+        "b_median_ms": 2050.352042,
+        "request_ratio": 0.978886,
+        "rss_ratio": 0.999873,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.999632,
+            "ci": [
+              0.999399,
+              1.000357
+            ],
+            "observations": 5,
+            "candidate": 114.547567021
+          },
+          "peak_rss_mib": {
+            "ratio": 0.999873,
+            "ci": [
+              0.999214,
+              1.000309
+            ],
+            "observations": 5,
+            "candidate": 1291.3614349365234
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 60003.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 60003,
+        "measurement_seconds": 43.625078,
+        "resources_complete": true
+      },
+      "riscv_gcd_euclid": {
+        "r": 0.976636,
+        "ci": [
+          0.972671,
+          0.979176
+        ],
+        "rounds": 3,
+        "a_median_ms": 2049.381125,
+        "b_median_ms": 2000.720958,
+        "request_ratio": 0.978234,
+        "rss_ratio": 1.000281,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.999221,
+            "ci": [
+              0.997595,
+              0.999897
+            ],
+            "observations": 3,
+            "candidate": 118.122392615
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000281,
+            "ci": [
+              0.999792,
+              1.000844
+            ],
+            "observations": 3,
+            "candidate": 1279.1738204956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 62582.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 62582,
+        "measurement_seconds": 25.648381,
+        "resources_complete": true
+      },
+      "riscv_multi_shard_addi": {
+        "r": 0.973671,
+        "ci": [
+          0.970566,
+          0.980362
+        ],
+        "rounds": 3,
+        "a_median_ms": 2034.097167,
+        "b_median_ms": 1979.766792,
+        "request_ratio": 0.974352,
+        "rss_ratio": 1.000182,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.997748,
+            "ci": [
+              0.995708,
+              1.000629
+            ],
+            "observations": 3,
+            "candidate": 110.43094448
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000182,
+            "ci": [
+              0.999394,
+              1.000654
+            ],
+            "observations": 3,
+            "candidate": 1289.8144454956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 58117.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 58117,
+        "measurement_seconds": 25.397173,
+        "resources_complete": true
+      },
+      "riscv_sha2_512b": {
+        "r": 0.971785,
+        "ci": [
+          0.966127,
+          0.976728
+        ],
+        "rounds": 3,
+        "a_median_ms": 2754.654584,
+        "b_median_ms": 2670.068833,
+        "request_ratio": 0.985606,
+        "rss_ratio": 1.00233,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.99934,
+            "ci": [
+              0.99831,
+              1.000828
+            ],
+            "observations": 3,
+            "candidate": 169.301778869
+          },
+          "peak_rss_mib": {
+            "ratio": 1.00233,
+            "ci": [
+              1.001708,
+              1.003857
+            ],
+            "observations": 3,
+            "candidate": 1376.471061706543
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 78496.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 78496,
+        "measurement_seconds": 35.876889,
+        "resources_complete": true
+      },
+      "riscv_sha2_1024b": {
+        "r": 0.972211,
+        "ci": [
+          0.968019,
+          0.975492
+        ],
+        "rounds": 3,
+        "a_median_ms": 3030.862292,
+        "b_median_ms": 2952.179084,
+        "request_ratio": 0.983588,
+        "rss_ratio": 0.999721,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.998706,
+            "ci": [
+              0.997154,
+              0.999474
+            ],
+            "observations": 3,
+            "candidate": 177.380130478
+          },
+          "peak_rss_mib": {
+            "ratio": 0.999721,
+            "ci": [
+              0.998939,
+              1.000448
+            ],
+            "observations": 3,
+            "candidate": 1428.830436706543
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 76677.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 76677,
+        "measurement_seconds": 39.326604,
+        "resources_complete": true
+      },
+      "riscv_sha2_2048b": {
+        "r": 0.975957,
+        "ci": [
+          0.973724,
+          0.98018
+        ],
+        "rounds": 3,
+        "a_median_ms": 3374.795542,
+        "b_median_ms": 3290.297542,
+        "request_ratio": 0.986811,
+        "rss_ratio": 0.998908,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.99889,
+            "ci": [
+              0.998557,
+              0.999133
+            ],
+            "observations": 3,
+            "candidate": 192.900129016
+          },
+          "peak_rss_mib": {
+            "ratio": 0.998908,
+            "ci": [
+              0.993216,
+              1.002228
+            ],
+            "observations": 3,
+            "candidate": 1497.1117324829102
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 81115.0
+          }
+        },
+        "mechanism_verified": true,
+        "proof_bytes": 81115,
+        "measurement_seconds": 43.630105,
+        "resources_complete": true
+      }
+    },
+    "R_geomean": 0.974582,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 4042241451,
+      "ci": [
+        0.97309,
+        0.976707
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 2363.699104,
+      "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+      "proof_bytes": 67692,
+      "measurement_seconds": 255.298509,
+      "measurement_rounds": 25
+    },
+    "theta": 0.012888,
+    "aa_dispersion": 0.006444,
+    "significant": true,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    },
+    "resource_portfolio": {
+      "peak_rss_mib": {
+        "ratio_geomean": 1.0002199132258762,
+        "upper_ci_geomean": 1.0013833104154655,
+        "candidate_geomean": 1344.1746561650796
+      },
+      "energy_j": {
+        "ratio_geomean": 0.999095874854193,
+        "upper_ci_geomean": 1.0001293248609364,
+        "candidate_geomean": 139.47786301543096
+      },
+      "proof_bytes": {
+        "ratio_geomean": 1.0,
+        "upper_ci_geomean": 1.0,
+        "candidate_geomean": 67691.6135391908
+      }
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": 1.00022,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": 139.47786301543096,
+    "proof_bytes": 67691.6135391908
+  },
+  "holdout": null,
+  "guards": {},
+  "rust_oracle": [
+    {
+      "workload": "riscv_xorshift_prng",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "641b7eeaf6398854e68d816f7816f31ed9ff03b4d7e4650a340bb59add4a1570",
+      "proof_sha256": "c32a74186749f640a1b5b2a558768e9f6e60bcd58bc30595411e1722d5ead0e9"
+    },
+    {
+      "workload": "riscv_fib_iter",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "95028107e8b181bb76cd357895ac1fe0419b3a4f8a77c8dca4462e15d04eda2c",
+      "proof_sha256": "100f0251e29fa5bbd58dfca387f52b776c0fa387ca0c2250a2f5534235bedc02"
+    },
+    {
+      "workload": "riscv_gcd_euclid",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "135e5c441fc41f5200901a003ccf1b1129d536f06b0331ac4cf25c72aa9a4399",
+      "proof_sha256": "7cfa5df8529186cc005ad38e86f5aae1fc0cb150a2d4c899a42bebac5f46778b"
+    },
+    {
+      "workload": "riscv_multi_shard_addi",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "2a1f92bc0e8af2dc9175351a879dea09b09d0c5fb5fc27673f7ecca4cbb878fb",
+      "proof_sha256": "4bf8ab22c5ebb506421203abfb2905b06d3f9cc39cd42fcd3899f288f98775a4"
+    },
+    {
+      "workload": "riscv_sha2_512b",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "85cf80e0b8b18fb6bdaa3c722c03e631afe9a094adc69e73fd7edf52fe62e117",
+      "proof_sha256": "a5c7b4e54d0ba913b0ae1f58c77ea823826e0ba776a4a2673be2ab6dc3bcb74a"
+    },
+    {
+      "workload": "riscv_sha2_1024b",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "31250502bb767e8f1d245f7ba2ab81824b884d64137a39f56f01dbdff0f85184",
+      "proof_sha256": "63bbad02c8806622b99eba191ca9d1333ba77abd2f1486e2838525542d36cc50"
+    },
+    {
+      "workload": "riscv_sha2_2048b",
+      "verified": true,
+      "oracle": "pinned-stark-v-release-anchor",
+      "oracle_commit": "d478f783055aa0d73a93768a433a3c6c31c91d1c",
+      "anchor_candidate": "4c4049bdf878de450f172403a3ddac37eef0dca2",
+      "anchor_receipt_sha256": "92a901106ff3f3236cf03e2d29469e9a6901ec50ce82a5dc2d473d85155a768a",
+      "artifact_sha256": "83b74a750e1e8fa812d9fb6ba6ea751745a2f7a407e5d72792836f186f4814bd",
+      "proof_sha256": "adaa94716e7010c04814b2b574b3b7cb788f76f31f8258ad2a737bae68f1b851"
+    }
+  ],
+  "skipped_groups": [],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "riscv_xorshift_prng": {
+        "round_ratios": [
+          0.969242,
+          0.97783,
+          0.982662,
+          0.970328,
+          0.9742
+        ],
+        "proof_digest": "c32a74186749f640a1b5b2a558768e9f6e60bcd58bc30595411e1722d5ead0e9",
+        "request_ratio": 0.974858,
+        "rss_ratio": 1.000248,
+        "resources": {
+          "energy_j": {
+            "ratio": 1.000137,
+            "ci": [
+              0.998274,
+              1.000589
+            ],
+            "observations": 5,
+            "candidate": 118.639441374
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000248,
+            "ci": [
+              0.999215,
+              1.001348
+            ],
+            "observations": 5,
+            "candidate": 1263.8144454956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 61123.0
+          }
+        },
+        "report_sha256s": [
+          "98978a6f9909be5a1340fc0812c0c7922f063be1024dea3e6589fda73b079901",
+          "1258200acbbe804ec3f7ae0f737d1d0fe623de2917c4a0f3d6f0b6732020c238",
+          "2621c67ef3132363d2cc3537684022065e8c685072ed285324161aade45f8dd5",
+          "b6ac080b6fe88aaa2b91435b882c9ca727658bb2ef51a7c2853a34010f0e9b15",
+          "06bc83ca380e7993f27ca4d89cb97a834d5e2a0d346ca3f137c9e33dfcb1254d",
+          "a1ae29d7411327c1c143fdf7c883ed0307e7e289834bf48cdef1a11b3a9db459",
+          "dc2515106f4da9ef25bb7c76f4c684e5e4d2b4eddd6b8ffdfcc54109f26b2fa0",
+          "4d4040e8b43834fbc252c78260126524117458cfce51419665aba3da9f32e959",
+          "25a3efd8669e2445413ce65068730d9620ca9dbd0493fbff630aa3b68a1f7131",
+          "cea837f4c140ab1ab079ef38b65ad55af6a84a4c89890d5aa1a8f26c85e78873"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_fib_iter": {
+        "round_ratios": [
+          0.989492,
+          0.980162,
+          0.975094,
+          0.974666,
+          0.977592
+        ],
+        "proof_digest": "100f0251e29fa5bbd58dfca387f52b776c0fa387ca0c2250a2f5534235bedc02",
+        "request_ratio": 0.978886,
+        "rss_ratio": 0.999873,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.999632,
+            "ci": [
+              0.999399,
+              1.000357
+            ],
+            "observations": 5,
+            "candidate": 114.547567021
+          },
+          "peak_rss_mib": {
+            "ratio": 0.999873,
+            "ci": [
+              0.999214,
+              1.000309
+            ],
+            "observations": 5,
+            "candidate": 1291.3614349365234
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 60003.0
+          }
+        },
+        "report_sha256s": [
+          "a454f1b23f211205530a0f8268ebe0cd3f22b687071acb212534f38ac2b104ba",
+          "63bc3a93981f8b1f380ee38ba0eb2336b2448afb0fc39624336f96eced38e7df",
+          "ba7c44b8f9a8cfd722e8a8fd3545bbaf0ed28e82b51107f68a47077e018dad01",
+          "76c9727cef1640ef68102f35ee86b4664c1405cf3ff3aa86d72e219be1538565",
+          "fcc39949678f4156c151b5c5692b6bbd2ce34d31e2f4c3cf05a2e15acab00136",
+          "56c7ea9d32e8a6dfb0bfb0e52fd9841ee0f421ec843029b37d5891ee1c1d9fdd",
+          "f144edefb9e50f1533e38f0e6b850fbcf06238ae6121c205c80727938bf098af",
+          "ab066f40320a882eb5dfc91b9380d72e2e3c0ee343968627b4ad71a0b4d801a1",
+          "5ba8aa8511a889f8d4e614712949fd0aefc2ab6fd23ef50b03608c9d6bac9048",
+          "7cc8c7f38c9530ed9f3e003c1949618cdce75c25e923875354a96c044fc40992"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_gcd_euclid": {
+        "round_ratios": [
+          0.972671,
+          0.979176,
+          0.977349
+        ],
+        "proof_digest": "7cfa5df8529186cc005ad38e86f5aae1fc0cb150a2d4c899a42bebac5f46778b",
+        "request_ratio": 0.978234,
+        "rss_ratio": 1.000281,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.999221,
+            "ci": [
+              0.997595,
+              0.999897
+            ],
+            "observations": 3,
+            "candidate": 118.122392615
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000281,
+            "ci": [
+              0.999792,
+              1.000844
+            ],
+            "observations": 3,
+            "candidate": 1279.1738204956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 62582.0
+          }
+        },
+        "report_sha256s": [
+          "f6aaf5d69178f89e5a3c9547bfb835598a747ff6c37f696cca6cdc27506226cc",
+          "438127be6ab98c180de6b69a3290e2a3dccfda0c513150fbbbf14479d9f0e77c",
+          "6d464ec95d610bfe079d0d5f5372424ff8acfdac5d4655b97d953b944d0fcfd6",
+          "33e95ced1103ed1507496da9dc17307410ed96a5986ec5f0149a453c73055fcf",
+          "d143beadbc282a59d017e6d60f070b36f075824fe1c3877b76af8936274c07fd",
+          "feab5dc075e98a12cba5644a7e1d79b2dab2495df2b1c4d0a6e4aaf20816295e"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_multi_shard_addi": {
+        "round_ratios": [
+          0.970566,
+          0.980362,
+          0.971877
+        ],
+        "proof_digest": "4bf8ab22c5ebb506421203abfb2905b06d3f9cc39cd42fcd3899f288f98775a4",
+        "request_ratio": 0.974352,
+        "rss_ratio": 1.000182,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.997748,
+            "ci": [
+              0.995708,
+              1.000629
+            ],
+            "observations": 3,
+            "candidate": 110.43094448
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000182,
+            "ci": [
+              0.999394,
+              1.000654
+            ],
+            "observations": 3,
+            "candidate": 1289.8144454956055
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 58117.0
+          }
+        },
+        "report_sha256s": [
+          "def4dc065291bfee793981f0f42423aae1c579785ac1af717e6adfdc52ceb930",
+          "27f99c15ffaa97822036f88d5a3e6c85ada7c8c9165c35e87a888cd9832bd1fe",
+          "5e58d11e9db2c6b9175db803b563b5dfec2e5505d7a90c30cb58a35a810fc0b6",
+          "fe9848fef675fb8705e85343af0c20ae32857e152088884b9007533b3a4d5568",
+          "44a32675d1943de9cac7a17b3ae85e03264d9145615086e5e9ac410385629962",
+          "de8158eafb7d246d70d2ae37bc8504097109acd46a2c0c5dc467e579b189a008"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_sha2_512b": {
+        "round_ratios": [
+          0.966127,
+          0.972143,
+          0.976728
+        ],
+        "proof_digest": "a5c7b4e54d0ba913b0ae1f58c77ea823826e0ba776a4a2673be2ab6dc3bcb74a",
+        "request_ratio": 0.985606,
+        "rss_ratio": 1.00233,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.99934,
+            "ci": [
+              0.99831,
+              1.000828
+            ],
+            "observations": 3,
+            "candidate": 169.301778869
+          },
+          "peak_rss_mib": {
+            "ratio": 1.00233,
+            "ci": [
+              1.001708,
+              1.003857
+            ],
+            "observations": 3,
+            "candidate": 1376.471061706543
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 78496.0
+          }
+        },
+        "report_sha256s": [
+          "23769481313c648d35dc4d73378dbcbca7e91ba2531159c90d4950b37e7df757",
+          "1aa54af78b2f4cd2c818fee412458aeb8e096efae05e6fbde4c01d56a018e738",
+          "c7691fcd535bba70847a80602c74d953f3ebed497dcaa4ae14cc6ed55a70cd3b",
+          "64d14a2e96af92e2e8b980c5013f792e3ef325ffbefdf5df1a4bea77088d81af",
+          "15fa5b485033df13a61160f7e1327639d1d923f608b2ea99fc732ba378e3eb22",
+          "05d3bf5c25909fac9a236fb7666d16bfefa3e2f1dfe48e8dee34765b4f198461"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_sha2_1024b": {
+        "round_ratios": [
+          0.972667,
+          0.968019,
+          0.975492
+        ],
+        "proof_digest": "63bbad02c8806622b99eba191ca9d1333ba77abd2f1486e2838525542d36cc50",
+        "request_ratio": 0.983588,
+        "rss_ratio": 0.999721,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.998706,
+            "ci": [
+              0.997154,
+              0.999474
+            ],
+            "observations": 3,
+            "candidate": 177.380130478
+          },
+          "peak_rss_mib": {
+            "ratio": 0.999721,
+            "ci": [
+              0.998939,
+              1.000448
+            ],
+            "observations": 3,
+            "candidate": 1428.830436706543
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 76677.0
+          }
+        },
+        "report_sha256s": [
+          "aa60861ee57b5e973c413b9f23affbd4eb7b3175b1b3937aa47a6e06c0bfd690",
+          "a8bf5293096ac1e342ab31573927d751f9f3c4fbecc696db563ebf9a9f11b911",
+          "8c290edce165b222aaba8443905ec1257f350b7031e37bc67520843732315973",
+          "ecc2c1b011c2a1171792d090791ce5758cc5df76f11b5b009d2444cba3f31f8c",
+          "44004b3499b77444e063abbd7aea38ce4df4962c63a29503422e56c7ddd7a660",
+          "b7645f4a3d71249b9d982cd1d6ecddcf442b32eed65ed00a3e6b69844f579dd1"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      },
+      "riscv_sha2_2048b": {
+        "round_ratios": [
+          0.973724,
+          0.98018,
+          0.974962
+        ],
+        "proof_digest": "adaa94716e7010c04814b2b574b3b7cb788f76f31f8258ad2a737bae68f1b851",
+        "request_ratio": 0.986811,
+        "rss_ratio": 0.998908,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.99889,
+            "ci": [
+              0.998557,
+              0.999133
+            ],
+            "observations": 3,
+            "candidate": 192.900129016
+          },
+          "peak_rss_mib": {
+            "ratio": 0.998908,
+            "ci": [
+              0.993216,
+              1.002228
+            ],
+            "observations": 3,
+            "candidate": 1497.1117324829102
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 81115.0
+          }
+        },
+        "report_sha256s": [
+          "baeba0d6088cf2ad60cf213b37fed14174e6e6cd2b368555ee1f5a7fbf6bc5d2",
+          "1dec44ec88f48c9bf0af7fb135a306ee24b315460aa42018ed7e2cd4a3a8ceb4",
+          "0f5d3a37e7fec1127c1d952ad345c32726b3cbaf4c517608756993a374224fe0",
+          "7162e7a4b06f96336e862ea6ba00df953610350233a2302fd3e4cb75934e8d4f",
+          "3e50d7ca8cffb4cf79d315eb07d35f0b9dc5ea9dc37348e56dffbd8ac6f8708e",
+          "5a057bece477a00fb62e89a82f16cf44400d65a3d7739f1db5145e3abf43c009"
+        ],
+        "mechanism_verified": true,
+        "resources_complete": true
+      }
+    },
+    "reports": [
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.a4.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.b4.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.a5.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_xorshift_prng.b5.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.a4.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.b4.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.a5.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_fib_iter.b5.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_gcd_euclid.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_multi_shard_addi.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_512b.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_1024b.b3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.a1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.b1.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.a2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.b2.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.a3.json",
+      "/Users/odin/stwo-l1-cand/autoresearch/.runs/latest/riscv_sha2_2048b.b3.json"
+    ]
+  }
+}
