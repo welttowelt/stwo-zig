@@ -767,8 +767,8 @@ bool stwo_zig_metal_recurrence_composition(
             return false;
         }
 
-        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
-        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        id<MTLCommandBuffer> recurrence_command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [recurrence_command computeCommandEncoder];
         [encoder setComputePipelineState:runtime.recurrenceComposition];
         [encoder setBuffer:trace_buffer offset:trace_offset atIndex:0];
         [encoder setBuffer:powers offset:0 atIndex:1];
@@ -781,16 +781,17 @@ bool stwo_zig_metal_recurrence_composition(
         [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding];
-        [command commit];
-        [command waitUntilCompleted];
-        if (command.status == MTLCommandBufferStatusError) {
+        [recurrence_command commit];
+        [recurrence_command waitUntilCompleted];
+        if (recurrence_command.status == MTLCommandBufferStatusError) {
             write_error(error_message, error_message_len,
-                        command.error.localizedDescription ?: @"Metal composition evaluation failed");
+                        recurrence_command.error.localizedDescription ?: @"Metal composition evaluation failed");
             return false;
         }
         if (!direct_output) memcpy(output_words, output.contents, output_bytes);
         if (gpu_milliseconds != NULL)
-            *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+            *gpu_milliseconds =
+                (recurrence_command.GPUEndTime - recurrence_command.GPUStartTime) * 1000.0;
         return true;
     }
 }
