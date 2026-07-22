@@ -598,6 +598,27 @@ pub extern fn stwo_zig_metal_circle_lde(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+pub extern fn stwo_zig_metal_circle_lde_merkle_commit(
+    runtime: *anyopaque,
+    source_columns: [*]const [*]const u32,
+    base_columns: [*]const [*]u32,
+    transform_words: [*]u32,
+    transform_word_count: usize,
+    extended_start: u32,
+    extended_stride: u32,
+    column_count: u32,
+    base_log_size: u32,
+    extended_log_size: u32,
+    inverse_twiddles: [*]const u32,
+    forward_twiddles: [*]const u32,
+    scale_factor: u32,
+    leaf_seed: *const [8]u32,
+    node_seed: *const [8]u32,
+    domain_prefix_bytes: u32,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) ?*anyopaque;
 pub extern fn stwo_zig_metal_recurrence_composition(
     runtime: *anyopaque,
     trace_first: [*]const u32,

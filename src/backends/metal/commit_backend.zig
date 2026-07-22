@@ -1,6 +1,7 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const commit_policy = @import("commit_policy.zig");
+const combined_commit = @import("runtime/combined_commit.zig");
 const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const secure_composition = @import("runtime/secure_composition.zig");
@@ -68,6 +69,7 @@ pub const MetalCommitBackend = struct {
     pub const RuntimeInitializationPolicy = shared_runtime.InitializationPolicy;
     pub const preferMonolithicCommit = true;
     pub const lazyFriFoldInverseWorkspace = true;
+    pub const prepareAndCommitOwned = combined_commit.prepareAndCommitOwned;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();

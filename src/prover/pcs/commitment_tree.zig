@@ -109,6 +109,26 @@ pub fn CommitmentTreeProverForBackend(comptime B: type, comptime H: type) type {
             };
         }
 
+        /// Adopts a backend commitment that was built in the same execution
+        /// epoch as column preparation. All supplied storage becomes owned by
+        /// the returned tree exactly as in `initOwnedWithBacking`.
+        pub fn initPrecommitted(
+            owned_columns: []ColumnEvaluation,
+            owned_coefficients: ?[]prover_circle.CircleCoefficients,
+            column_backing_buffers: ?[][]M31,
+            coefficient_backing_buffers: ?[][]M31,
+            commitment: B.MerkleTree(H),
+        ) Self {
+            std.debug.assert(owned_coefficients == null or owned_coefficients.?.len == owned_columns.len);
+            return .{
+                .columns = owned_columns,
+                .coefficients = owned_coefficients,
+                .column_backing_buffers = column_backing_buffers,
+                .coefficient_backing_buffers = coefficient_backing_buffers,
+                .commitment = commitment,
+            };
+        }
+
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             if (self.column_backing_buffers) |buffers| {
                 allocator.free(self.columns);

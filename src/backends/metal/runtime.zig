@@ -89,12 +89,18 @@ pub const FriLineCascadeResult = struct {
     trees: []Tree,
 };
 
+pub const LdeCommitResult = struct {
+    gpu_ms: f64,
+    tree: Tree,
+};
+
 const session_ops = @import("runtime/session.zig");
 const prepared_ops = @import("runtime/prepared_execution.zig");
 const composition_ops = @import("runtime/composition_operations.zig");
 const opening_ops = @import("runtime/opening_operations.zig");
 const resident_ops = @import("runtime/resident_operations.zig");
 const polynomial_ops = @import("runtime/polynomial_operations.zig");
+const combined_commit_ops = @import("runtime/combined_commit_operations.zig");
 
 pub const Runtime = struct {
     handle: *anyopaque,
@@ -212,6 +218,7 @@ pub const Runtime = struct {
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
     pub const transformCircleLdeInto = polynomial_ops.transformCircleLdeInto;
     pub const evaluateRecurrenceComposition = polynomial_ops.evaluateRecurrenceComposition;
+    pub const transformCircleLdeAndCommit = combined_commit_ops.transformCircleLdeAndCommit;
 };
 
 /// Deferred compatibility hooks that deliberately bypass production admission.

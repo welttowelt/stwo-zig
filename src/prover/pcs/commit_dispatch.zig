@@ -1,0 +1,63 @@
+//! Optional commitment fast paths kept outside the size-bounded scheme driver.
+
+const std = @import("std");
+const column_preparation = @import("columns/preparation.zig");
+const column_storage = @import("columns/storage.zig");
+const commitment_tree = @import("commitment_tree.zig");
+
+pub fn commitConstant(
+    comptime B: type,
+    comptime H: type,
+    scheme: anytype,
+    allocator: std.mem.Allocator,
+    owned_columns: []commitment_tree.ColumnEvaluation,
+    channel: anytype,
+) !void {
+    const BackendCommitmentTree = commitment_tree.CommitmentTreeProverForBackend(B, H);
+    errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+    var prepared = try column_preparation.prepareConstantColumnsForCommitOwned(
+        allocator,
+        owned_columns,
+        scheme.config.fri_config.log_blowup_factor,
+        scheme.coefficient_retention_policy,
+    );
+    errdefer prepared.deinit(allocator);
+    var tree = try BackendCommitmentTree.initOwnedWithCoefficients(
+        allocator,
+        prepared.columns,
+        prepared.coefficients,
+    );
+    errdefer tree.deinit(allocator);
+    return scheme.appendCommittedTree(allocator, tree, channel);
+}
+
+pub fn tryPrecommitted(
+    comptime B: type,
+    comptime H: type,
+    allocator: std.mem.Allocator,
+    owned_columns: []commitment_tree.ColumnEvaluation,
+    log_blowup_factor: u32,
+    retention_policy: anytype,
+    twiddle_source: anytype,
+) !?commitment_tree.CommitmentTreeProverForBackend(B, H) {
+    if (comptime !@hasDecl(B, "prepareAndCommitOwned")) return null;
+    // The public commit contract owns `owned_columns` on every error.  A
+    // backend returns `null` without consuming them, but an allocation error
+    // cannot fall through to the generic path and must release them here.
+    errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+    const prepared = (try B.prepareAndCommitOwned(
+        H,
+        allocator,
+        owned_columns,
+        log_blowup_factor,
+        retention_policy,
+        twiddle_source,
+    )) orelse return null;
+    return commitment_tree.CommitmentTreeProverForBackend(B, H).initPrecommitted(
+        prepared.columns,
+        prepared.coefficients,
+        prepared.column_backing_buffers,
+        prepared.coefficient_backing_buffers,
+        prepared.commitment,
+    );
+}
