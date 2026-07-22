@@ -126,6 +126,9 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionRandomPowers;
 @property(nonatomic, strong) id<MTLComputePipelineState> compositionExtParams;
+@property(nonatomic, strong) id<MTLBuffer> compositionTraceBuffer;
+@property(nonatomic) uintptr_t compositionTraceHostBegin;
+@property(nonatomic) NSUInteger compositionTraceWordCount;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalLibraryKey *, id> *evalLibraries;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalPipelineKey *, id<MTLComputePipelineState>> *evalPipelines;
 @property(nonatomic) uint64_t evalLibraryCacheHits;

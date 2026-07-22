@@ -373,20 +373,24 @@ constant uint circle_fused_tile_size = 1u << circle_fused_tile_log;
 constant uint circle_fused_threads = 256u;
 
 kernel void stwo_zig_circle_ifft_fused_tail(
-    device uint *values [[buffer(0)]],
-    device const uint *twiddles [[buffer(1)]],
-    constant uint &log_size [[buffer(2)]],
-    constant uint &column_count [[buffer(3)]],
+    device const uint *source [[buffer(0)]],
+    device uint *destination [[buffer(1)]],
+    device const uint *twiddles [[buffer(2)]],
+    constant uint &log_size [[buffer(3)]],
+    constant uint &column_or_destination [[buffer(4)]],
+    constant uint &source_mode [[buffer(5)]],
     uint lane [[thread_index_in_threadgroup]],
     uint2 group [[threadgroup_position_in_grid]]
 ) {
-    if (group.y >= column_count) return;
+    if (source_mode == 0u && group.y >= column_or_destination) return;
     threadgroup uint tile[circle_fused_tile_size];
     uint value_len = 1u << log_size;
     uint tile_offset = group.x << circle_fused_tile_log;
-    uint column_offset = group.y << log_size;
+    uint source_column_offset = group.y << log_size;
+    uint destination_column_offset =
+        (source_mode == 0u ? group.y : column_or_destination + group.y) << log_size;
     for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
-        tile[item] = values[column_offset + tile_offset + item];
+        tile[item] = source[source_column_offset + tile_offset + item];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -422,7 +426,7 @@ kernel void stwo_zig_circle_ifft_fused_tail(
     }
 
     for (uint item = lane; item < circle_fused_tile_size; item += circle_fused_threads) {
-        values[column_offset + tile_offset + item] = tile[item];
+        destination[destination_column_offset + tile_offset + item] = tile[item];
     }
 }
 

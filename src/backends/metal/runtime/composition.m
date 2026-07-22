@@ -203,9 +203,13 @@ static void encode_composition_front_production(
     [powers endEncoding];
     if (inputs.descriptorCount != 0u) {
         id<MTLComputeCommandEncoder> params = [command computeCommandEncoder];
-        uint32_t descriptor_count = inputs.descriptorCount;
+        uint32_t descriptor_count = inputs.descriptorCount, unused = 0u, mode = 0u;
+        uint32_t unused_pair[2] = {0u, 0u};
         [params setComputePipelineState:runtime.compositionExtParams]; [params setBuffer:arena offset:0 atIndex:0];
-        [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:2];
+        [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBuffer:arena offset:0 atIndex:2];
+        [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:3];
+        [params setBytes:&unused length:sizeof(unused) atIndex:4]; [params setBytes:&unused length:sizeof(unused) atIndex:5];
+        [params setBytes:unused_pair length:sizeof(unused_pair) atIndex:6]; [params setBytes:&mode length:sizeof(mode) atIndex:7];
         [params dispatchThreads:MTLSizeMake(descriptor_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup), 1u, 1u)];
         [params endEncoding];
     }
@@ -263,9 +267,13 @@ bool stwo_zig_metal_composition_front_prepared(
         [powers endEncoding];
         if (inputs.descriptorCount != 0u) {
             id<MTLComputeCommandEncoder> params = [command computeCommandEncoder];
-            uint32_t descriptor_count = inputs.descriptorCount;
+            uint32_t descriptor_count = inputs.descriptorCount, unused = 0u, mode = 0u;
+            uint32_t unused_pair[2] = {0u, 0u};
             [params setComputePipelineState:runtime.compositionExtParams]; [params setBuffer:arena offset:0 atIndex:0];
-            [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:2];
+            [params setBuffer:inputs.descriptors offset:0 atIndex:1]; [params setBuffer:arena offset:0 atIndex:2];
+            [params setBytes:&descriptor_count length:sizeof(descriptor_count) atIndex:3];
+            [params setBytes:&unused length:sizeof(unused) atIndex:4]; [params setBytes:&unused length:sizeof(unused) atIndex:5];
+            [params setBytes:unused_pair length:sizeof(unused_pair) atIndex:6]; [params setBytes:&mode length:sizeof(mode) atIndex:7];
             [params dispatchThreads:MTLSizeMake(descriptor_count, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup), 1u, 1u)];
             [params endEncoding];
         }
@@ -699,6 +707,101 @@ bool stwo_zig_metal_composition_prepared(
             write_error(error_message, error_message_len, command.error.localizedDescription); return false;
         }
         if (gpu_milliseconds) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}
+
+bool stwo_zig_metal_recurrence_composition(
+    void *runtime_ptr,
+    const uint32_t *trace_first,
+    uint32_t row_count,
+    uint32_t column_count,
+    uint32_t column_stride,
+    const uint32_t *power_words,
+    uint32_t power_word_count,
+    const uint32_t *denominator_inverses,
+    uint32_t *output_words,
+    size_t output_word_count,
+    double *gpu_milliseconds,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || trace_first == NULL || power_words == NULL ||
+        denominator_inverses == NULL || output_words == NULL || row_count == 0u ||
+        column_count < 3u || column_stride < row_count ||
+        power_word_count != (column_count - 2u) * 4u ||
+        output_word_count != (size_t)row_count * 4u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        size_t trace_word_count = (size_t)(column_count - 1u) * column_stride + row_count;
+        if (trace_word_count > SIZE_MAX / sizeof(uint32_t) ||
+            output_word_count > SIZE_MAX / sizeof(uint32_t)) return false;
+        uintptr_t trace_address = (uintptr_t)trace_first;
+        size_t trace_bytes = trace_word_count * sizeof(uint32_t);
+        if (trace_address > UINTPTR_MAX - trace_bytes) return false;
+
+        id<MTLBuffer> trace_buffer = nil;
+        NSUInteger trace_offset = 0u;
+        @synchronized(runtime) {
+            uintptr_t cache_begin = runtime.compositionTraceHostBegin;
+            size_t cache_bytes = runtime.compositionTraceWordCount * sizeof(uint32_t);
+            if (runtime.compositionTraceBuffer != nil && cache_begin <= trace_address &&
+                cache_begin <= UINTPTR_MAX - cache_bytes &&
+                trace_address + trace_bytes <= cache_begin + cache_bytes) {
+                trace_buffer = runtime.compositionTraceBuffer;
+                trace_offset = (NSUInteger)(trace_address - cache_begin);
+            }
+        }
+        if (trace_buffer == nil) {
+            write_error(error_message, error_message_len, @"Metal composition trace is not resident");
+            return false;
+        }
+
+        size_t output_bytes = output_word_count * sizeof(uint32_t);
+        size_t page_size = (size_t)getpagesize();
+        bool direct_output = ((uintptr_t)output_words % page_size) == 0u &&
+            (output_bytes % page_size) == 0u;
+        id<MTLBuffer> output = direct_output
+            ? [runtime.device newBufferWithBytesNoCopy:output_words
+                                                length:output_bytes
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithLength:output_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> powers = [runtime.device newBufferWithBytes:power_words
+                                                         length:(NSUInteger)power_word_count * sizeof(uint32_t)
+                                                        options:MTLResourceStorageModeShared];
+        if (output == nil || powers == nil) {
+            write_error(error_message, error_message_len, @"Metal composition allocation failed");
+            return false;
+        }
+
+        id<MTLCommandBuffer> recurrence_command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [recurrence_command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.compositionExtParams];
+        [encoder setBuffer:trace_buffer offset:trace_offset atIndex:0];
+        [encoder setBuffer:powers offset:0 atIndex:1];
+        [encoder setBuffer:output offset:0 atIndex:2];
+        [encoder setBytes:&row_count length:sizeof(row_count) atIndex:3];
+        [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [encoder setBytes:&column_stride length:sizeof(column_stride) atIndex:5];
+        [encoder setBytes:denominator_inverses length:2u * sizeof(uint32_t) atIndex:6];
+        uint32_t mode = 1u;
+        [encoder setBytes:&mode length:sizeof(mode) atIndex:7];
+        NSUInteger width = MIN((NSUInteger)256u, runtime.compositionExtParams.maxTotalThreadsPerThreadgroup);
+        [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        [recurrence_command commit];
+        [recurrence_command waitUntilCompleted];
+        if (recurrence_command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len,
+                        recurrence_command.error.localizedDescription ?: @"Metal composition evaluation failed");
+            return false;
+        }
+        if (!direct_output) memcpy(output_words, output.contents, output_bytes);
+        if (gpu_milliseconds != NULL)
+            *gpu_milliseconds =
+                (recurrence_command.GPUEndTime - recurrence_command.GPUStartTime) * 1000.0;
         return true;
     }
 }

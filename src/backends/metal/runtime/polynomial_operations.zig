@@ -640,6 +640,48 @@ pub fn transformCircleLdeInto(
     return gpu_ms;
 }
 
+pub fn evaluateRecurrenceComposition(
+    self: *Runtime,
+    trace_first: [*]const @import("stwo_core").fields.m31.M31,
+    row_count: usize,
+    column_count: usize,
+    column_stride: usize,
+    power_words: []const u32,
+    denominator_inverses: [2]u32,
+    output: []@import("stwo_core").fields.m31.M31,
+) MetalError!f64 {
+    if (row_count == 0 or column_count < 3 or column_stride < row_count or
+        power_words.len != (column_count - 2) * 4 or output.len != row_count * 4 or
+        row_count > std.math.maxInt(u32) or column_count > std.math.maxInt(u32) or
+        column_stride > std.math.maxInt(u32) or power_words.len > std.math.maxInt(u32))
+    {
+        return MetalError.CompositionEvaluationFailed;
+    }
+    const trace_words: [*]const u32 = @ptrCast(trace_first);
+    const output_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(output));
+    var gpu_ms: f64 = 0;
+    var message: [1024]u8 = [_]u8{0} ** 1024;
+    if (!ffi.stwo_zig_metal_recurrence_composition(
+        self.handle,
+        trace_words,
+        @intCast(row_count),
+        @intCast(column_count),
+        @intCast(column_stride),
+        power_words.ptr,
+        @intCast(power_words.len),
+        &denominator_inverses,
+        output_words.ptr,
+        output_words.len,
+        &gpu_ms,
+        &message,
+        message.len,
+    )) {
+        std.log.err("Metal composition evaluation failed: {s}", .{std.mem.sliceTo(&message, 0)});
+        return MetalError.CompositionEvaluationFailed;
+    }
+    return gpu_ms;
+}
+
 pub fn transformCircleLde(
     self: *Runtime,
     allocator: std.mem.Allocator,

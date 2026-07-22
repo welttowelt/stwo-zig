@@ -30,9 +30,18 @@ bool stwo_zig_metal_circle_transform(
                                            deallocator:nil]
             : [runtime.device newBufferWithLength:values_bytes options:MTLResourceStorageModeShared];
         id<MTLBuffer> twiddle_buffer = [runtime.device newBufferWithBytes:twiddles length:(NSUInteger)pair_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        if (values == nil || twiddle_buffer == nil) {
+        id<MTLBuffer> column_offsets = log_size >= 19u
+            ? [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint32_t)
+                                         options:MTLResourceStorageModeShared]
+            : nil;
+        if (values == nil || twiddle_buffer == nil || (log_size >= 19u && column_offsets == nil)) {
             write_error(error_message, error_message_len, @"Metal circle transform allocation failed");
             return false;
+        }
+        if (column_offsets != nil) {
+            uint32_t *offsets = column_offsets.contents;
+            for (uint32_t column = 0u; column < column_count; ++column)
+                offsets[column] = column * value_count;
         }
         uint32_t *flat = values.contents;
         if (!direct_values)
@@ -47,9 +56,12 @@ bool stwo_zig_metal_circle_transform(
                 id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
                 [fused setComputePipelineState:runtime.circleIfftFused];
                 [fused setBuffer:values offset:0 atIndex:0];
-                [fused setBuffer:twiddle_buffer offset:0 atIndex:1];
-                [fused setBytes:&log_size length:sizeof(log_size) atIndex:2];
-                [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [fused setBuffer:values offset:0 atIndex:1];
+                [fused setBuffer:twiddle_buffer offset:0 atIndex:2];
+                [fused setBytes:&log_size length:sizeof(log_size) atIndex:3];
+                [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
+                uint32_t source_mode = 0u;
+                [fused setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
                 [fused dispatchThreadgroups:MTLSizeMake(value_count >> 11u, column_count, 1u)
                          threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
                 [fused endEncoding];
@@ -65,13 +77,26 @@ bool stwo_zig_metal_circle_transform(
                 [first endEncoding];
             }
 
-            uint32_t twiddle_offset = 0u;
-            uint32_t layer_size = pair_count;
-            for (uint32_t layer = 1u; layer < inverse_start_layer; ++layer) {
-                layer_size >>= 1u;
-                twiddle_offset += layer_size;
-            }
-            for (uint32_t layer = inverse_start_layer; layer < log_size; ++layer) {
+            uint32_t layer = inverse_start_layer;
+            while (layer < log_size) {
+                if (log_size >= 19u && layer + 1u < log_size) {
+                    uint32_t layer_mode = layer | 0x80000000u;
+                    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                    [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                    [encoder setBuffer:values offset:0 atIndex:0];
+                    [encoder setBuffer:column_offsets offset:0 atIndex:1];
+                    [encoder setBuffer:twiddle_buffer offset:0 atIndex:2];
+                    [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3];
+                    [encoder setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                    [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                    NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                    [encoder dispatchThreads:MTLSizeMake(value_count >> 2u, column_count, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                    [encoder endEncoding];
+                    layer += 2u;
+                    continue;
+                }
+                uint32_t twiddle_offset = pair_count - (1u << (log_size - layer));
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleIfftLayer];
                 [encoder setBuffer:values offset:0 atIndex:0];
@@ -82,8 +107,7 @@ bool stwo_zig_metal_circle_transform(
                 [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
                 [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftLayer.maxTotalThreadsPerThreadgroup), 1u, 1u)];
                 [encoder endEncoding];
-                layer_size >>= 1u;
-                twiddle_offset += layer_size;
+                ++layer;
             }
             id<MTLComputeCommandEncoder> scale = [command computeCommandEncoder];
             uint32_t total_values = (uint32_t)flat_count;
@@ -94,9 +118,26 @@ bool stwo_zig_metal_circle_transform(
             [scale dispatchThreads:MTLSizeMake(total_values, 1u, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRescale.maxTotalThreadsPerThreadgroup), 1u, 1u)];
             [scale endEncoding];
         } else {
-            uint32_t layer_size = 1u;
-            uint32_t twiddle_offset = pair_count - 2u;
-            for (uint32_t layer = log_size - 1u; layer > 0u; --layer) {
+            uint32_t layer = log_size - 1u;
+            uint32_t stop_layer = log_size >= 19u ? 10u : 0u;
+            while (layer > stop_layer) {
+                if (log_size >= 19u && layer >= 12u) {
+                    id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                    [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                    [encoder setBuffer:values offset:0 atIndex:0];
+                    [encoder setBuffer:column_offsets offset:0 atIndex:1];
+                    [encoder setBuffer:twiddle_buffer offset:0 atIndex:2];
+                    [encoder setBytes:&log_size length:sizeof(log_size) atIndex:3];
+                    [encoder setBytes:&layer length:sizeof(layer) atIndex:4];
+                    [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                    NSUInteger width = MIN((NSUInteger)256u, runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                    [encoder dispatchThreads:MTLSizeMake(value_count >> 2u, column_count, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+                    [encoder endEncoding];
+                    layer -= 2u;
+                    continue;
+                }
+                uint32_t twiddle_offset = pair_count - (1u << (log_size - layer));
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftLayer];
                 [encoder setBuffer:values offset:0 atIndex:0];
@@ -107,17 +148,26 @@ bool stwo_zig_metal_circle_transform(
                 [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
                 [encoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLayer.maxTotalThreadsPerThreadgroup), 1u, 1u)];
                 [encoder endEncoding];
-                layer_size <<= 1u;
-                twiddle_offset -= layer_size;
+                --layer;
             }
-            id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
-            [last setComputePipelineState:runtime.circleRfftLast];
-            [last setBuffer:values offset:0 atIndex:0];
-            [last setBuffer:twiddle_buffer offset:0 atIndex:1];
-            [last setBytes:&log_size length:sizeof(log_size) atIndex:2];
-            [last setBytes:&column_count length:sizeof(column_count) atIndex:3];
-            [last dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLast.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-            [last endEncoding];
+            id<MTLComputeCommandEncoder> tail = [command computeCommandEncoder];
+            if (log_size >= 19u) {
+                [tail setComputePipelineState:runtime.circleRfftFused];
+                [tail setBuffer:values offset:0 atIndex:0];
+                [tail setBuffer:twiddle_buffer offset:0 atIndex:1];
+                [tail setBytes:&log_size length:sizeof(log_size) atIndex:2];
+                [tail setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [tail dispatchThreadgroups:MTLSizeMake(value_count >> 11u, column_count, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+            } else {
+                [tail setComputePipelineState:runtime.circleRfftLast];
+                [tail setBuffer:values offset:0 atIndex:0];
+                [tail setBuffer:twiddle_buffer offset:0 atIndex:1];
+                [tail setBytes:&log_size length:sizeof(log_size) atIndex:2];
+                [tail setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [tail dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLast.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            }
+            [tail endEncoding];
         }
         [command commit];
         [command waitUntilCompleted];
@@ -211,8 +261,21 @@ bool stwo_zig_metal_circle_lde(
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         NSMutableArray<id<MTLBuffer>> *input_sources = [NSMutableArray array];
+        // The compute encoder amortizes only on large domains. Below log 16,
+        // the established blit plus fused tail is faster and less variable.
+        bool fused_upload = !source_is_base && base_log_size >= 16u;
         if (!source_is_base) {
-            id<MTLBlitCommandEncoder> upload = [command blitCommandEncoder];
+            id<MTLComputeCommandEncoder> fused_upload_encoder = fused_upload
+                ? [command computeCommandEncoder]
+                : nil;
+            id<MTLBlitCommandEncoder> upload = fused_upload
+                ? nil
+                : [command blitCommandEncoder];
+            uint32_t source_mode = 1u;
+            if (fused_upload) {
+                [fused_upload_encoder setComputePipelineState:runtime.circleIfftFused];
+                [fused_upload_encoder setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
+            }
             size_t column = 0;
             size_t destination_words = 0;
             while (column < column_count) {
@@ -239,11 +302,25 @@ bool stwo_zig_metal_circle_lde(
                     return false;
                 }
                 [input_sources addObject:source];
-                [upload copyFromBuffer:source sourceOffset:0 toBuffer:coefficients
-                     destinationOffset:destination_words * sizeof(uint32_t) size:run_bytes];
+                if (fused_upload) {
+                    uint32_t destination_column = (uint32_t)(destination_words / base_len);
+                    [fused_upload_encoder setBuffer:source offset:0 atIndex:0];
+                    [fused_upload_encoder setBuffer:coefficients offset:0 atIndex:1];
+                    [fused_upload_encoder setBuffer:inverse_buffer offset:0 atIndex:2];
+                    [fused_upload_encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                    [fused_upload_encoder setBytes:&destination_column length:sizeof(destination_column) atIndex:4];
+                    [fused_upload_encoder dispatchThreadgroups:MTLSizeMake(base_len >> 11u, run_words / base_len, 1u)
+                                           threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                } else {
+                    [upload copyFromBuffer:source sourceOffset:0 toBuffer:coefficients
+                         destinationOffset:destination_words * sizeof(uint32_t) size:run_bytes];
+                }
                 destination_words += run_words;
             }
-            [upload endEncoding];
+            if (fused_upload)
+                [fused_upload_encoder endEncoding];
+            else
+                [upload endEncoding];
         } else if (!direct_base) {
             uint32_t *coefficient_words = coefficients.contents;
             for (uint32_t column = 0u; column < column_count; ++column)
@@ -252,13 +329,18 @@ bool stwo_zig_metal_circle_lde(
         }
         MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
         uint32_t inverse_start_layer = 1u;
-        if (base_log_size >= 11u) {
+        if (fused_upload) {
+            inverse_start_layer = 11u;
+        } else if (base_log_size >= 11u) {
             id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
             [fused setComputePipelineState:runtime.circleIfftFused];
             [fused setBuffer:coefficients offset:0 atIndex:0];
-            [fused setBuffer:inverse_buffer offset:0 atIndex:1];
-            [fused setBytes:&base_log_size length:sizeof(base_log_size) atIndex:2];
-            [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+            [fused setBuffer:coefficients offset:0 atIndex:1];
+            [fused setBuffer:inverse_buffer offset:0 atIndex:2];
+            [fused setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+            [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
+            uint32_t source_mode = 0u;
+            [fused setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
             [fused dispatchThreadgroups:MTLSizeMake(base_len >> 11u, column_count, 1u)
                      threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
             [fused endEncoding];
@@ -437,6 +519,11 @@ bool stwo_zig_metal_circle_lde(
                            extension_words + extended_offset_words[column],
                            (size_t)extended_len * sizeof(uint32_t));
             }
+        }
+        @synchronized(runtime) {
+            runtime.compositionTraceBuffer = direct_extended ? extended : nil;
+            runtime.compositionTraceHostBegin = direct_extended ? (uintptr_t)extended_words : 0u;
+            runtime.compositionTraceWordCount = direct_extended ? extended_word_count : 0u;
         }
         if (gpu_milliseconds != NULL) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;

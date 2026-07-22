@@ -156,6 +156,24 @@ pub const ComponentProver = struct {
     }
 };
 
+pub const BackendCompositionEvaluationHook = *const fn (
+    allocator: std.mem.Allocator,
+    components: []const ComponentProver,
+    random_coeff: QM31,
+    trace: *const Trace,
+) anyerror!?SecureColumnByCoords;
+
+// Installed by an accelerated backend during its excluded initialization.
+// CPU and unsupported component types keep the exact reference evaluator.
+var backend_composition_evaluation_hook: ?BackendCompositionEvaluationHook = null;
+
+pub fn installBackendCompositionEvaluationHook(hook: BackendCompositionEvaluationHook) void {
+    if (backend_composition_evaluation_hook) |installed| {
+        std.debug.assert(installed == hook);
+    }
+    backend_composition_evaluation_hook = hook;
+}
+
 pub const ComponentProvers = struct {
     components: []const ComponentProver,
     n_preprocessed_columns: usize,
@@ -226,6 +244,11 @@ pub const ComponentProvers = struct {
         random_coeff: QM31,
         trace: *const Trace,
     ) anyerror!SecureColumnByCoords {
+        if (backend_composition_evaluation_hook) |hook| {
+            if (try hook(allocator, self.components, random_coeff, trace)) |evaluation| {
+                return evaluation;
+            }
+        }
         // Try parallel path when a work pool is available and there are
         // multiple components to evaluate.
         if (self.components.len > 1) {

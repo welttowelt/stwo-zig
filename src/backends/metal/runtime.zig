@@ -35,6 +35,7 @@ pub const MetalError = error{
     TimerUnsupported,
     PolynomialEvaluationFailed,
     CircleTransformFailed,
+    CompositionEvaluationFailed,
     WitnessFeedFailed,
     CommandEpochFailed,
 };
@@ -210,6 +211,7 @@ pub const Runtime = struct {
     pub const transformCircleResident = polynomial_ops.transformCircleResident;
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
     pub const transformCircleLdeInto = polynomial_ops.transformCircleLdeInto;
+    pub const evaluateRecurrenceComposition = polynomial_ops.evaluateRecurrenceComposition;
 };
 
 /// Deferred compatibility hooks that deliberately bypass production admission.
