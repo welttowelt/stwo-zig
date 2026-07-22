@@ -598,3 +598,18 @@ pub extern fn stwo_zig_metal_circle_lde(
     error_message: [*]u8,
     error_message_len: usize,
 ) bool;
+pub extern fn stwo_zig_metal_recurrence_composition(
+    runtime: *anyopaque,
+    trace_first: [*]const u32,
+    row_count: u32,
+    column_count: u32,
+    column_stride: u32,
+    power_words: [*]const u32,
+    power_word_count: u32,
+    denominator_inverses: *const [2]u32,
+    output_words: [*]u32,
+    output_word_count: usize,
+    gpu_milliseconds: *f64,
+    error_message: [*]u8,
+    error_message_len: usize,
+) bool;

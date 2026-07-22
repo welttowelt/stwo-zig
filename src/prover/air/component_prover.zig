@@ -63,6 +63,9 @@ pub const Trace = struct {
 };
 
 pub const ComponentProverVTable = struct {
+    /// Stable compile-time implementation identity used by optional backend
+    /// specialization registries. Hand-written vtables may leave it empty.
+    implementation_name: []const u8 = "",
     nConstraints: *const fn (ctx: *const anyopaque) usize,
     maxConstraintLogDegreeBound: *const fn (ctx: *const anyopaque) u32,
     traceLogDegreeBounds: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator) anyerror!core_air_components.TraceLogDegreeBounds,
@@ -93,6 +96,10 @@ pub const ComponentProver = struct {
 
     pub inline fn nConstraints(self: ComponentProver) usize {
         return self.vtable.nConstraints(self.ctx);
+    }
+
+    pub inline fn implementationName(self: ComponentProver) []const u8 {
+        return self.vtable.implementation_name;
     }
 
     pub inline fn maxConstraintLogDegreeBound(self: ComponentProver) u32 {
@@ -155,6 +162,24 @@ pub const ComponentProver = struct {
         );
     }
 };
+
+pub const BackendCompositionEvaluationHook = *const fn (
+    allocator: std.mem.Allocator,
+    components: []const ComponentProver,
+    random_coeff: QM31,
+    trace: *const Trace,
+) anyerror!?SecureColumnByCoords;
+
+// Installed by an accelerated backend during its excluded initialization.
+// CPU and unsupported component types keep the exact reference evaluator.
+var backend_composition_evaluation_hook: ?BackendCompositionEvaluationHook = null;
+
+pub fn installBackendCompositionEvaluationHook(hook: BackendCompositionEvaluationHook) void {
+    if (backend_composition_evaluation_hook) |installed| {
+        std.debug.assert(installed == hook);
+    }
+    backend_composition_evaluation_hook = hook;
+}
 
 pub const ComponentProvers = struct {
     components: []const ComponentProver,
@@ -226,6 +251,11 @@ pub const ComponentProvers = struct {
         random_coeff: QM31,
         trace: *const Trace,
     ) anyerror!SecureColumnByCoords {
+        if (backend_composition_evaluation_hook) |hook| {
+            if (try hook(allocator, self.components, random_coeff, trace)) |evaluation| {
+                return evaluation;
+            }
+        }
         // Try parallel path when a work pool is available and there are
         // multiple components to evaluate.
         if (self.components.len > 1) {

@@ -702,3 +702,95 @@ bool stwo_zig_metal_composition_prepared(
         return true;
     }
 }
+
+bool stwo_zig_metal_recurrence_composition(
+    void *runtime_ptr,
+    const uint32_t *trace_first,
+    uint32_t row_count,
+    uint32_t column_count,
+    uint32_t column_stride,
+    const uint32_t *power_words,
+    uint32_t power_word_count,
+    const uint32_t *denominator_inverses,
+    uint32_t *output_words,
+    size_t output_word_count,
+    double *gpu_milliseconds,
+    char *error_message,
+    size_t error_message_len
+) {
+    if (runtime_ptr == NULL || trace_first == NULL || power_words == NULL ||
+        denominator_inverses == NULL || output_words == NULL || row_count == 0u ||
+        column_count < 3u || column_stride < row_count ||
+        power_word_count != (column_count - 2u) * 4u ||
+        output_word_count != (size_t)row_count * 4u) return false;
+    @autoreleasepool {
+        StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        size_t trace_word_count = (size_t)(column_count - 1u) * column_stride + row_count;
+        if (trace_word_count > SIZE_MAX / sizeof(uint32_t) ||
+            output_word_count > SIZE_MAX / sizeof(uint32_t)) return false;
+        uintptr_t trace_address = (uintptr_t)trace_first;
+        size_t trace_bytes = trace_word_count * sizeof(uint32_t);
+        if (trace_address > UINTPTR_MAX - trace_bytes) return false;
+
+        id<MTLBuffer> trace_buffer = nil;
+        NSUInteger trace_offset = 0u;
+        @synchronized(runtime) {
+            uintptr_t cache_begin = runtime.compositionTraceHostBegin;
+            size_t cache_bytes = runtime.compositionTraceWordCount * sizeof(uint32_t);
+            if (runtime.compositionTraceBuffer != nil && cache_begin <= trace_address &&
+                cache_begin <= UINTPTR_MAX - cache_bytes &&
+                trace_address + trace_bytes <= cache_begin + cache_bytes) {
+                trace_buffer = runtime.compositionTraceBuffer;
+                trace_offset = (NSUInteger)(trace_address - cache_begin);
+            }
+        }
+        if (trace_buffer == nil) {
+            write_error(error_message, error_message_len, @"Metal composition trace is not resident");
+            return false;
+        }
+
+        size_t output_bytes = output_word_count * sizeof(uint32_t);
+        size_t page_size = (size_t)getpagesize();
+        bool direct_output = ((uintptr_t)output_words % page_size) == 0u &&
+            (output_bytes % page_size) == 0u;
+        id<MTLBuffer> output = direct_output
+            ? [runtime.device newBufferWithBytesNoCopy:output_words
+                                                length:output_bytes
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithLength:output_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> powers = [runtime.device newBufferWithBytes:power_words
+                                                         length:(NSUInteger)power_word_count * sizeof(uint32_t)
+                                                        options:MTLResourceStorageModeShared];
+        if (output == nil || powers == nil) {
+            write_error(error_message, error_message_len, @"Metal composition allocation failed");
+            return false;
+        }
+
+        id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
+        id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+        [encoder setComputePipelineState:runtime.recurrenceComposition];
+        [encoder setBuffer:trace_buffer offset:trace_offset atIndex:0];
+        [encoder setBuffer:powers offset:0 atIndex:1];
+        [encoder setBuffer:output offset:0 atIndex:2];
+        [encoder setBytes:&row_count length:sizeof(row_count) atIndex:3];
+        [encoder setBytes:&column_count length:sizeof(column_count) atIndex:4];
+        [encoder setBytes:&column_stride length:sizeof(column_stride) atIndex:5];
+        [encoder setBytes:denominator_inverses length:2u * sizeof(uint32_t) atIndex:6];
+        NSUInteger width = MIN((NSUInteger)256u, runtime.recurrenceComposition.maxTotalThreadsPerThreadgroup);
+        [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
+             threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
+        [encoder endEncoding];
+        [command commit];
+        [command waitUntilCompleted];
+        if (command.status == MTLCommandBufferStatusError) {
+            write_error(error_message, error_message_len,
+                        command.error.localizedDescription ?: @"Metal composition evaluation failed");
+            return false;
+        }
+        if (!direct_output) memcpy(output_words, output.contents, output_bytes);
+        if (gpu_milliseconds != NULL)
+            *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
+        return true;
+    }
+}

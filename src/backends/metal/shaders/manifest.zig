@@ -86,6 +86,7 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_composition_split_coordinates", .owner = .composition },
     .{ .name = "stwo_zig_composition_random_powers", .owner = .composition },
     .{ .name = "stwo_zig_composition_ext_params", .owner = .composition },
+    .{ .name = "stwo_zig_recurrence_composition", .owner = .composition },
     .{ .name = "stwo_zig_circle_ifft_fused_tail", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_ifft_fused_upload", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_rfft_fused_tail", .owner = .circle_transform },
