@@ -9,6 +9,7 @@ const quotients = @import("stwo_core").pcs.quotients;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
 const compact_groups = @import("quotient_compact_groups.zig");
+const direct_groups = @import("quotient_direct_groups.zig");
 const direct_plan = @import("quotient_direct_plan.zig");
 const constraints = @import("stwo_core").constraints;
 const domain_walk = @import("quotient_domain_walk.zig");
@@ -253,7 +254,12 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
     }
     var view_index: usize = 0;
     while (view_index < work.column_views.len) {
-        if (canAccumulateFourDirect(work, view_index)) {
+        if (direct_groups.canAccumulate(
+            work.column_views,
+            work.contribution_ranges,
+            work.contributions,
+            view_index,
+        )) {
             var views: [4]row_executor.LiftingColumnView = undefined;
             var coefficients: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
             const first_range = work.contribution_ranges[view_index];
@@ -264,8 +270,9 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
                 coefficients[term] =
                     work.contributions[contribution_range.start].value_coeff.toM31Array();
             }
-            accumulateFourDirectPacked(
-                scratch,
+            direct_groups.accumulate(
+                scratch.numerators,
+                scratch.row_capacity,
                 views,
                 start,
                 row_count,
@@ -313,76 +320,6 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
             }
         }
         view_index += 1;
-    }
-}
-
-fn canAccumulateFourDirect(work: *const Work, start: usize) bool {
-    if (start + 4 > work.column_views.len) return false;
-    var batch: ?usize = null;
-    for (start..start + 4) |index| {
-        if (!work.column_views[index].is_direct) return false;
-        const range = work.contribution_ranges[index];
-        if (range.len != 1 or range.start >= work.contributions.len) return false;
-        const contribution_batch = work.contributions[range.start].batch_index;
-        if (batch) |expected| {
-            if (contribution_batch != expected) return false;
-        } else {
-            batch = contribution_batch;
-        }
-    }
-    return true;
-}
-
-/// Accumulates four direct columns with one modular reduction per coordinate.
-/// The direct views are contiguous in output-row space; grouping changes only
-/// the parenthesization of field addition, never contribution membership.
-fn accumulateFourDirectPacked(
-    scratch: *Scratch,
-    views: [4]row_executor.LiftingColumnView,
-    start: usize,
-    row_count: usize,
-    batch: usize,
-    coefficients: [4][qm31.SECURE_EXTENSION_DEGREE]M31,
-) void {
-    var coefficient_vectors: [qm31.SECURE_EXTENSION_DEGREE][4]m31.PackedM31 = undefined;
-    var numerator_planes: [qm31.SECURE_EXTENSION_DEGREE][*]M31 = undefined;
-    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-        inline for (0..4) |term| {
-            coefficient_vectors[coordinate][term] =
-                m31.splatPacked(coefficients[term][coordinate]);
-        }
-        const plane = batch * qm31.SECURE_EXTENSION_DEGREE + coordinate;
-        numerator_planes[coordinate] = scratch.numerators.ptr + plane * scratch.row_capacity;
-    }
-
-    var row: usize = 0;
-    while (row + m31.PACK_WIDTH <= row_count) : (row += m31.PACK_WIDTH) {
-        var values: [4]m31.PackedM31 = undefined;
-        inline for (0..4) |term| {
-            values[term] = m31.loadPacked(views[term].values.ptr + start + row);
-        }
-        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-            const numerators = numerator_planes[coordinate] + row;
-            m31.storePacked(
-                numerators,
-                m31.addPacked(
-                    m31.loadPacked(numerators),
-                    m31.dot4Packed(values, coefficient_vectors[coordinate]),
-                ),
-            );
-        }
-    }
-    while (row < row_count) : (row += 1) {
-        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-            const numerator = numerator_planes[coordinate] + row;
-            var value = numerator[0];
-            inline for (0..4) |term| {
-                value = value.add(
-                    views[term].values[start + row].mul(coefficients[term][coordinate]),
-                );
-            }
-            numerator[0] = value;
-        }
     }
 }
 
