@@ -19,7 +19,9 @@ const ComponentProver = prover_air.component_prover.ComponentProver;
 const Trace = prover_air.component_prover.Trace;
 const SecureColumnByCoords = prover.secure_column.SecureColumnByCoords;
 const TwiddleTree = prover_poly.twiddles.TwiddleTree([]const M31);
-const min_log_size: u32 = 19;
+const min_secure_ifft_log_size: u32 = 19;
+const min_recurrence_log_size: u32 = 15;
+const min_recurrence_columns: usize = 32;
 const validation_unknown: u8 = 0;
 const validation_accepted: u8 = 1;
 const validation_rejected: u8 = 2;
@@ -30,7 +32,7 @@ var recurrence_validation: u8 = validation_unknown;
 pub fn install() void {
     prover_poly.circle.secure_poly.installBackendCircleIfftHook(
         interpolateLargeSecureComposition,
-        min_log_size,
+        min_secure_ifft_log_size,
     );
     prover_air.component_prover.installBackendCompositionEvaluationHook(
         evaluateLargeRecurrenceComposition,
@@ -43,7 +45,7 @@ fn interpolateLargeSecureComposition(
     domain: CircleDomain,
     twiddle_tree: TwiddleTree,
 ) !bool {
-    if (domain.logSize() < min_log_size) return false;
+    if (domain.logSize() < min_secure_ifft_log_size) return false;
     var lease = shared_runtime.acquireExisting() catch return false;
     defer lease.deinit();
     _ = try lease.runtime.transformCircle(
@@ -137,9 +139,9 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
     const component = components[0];
     if (trace.polys.items[0].len != 0) return null;
     const columns = trace.polys.items[1];
-    if (columns.len < 64 or component.nConstraints() != columns.len - 2) return null;
+    if (columns.len < min_recurrence_columns or component.nConstraints() != columns.len - 2) return null;
     const eval_log_size = component.maxConstraintLogDegreeBound();
-    if (eval_log_size < min_log_size or eval_log_size >= @bitSizeOf(usize)) return null;
+    if (eval_log_size < min_recurrence_log_size or eval_log_size >= @bitSizeOf(usize)) return null;
     const row_count = @as(usize, 1) << @intCast(eval_log_size);
     for (columns) |column| {
         if (column.log_size != eval_log_size or column.values.len != row_count) return null;
