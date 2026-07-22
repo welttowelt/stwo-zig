@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "predecessor_commit": "505537924cd4",
+  "declared_objective": {
+    "board": "core_metal",
+    "workload_class": "huge",
+    "dimension": "time"
+  },
+  "declared_scope": "s3",
+  "files": {
+    "src/backends/metal/combined_commit.zig": "sha256:382ce0e726571c9acb91a5abc94f14716b3a011b286139f4b1fab0fa20a95e6c",
+    "src/backends/metal/commit_backend.zig": "sha256:c263cad01fb3f281b504903206ea7ecaac1fd359167265210502187fe776ae28",
+    "src/backends/metal/runtime.m": "sha256:6c213b67482ca2eac07fe5b6e01ab15475e16898b67089896bf97252b95710b8",
+    "src/backends/metal/runtime.zig": "sha256:08bcd811b55b098e5465bd0fbab272a0736a405677376a291fa56b881c02f28e",
+    "src/backends/metal/runtime/bindings.zig": "sha256:6345af22f611a10dbe3435100843d9e2a0de5eb59e7212c498f5dbeed0c7c43f",
+    "src/backends/metal/runtime/circle_commit_epoch.m": "sha256:0a7590b1ac974b4417ba913cc5ce67cfde6466c207a78fd18da7c5ce8b6960a6",
+    "src/backends/metal/runtime/combined_commit_operations.zig": "sha256:9077ff883cbecd611c38465dae3a4a43e567bfed6c1bda8ba8cd20c885a69525",
+    "src/prover/pcs/commit_dispatch.zig": "sha256:fe703b41b575db80b2331e46c66fc34c1ad00ce2e0ed6dcd6d89c2372d3a26f1",
+    "src/prover/pcs/commitment_tree.zig": "sha256:3bf63909e9675330f3dd6765e0dd5046546cb1a95e950dd483e6b638292b7ab8",
+    "src/prover/pcs/scheme.zig": "sha256:45f05887e6374e2fd084ea25972a843879276de920afe51132d06d2ccb643766"
+  },
+  "transcripts": {
+    "transcripts/session-01.md": {
+      "sha256": "df62c07d359ba84dc92000f9da7b64e1ec105fdd867fe6ec9b3a30808b678456",
+      "captured_by": "submitter"
+    }
+  },
+  "transcripts_declined": false
+}
