@@ -18,9 +18,9 @@ Proven: `cargo test` runs a real proof through the C ABI natively
 (byte-identical samples asserted); the arm64-iOS static lib builds on a Mac
 without Xcode (blake3 pinned to pure-Rust mode to avoid the iOS-SDK C
 toolchain — revisit for speed later). Report schema: `mobile-proof-rust-v1`,
-proof digests over the canonical wire JSON — the same bytes the parity
-oracle compares, so Rust-vs-Zig rows are directly comparable on one
-leaderboard.
+proof digests over the canonical wire JSON. **Cross-flavor parity is
+measured, not assumed: see PARITY.md — rust and zig emit byte-identical
+proofs (same sha256, same 24965 bytes) on the pinned statement.**
 
 ## What is proven (done on 2026-07-22, no upstream file changes)
 

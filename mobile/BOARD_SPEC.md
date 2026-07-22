@@ -16,7 +16,10 @@ machinery; the only genuinely new surface is device identity and energy.
 
 ## Metrics
 
-- **Headline: wall time** (prove_seconds median), same as every other board.
+- **Headline: wall time** (prove_seconds median), same as every other
+  board, under ONE sampling contract for all flavors: prove-only timed
+  region, `warmups` untimed + `samples` timed verified runs, median
+  reported (native_proof_v7 semantics — see schema).
 - **Mandatory context columns:** thermal state at start/end, low-power-mode
   flag (any row with it ON is invalid), battery delta per run batch, device
   identity (machine id, OS). Rendered beside every score, like hybrid's
@@ -37,8 +40,9 @@ the soundness test.
 - Cooled protocol like heavy: fixed pre-run idle, screen awake, charger
   connected, airplane mode; three-sample bounded batches; report thermal
   state so throttled runs are visible and rejectable (G5 environment gate).
-- Epochs per the maintainer's advice: metric changes (e.g. energy becoming
-  scored) start a new epoch, never rewrite old rows.
+- Epochs per the maintainer's advice: metric OR build-flag/toolchain
+  changes start a new epoch, never rewrite old rows (epoch 1 pins zig
+  `-mcpu baseline`, rust `--release`, repo toolchains).
 
 ## What exists already vs what's open
 

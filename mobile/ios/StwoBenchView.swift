@@ -63,18 +63,20 @@ struct StwoBenchView: View {
 
     private func runBench() {
         running = true
-        thermal = ProcessInfo.processInfo.thermalState
-        // UIKit is main-thread-only: toggle the idle timer here and in the
-        // main-queue completion, never on the worker queue.
+        // UIKit is main-thread-only: idle timer, UIDevice reads, and the
+        // start/end snapshots all happen on main; only the bench runs on
+        // the worker queue.
         UIApplication.shared.isIdleTimerDisabled = true
+        let start = deviceSnapshot()
+        thermal = ProcessInfo.processInfo.thermalState
         let args = selected.args
         DispatchQueue.global(qos: .userInitiated).async {
             let out = args.withCString { stwo_mobile_bench($0) }
             let json = String(cString: out)
             stwo_mobile_bench_free(out)
-            let wrapped = wrapWithDeviceIdentity(reportJSON: json)
             DispatchQueue.main.async {
-                report = wrapped
+                let end = deviceSnapshot()
+                report = wrapWithDeviceIdentity(reportJSON: json, start: start, end: end)
                 running = false
                 UIApplication.shared.isIdleTimerDisabled = false
             }
@@ -82,19 +84,33 @@ struct StwoBenchView: View {
     }
 }
 
-// Wraps the prover report with the device context the mobile board schema
-// requires (schema/mobile-proof-v1.md). Battery delta is coarse (1% steps)
-// — energy calibration on real hardware is the open task in the handover.
-func wrapWithDeviceIdentity(reportJSON: String) -> String {
+// One point-in-time device snapshot (main thread only — UIDevice/UIKit).
+// Taken at run start AND run end per schema/mobile-proof-v1.md; battery
+// delta is coarse (1% steps) — MetricKit calibration is the open task.
+func deviceSnapshot() -> [String: Any] {
     UIDevice.current.isBatteryMonitoringEnabled = true
-    let device: [String: Any] = [
-        "model": UIDevice.current.model,
-        "system": "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
-        "machine": machineIdentifier(),
+    return [
         "thermal_state": String(describing: ProcessInfo.processInfo.thermalState),
         "low_power_mode": ProcessInfo.processInfo.isLowPowerModeEnabled,
         "battery_level": UIDevice.current.batteryLevel,
         "battery_state": UIDevice.current.batteryState.rawValue,
+        "uptime_seconds": ProcessInfo.processInfo.systemUptime,
+    ]
+}
+
+func wrapWithDeviceIdentity(reportJSON: String, start: [String: Any], end: [String: Any]) -> String {
+    let batteryDelta: Any = {
+        if let s = start["battery_level"] as? Float, let e = end["battery_level"] as? Float,
+           s >= 0, e >= 0 { return s - e }
+        return NSNull() // simulator / monitoring unavailable
+    }()
+    let device: [String: Any] = [
+        "model": UIDevice.current.model,
+        "system": "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+        "machine": machineIdentifier(),
+        "at_start": start,
+        "at_end": end,
+        "battery_delta": batteryDelta,
     ]
     guard let deviceData = try? JSONSerialization.data(withJSONObject: device),
           let deviceStr = String(data: deviceData, encoding: .utf8) else { return reportJSON }
