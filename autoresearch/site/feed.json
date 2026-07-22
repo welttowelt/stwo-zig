@@ -2223,8 +2223,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2547,8 +2547,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2734,8 +2734,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2952,8 +2952,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3275,8 +3275,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5474,8 +5474,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5935,8 +5935,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6122,8 +6122,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6408,8 +6408,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6906,8 +6906,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7182,6 +7182,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.93337,
+     "ci_low": 0.927643,
+     "commit": "ece3b09d88f2269ec3d0aa240425e515ec90971f",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 56.731425,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:426ff6eadad066fee99fbed3b19e531493c99891764ffb059a58b77fdd3b05fe",
+     "gates": "G1..G5:pass",
+     "harness_commit": "083877c03a81",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T23:24:26Z",
+     "judged_r": 0.930236,
+     "measurement_rounds": 25,
+     "measurement_seconds": 203.214663,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
+     "outcome": "promoted",
+     "peak_rss_mib": 1345.249203,
+     "predecessor": "e6e86b072604",
+     "proof_bytes": 67692,
+     "prove_ms": 1559.75389,
+     "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-riscv-direct-column-streaming-simd",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -7189,8 +7224,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7199,9 +7234,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.698756788314,
+      "effective_score": 0.6521986235086382,
       "evidence_share": {
-       "claimed": 2,
+       "claimed": 3,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -7219,10 +7254,11 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 2,
+       "count": 3,
        "observation_ids": [
         "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
-        "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159"
+        "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
+        "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631"
        ]
       }
      },
@@ -7261,38 +7297,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "deep"
+      },
+      {
+       "board": "riscv",
+       "ci_high": 0.93337,
+       "ci_low": 0.927643,
+       "commit": "ece3b09d88f2269ec3d0aa240425e515ec90971f",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 56.731425,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:426ff6eadad066fee99fbed3b19e531493c99891764ffb059a58b77fdd3b05fe",
+       "gates": "G1..G5:pass",
+       "harness_commit": "083877c03a81",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T23:24:26Z",
+       "judged_r": 0.930236,
+       "measurement_rounds": 25,
+       "measurement_seconds": 203.214663,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
+       "outcome": "promoted",
+       "peak_rss_mib": 1345.249203,
+       "predecessor": "e6e86b072604",
+       "proof_bytes": 67692,
+       "prove_ms": 1559.75389,
+       "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-riscv-direct-column-streaming-simd",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "deep"
       }
      ],
      "head": {
       "board": "riscv",
-      "ci_high": 0.962133,
-      "ci_low": 0.954944,
-      "commit": "610f42d21eab083dcf594194ff58066dc317e59d",
+      "ci_high": 0.93337,
+      "ci_low": 0.927643,
+      "commit": "ece3b09d88f2269ec3d0aa240425e515ec90971f",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 63.322467,
+      "energy_j": 56.731425,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:9ffd90e838f300479369d8b12412e3d95101e7faf0d082f0b03a12ff57f65753",
+      "evidence_sha256": "sha256:426ff6eadad066fee99fbed3b19e531493c99891764ffb059a58b77fdd3b05fe",
       "gates": "G1..G5:pass",
-      "harness_commit": "69eda368bf49",
+      "harness_commit": "083877c03a81",
       "holdout": "none",
-      "judged_at_utc": "2026-07-22T20:57:39Z",
-      "judged_r": 0.958426,
-      "measurement_rounds": 33,
-      "measurement_seconds": 279.423719,
+      "judged_at_utc": "2026-07-22T23:24:26Z",
+      "judged_r": 0.930236,
+      "measurement_rounds": 25,
+      "measurement_seconds": 203.214663,
       "native_mhz": 0.0,
-      "observation_id": "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
+      "observation_id": "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
       "outcome": "promoted",
-      "peak_rss_mib": 1344.188736,
-      "predecessor": "e20d72ac90af",
+      "peak_rss_mib": 1345.249203,
+      "predecessor": "e6e86b072604",
       "proof_bytes": 67692,
-      "prove_ms": 1710.721072,
-      "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
+      "prove_ms": 1559.75389,
+      "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+      "submission_id": "2026-07-22-riscv-direct-column-streaming-simd",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -7303,8 +7374,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7344,8 +7415,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 195,
-       "seconds": 101412
+       "commits": 215,
+       "seconds": 110219
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7389,7 +7460,7 @@
    ],
    "suite_score": {
     "active_credit_events": {
-     "deep": 2,
+     "deep": 3,
      "small": 0,
      "wide": 0
     },
@@ -7400,7 +7471,7 @@
     },
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
-     "deep": 0.698756788314,
+     "deep": 0.6521986235086382,
      "small": 1.0,
      "wide": 1.0
     },
@@ -7410,10 +7481,10 @@
      "deep"
     ],
     "epoch": 2,
-    "index": 88.73780461409545,
+    "index": 86.7214690123993,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.8873780461409545,
-    "speedup": 1.126915415981743
+    "ratio_geomean": 0.867214690123993,
+    "speedup": 1.153116997887826
    }
   },
   "stream": {
@@ -8602,7 +8673,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "64b55b4439c15efa8c31444622e175d1dbd11750994366a47b94f12d077bacfe",
+   "autoresearch/ledger/promotions.tsv": "44b8709f99dad8f1501c6751bb3427252ba4c25aecb1006799f6a94824bf192f",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -8730,12 +8801,13 @@
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict-core_metal-huge.json": "6c6d40ddec9e7cc484538929c994ff32cef70feab6a4e0bd9f0a25530c140a32",
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict.json": "470ae0e0af29211894ce533ff845ec3d4b56fb0432010c6c36427599961844ff",
    "autoresearch/submissions/2026-07-22-pr6-batched-cpu-composition/verdict.json": "ed531c8dadf8dc77aaf2e9c7a4ba4b822c51b1605fb341bbc568c06a3d739080",
+   "autoresearch/submissions/2026-07-22-riscv-direct-column-streaming-simd/verdict.json": "c33fe8919a27126a831a739389341547221f97e85067763014cfe3d9dfd7ebd9",
    "autoresearch/submissions/2026-07-22-riscv-register-grouped-quotients/verdict.json": "2ed91769c3537a1049a0c6dc2541feaedbad25f9b7a09eb7f3e2b7d80d4bf3e4",
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "acc67d280947",
-  "repo_commit_time": "2026-07-22T20:57:39Z"
+  "repo_commit": "ddb400cbe2bb",
+  "repo_commit_time": "2026-07-22T23:24:26Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -17040,7 +17112,7 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 2,
+      "available_points": 3,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
@@ -17053,30 +17125,36 @@
         "judged_at_utc": "2026-07-22T20:57:39Z",
         "points": 2,
         "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.1739284224194746,
+        "judged_at_utc": "2026-07-22T23:24:26Z",
+        "points": 3,
+        "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9"
        }
       ],
       "latest": {
-       "actual_rounds": 33,
+       "actual_rounds": 25,
        "actual_rounds_per_workload": {
         "riscv_fib_iter": 3,
-        "riscv_gcd_euclid": 5,
-        "riscv_multi_shard_addi": 5,
+        "riscv_gcd_euclid": 3,
+        "riscv_multi_shard_addi": 3,
         "riscv_sha2_1024b": 5,
-        "riscv_sha2_2048b": 5,
+        "riscv_sha2_2048b": 3,
         "riscv_sha2_512b": 5,
-        "riscv_xorshift_prng": 5
+        "riscv_xorshift_prng": 3
        },
        "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.038602584234330384,
-       "credited_ln_improvement_per_measurement_hour": 0.497342543638995,
-       "gradient_snr": 9.99979073449899,
-       "judged_at_utc": "2026-07-22T20:57:39Z",
-       "measurement_wall_hours": 0.07761769976861413,
-       "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
-       "submission_id": "2026-07-22-riscv-register-grouped-quotients",
+       "credited_ln_improvement": 0.06895358654432916,
+       "credited_ln_improvement_per_measurement_hour": 1.2215305155859184,
+       "gradient_snr": 20.501307668744357,
+       "judged_at_utc": "2026-07-22T23:24:26Z",
+       "measurement_wall_hours": 0.05644851738415633,
+       "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9",
+       "submission_id": "2026-07-22-riscv-direct-column-streaming-simd",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -17127,14 +17205,38 @@
         "row_id": "sha256:d5980e53db9e1ac175726b587ce97d04b2c17a29b66495b6fea47e6dd04d4403",
         "submission_id": "2026-07-22-riscv-register-grouped-quotients",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 25,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 3,
+         "riscv_sha2_1024b": 5,
+         "riscv_sha2_2048b": 3,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.06895358654432916,
+        "credited_ln_improvement_per_measurement_hour": 1.2215305155859184,
+        "gradient_snr": 20.501307668744357,
+        "judged_at_utc": "2026-07-22T23:24:26Z",
+        "measurement_wall_hours": 0.05644851738415633,
+        "row_id": "sha256:7863e5756e38046d528562e46d5d2fe8e6cc76195048c78df9beb22720abb5f9",
+        "submission_id": "2026-07-22-riscv-direct-column-streaming-simd",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.358452539620483,
-       "credited_ln_improvement_per_measurement_hour": 2.5575088671935826,
-       "measurement_wall_hours": 0.140156909803336,
-       "median_gradient_snr": 73.93166336679784,
-       "points": 2
+       "credited_ln_improvement": 0.42740612616481216,
+       "credited_ln_improvement_per_measurement_hour": 2.1739284224194746,
+       "measurement_wall_hours": 0.19660542718749235,
+       "median_gradient_snr": 20.501307668744357,
+       "points": 3
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -17890,6 +17992,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "huge"
+  },
+  {
+   "id": "2026-07-22-riscv-direct-column-streaming-simd",
+   "judged_r": 0.930236,
+   "note": "# Vectorize lifted Merkle leaf streams directly from columns\n\n## Model and harness\n\nGPT-5 Codex developed and measured this change with refreshed `stwo-perf`\nharness `083877c03a81` on the Apple M5 Max host. The clean immutable candidate\nis `f6ef4dd0bcd5165d767b9e81d754347b7f40ffdf` over current-main predecessor\n`e6e86b072604f63c78c995f1edd2dbc9152f2de7`. The submitted S3 result covers\nthe complete seven-program RISC-V deep portfolio in ReleaseFast mode with\npaired counterbalanced processes, independent proof verification, resource\ntelemetry, and the repository-pinned Stark-V oracle.\n\n## Hypothesis\n\nThe fresh SHA2-2048 sample put packed incremental BLAKE2s leaf ingestion at the\nfrontier: it repeatedly staged column-major M31 values into row-major byte\ntiles and maintained one large scalar state per leaf. Four adjacent rows are\nalready the four independent SIMD lanes consumed by the backend's parallel\nBLAKE2s compressor. Continuing those four states directly from canonical\ncolumns should remove message repacking, state-array expansion, barriers, and\nscratch traffic without changing a single hashed byte.\n\n## Changes\n\nThe lifted PCS now admits a structural sparse-tail commit when the remaining\nhigh-domain columns fit the canonical terminal block. A new four-message\nBLAKE2s continuation primitive loads complete 16-word blocks directly from\nfour adjacent column rows and completes the four final states together. The\nstreaming builder still prepares columns in bounded batches and retains the\nsame extended columns and PCS order; scalar and big-endian paths retain exact\nfallbacks.\n\nThe optimization is selected by concrete hasher type, domain shape, column\nheight, and terminal-block capacity\u2014not workload name, input, or benchmark\nsize. Differential tests cover distinct prefixes and long updates, distinct\ntails, direct column continuation against scalar streams, and the forced\nsparse commitment root against the fully materialized generic path.\n\n```text\nold: batches -> row staging -> per-leaf states -> finish\nnew: columns -> four adjacent rows -> SIMD continuation -> sparse finish\n```\n\nTwo broader alternatives were measured and rejected. Deferring all columns to\nthe generic mixed-height commit regressed SHA2-2048 request time to 1.220x and\ninstructions to 1.720x because it rebuilt every mixed-height leaf message.\nGrouping existing incremental batches by height was neutral at 1.004x request\nand 1.002x instructions. Both experiments were completely reverted. A first\nwinning candidate passed performance and oracle gates but touched locked\ngeneric wrappers; the specialization was moved into the editable lifted-prover\nadapter before the final clean run.\n\n## Results\n\nEvery deep workload improves against current main:\n\n| workload | proving ratio | 95% CI | verified-request ratio | energy ratio |\n| --- | ---: | ---: | ---: | ---: |\n| xorshift | 0.9091 | [0.9048, 0.9127] | 0.9160 | 0.9078 |\n| Fibonacci | 0.9392 | [0.9348, 0.9445] | 0.9429 | 0.9083 |\n| GCD | 0.9336 | [0.9296, 0.9367] | 0.9379 | 0.9019 |\n| multi-shard | 0.9107 | [0.9078, 0.9190] | 0.9140 | 0.9091 |\n| SHA2-512 | 0.9302 | [0.9173, 0.9484] | 0.9484 | 0.9025 |\n| SHA2-1024 | 0.9426 | [0.9360, 0.9503] | 0.9492 | 0.9072 |\n| SHA2-2048 | 0.9469 | [0.9415, 0.9506] | 0.9579 | 0.9190 |\n\nThe portfolio proving ratio is **0.930236**, with 95% CI\n**[0.927643, 0.933370]**: 7.0% less latency. Geometric-mean energy falls 9.2%\nto ratio 0.907941, peak RSS is flat at 1.000545, and proof bytes remain exactly\n1.0. The new profile shows packed leaf ingestion collapsing from a leading 774\nsamples to 49; canonical four-way compression, memory movement, LogUp,\nquotient execution, and FFT are the new frontier.\n\n## Correctness and validation\n\nEvery timed proof verified independently, candidate and predecessor proof\ndigests were byte-identical in every paired round, and the pinned Stark-V oracle\naccepted all 7/7 programs. Mechanism telemetry was canonical and stable. The\nfull 374-source ReleaseFast test closure, formatting, source conformance,\nRISC-V CPU product, Native CPU product, and device-only Native Metal lifecycle\nall pass. Metal completed independent verification with zero CPU fallback.\n\n## Caveats\n\nThis is a local claimed verdict; only the authenticated locked judge rerun can\npromote it. The harness's automatic Native guard mapping is malformed for this\nRISC-V objective, so the paired run used `--guards none` and all three affected\nproduct boundaries were run explicitly and sequentially. The exact PR6\nall-cell matrix, log22 oracle vectors, both required timing boundaries, and\njudged M5 verdict remain incomplete.\n\n**PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Vectorize lifted Merkle leaf streams directly from columns",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Autoresearch session 01 \u2014 RISC-V deep epoch 4\n\n## Objective and frontier\n\nThis session continues the long-running optimization loop after PR #83 merged\nthe explicit Metal resident proof pipeline into `main` at `e6e86b072604`.\nThe user extended the run for nine additional hours and explicitly requested\nlarge architectural improvements, with special priority on the largest RISC-V\nbenchmarks. The acceptance unit is therefore the complete seven-program\n`riscv/deep` portfolio, followed by Native CPU and Metal product guards; an\nisolated kernel win is only diagnostic.\n\nThe repository-resident CLI was refreshed before work. A clean detached\nworkspace was cloned from current main and `stwo-perf se",
+     "label": "session-01.md",
+     "sha256": "9dd1b4eb46632b579a8dca6f0f6394a35efde44ab8bf86abb9c729d6d686621f"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   },
   {
    "id": "2026-07-22-riscv-register-grouped-quotients",
