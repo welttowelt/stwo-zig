@@ -180,6 +180,28 @@ pub const Vec4u32 = @Vector(VEC_WIDTH, u32);
 pub const Vec4u64 = @Vector(VEC_WIDTH, u64);
 const P_VEC: Vec4u32 = @splat(Modulus);
 
+/// Four-lane product reduction specialized for AArch64 AdvSIMD.
+///
+/// For canonical positive 31-bit inputs, SQDMULH computes exactly
+/// `product >> 31`: its signed doubling cannot saturate below `(p - 1)^2`.
+/// A regular lane-wise MUL supplies the low 31 bits. This expresses the
+/// Mersenne fold in two full-width multiply instructions instead of widening
+/// the low and high lane pairs separately.
+inline fn mulVec4Aarch64(a: Vec4u32, b: Vec4u32) Vec4u32 {
+    var low: Vec4u32 = undefined;
+    var high: Vec4u32 = undefined;
+    asm (
+        \\mul %[low].4s, %[a].4s, %[b].4s
+        \\sqdmulh %[high].4s, %[a].4s, %[b].4s
+        : [low] "=&w" (low),
+          [high] "=&w" (high),
+        : [a] "w" (a),
+          [b] "w" (b),
+    );
+    const folded = (low & P_VEC) +% high;
+    return @min(folded, folded -% P_VEC);
+}
+
 /// Load four readable M31 values. Only M31's natural alignment is required;
 /// alignment to the vector byte width is deliberately not a precondition.
 pub inline fn loadVec4(ptr: [*]const M31) Vec4u32 {
@@ -218,6 +240,9 @@ pub inline fn subVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
 /// Vectorized M31 multiplication: (a * b) mod p, 4 lanes.
 /// Uses 64-bit intermediate products with Mersenne reduction.
 pub inline fn mulVec4(a: Vec4u32, b: Vec4u32) Vec4u32 {
+    if (comptime builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c) {
+        return mulVec4Aarch64(a, b);
+    }
     const a64: Vec4u64 = a;
     const b64: Vec4u64 = b;
     const prod = a64 * b64;
@@ -326,6 +351,12 @@ pub inline fn subPacked(a: PackedM31, b: PackedM31) PackedM31 {
 
 /// Packed M31 multiplication with Mersenne reduction.
 pub inline fn mulPacked(a: PackedM31, b: PackedM31) PackedM31 {
+    if (comptime builtin.cpu.arch == .aarch64 and
+        builtin.zig_backend != .stage2_c and
+        PACK_WIDTH == VEC_WIDTH)
+    {
+        return @bitCast(mulVec4Aarch64(@bitCast(a), @bitCast(b)));
+    }
     const a64: PackedU64 = a;
     const b64: PackedU64 = b;
     const prod = a64 * b64;
