@@ -2,6 +2,7 @@ const std = @import("std");
 const m31 = @import("stwo_core").fields.m31;
 const canonic = @import("stwo_core").poly.circle.canonic;
 const eval_mod = @import("stwo_prover_impl").poly.circle.evaluation;
+const fft_kernels = @import("stwo_prover_impl").poly.circle.fft_kernels;
 const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
 const twiddles_mod = @import("stwo_prover_impl").poly.twiddles;
 
@@ -169,5 +170,82 @@ test "prover poly circle poly: batched evaluation matches scalar helper" {
             defer alloc.free(@constCast(scalar.values));
             try std.testing.expectEqualSlices(M31, scalar.values, batch_values[idx]);
         }
+    }
+}
+
+test "prover poly circle: four- and five-layer tails match independent stages" {
+    const allocator = std.testing.allocator;
+    var prng = std.Random.DefaultPrng.init(0x9b05_688c_2b3e_6c1f);
+    const random = prng.random();
+
+    for ([_]u32{ 4, 5 }) |layer_count| {
+        const block_len = @as(usize, 1) << @intCast(layer_count);
+        const value_count = block_len * 3;
+        const input = try allocator.alloc(M31, value_count);
+        defer allocator.free(input);
+        const expected = try allocator.alloc(M31, value_count);
+        defer allocator.free(expected);
+        const actual = try allocator.alloc(M31, value_count);
+        defer allocator.free(actual);
+        const t4s = try allocator.alloc(M31, value_count / 32);
+        defer allocator.free(t4s);
+        const t3s = try allocator.alloc(M31, value_count / 16);
+        defer allocator.free(t3s);
+        const t2s = try allocator.alloc(M31, value_count / 8);
+        defer allocator.free(t2s);
+        const t01s = try allocator.alloc(M31, value_count / 4);
+        defer allocator.free(t01s);
+
+        for (input) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
+        for (t4s) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 1, m31.Modulus));
+        for (t3s) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 1, m31.Modulus));
+        for (t2s) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 1, m31.Modulus));
+        for (t01s) |*value| value.* = M31.fromCanonical(random.intRangeLessThan(u32, 1, m31.Modulus));
+
+        @memcpy(expected, input);
+        @memcpy(actual, input);
+        if (layer_count == 5) {
+            for (t4s, 0..) |twiddle, block| fft_kernels.fftLayerLoopForwardM31(expected, 4, block, twiddle);
+        }
+        for (t3s, 0..) |twiddle, block| fft_kernels.fftLayerLoopForwardM31(expected, 3, block, twiddle);
+        for (t2s, 0..) |twiddle, block| fft_kernels.fftLayerLoopForwardM31(expected, 2, block, twiddle);
+        for (t01s, 0..) |twiddle, block| fft_kernels.fftLayerLoopForwardM31(expected, 1, block, twiddle);
+        for (0..value_count / 8) |block| {
+            const x = t01s[block * 2];
+            const y = t01s[block * 2 + 1];
+            const pair_twiddles = [_]M31{ y, y.neg(), x.neg(), x };
+            for (pair_twiddles, 0..) |twiddle, pair| {
+                fft_kernels.fftPairForwardM31(expected, block * 4 + pair, twiddle);
+            }
+        }
+        if (layer_count == 4) {
+            fft_kernels.fftBottomFourLayersForwardM31(actual, t3s, t2s, t01s);
+        } else {
+            fft_kernels.fftBottomFiveLayersForwardM31(actual, t4s, t3s, t2s, t01s);
+        }
+        try std.testing.expectEqualSlices(M31, expected, actual);
+
+        @memcpy(expected, input);
+        @memcpy(actual, input);
+        for (0..value_count / 8) |block| {
+            const x = t01s[block * 2];
+            const y = t01s[block * 2 + 1];
+            const pair_twiddles = [_]M31{ y, y.neg(), x.neg(), x };
+            for (pair_twiddles, 0..) |twiddle, pair| {
+                fft_kernels.fftPairInverseM31(expected, block * 4 + pair, twiddle);
+            }
+        }
+        for (t01s, 0..) |twiddle, block| fft_kernels.fftLayerLoopInverseM31(expected, 1, block, twiddle);
+        for (t2s, 0..) |twiddle, block| fft_kernels.fftLayerLoopInverseM31(expected, 2, block, twiddle);
+        for (t3s, 0..) |twiddle, block| fft_kernels.fftLayerLoopInverseM31(expected, 3, block, twiddle);
+        if (layer_count == 5) {
+            for (t4s, 0..) |twiddle, block| fft_kernels.fftLayerLoopInverseM31(expected, 4, block, twiddle);
+        }
+        if (layer_count == 4) {
+            fft_kernels.fftBottomFourLayersInverseM31(actual, t3s, t2s, t01s);
+        } else {
+            fft_kernels.fftBottomFiveLayersInverseM31(actual, t4s, t3s, t2s, t01s);
+        }
+        try std.testing.expectEqualSlices(M31, expected, actual);
     }
 }

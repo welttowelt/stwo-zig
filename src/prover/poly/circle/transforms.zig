@@ -1,3 +1,4 @@
+const std = @import("std");
 const fft = @import("stwo_core").fft;
 const m31 = @import("stwo_core").fields.m31;
 const domain_mod = @import("stwo_core").poly.circle.domain;
@@ -7,6 +8,78 @@ const twiddles_mod = @import("../twiddles.zig");
 const M31 = m31.M31;
 const CircleDomain = domain_mod.CircleDomain;
 const M31TwiddleTree = twiddles_mod.TwiddleTree([]const M31);
+
+/// Choose a 3/4/5-layer contiguous tail so every preceding pass is radix-8.
+/// This avoids the one- and two-layer full-buffer passes left by a fixed
+/// radix-8 tail at common production sizes.
+inline fn fusedBottomLayerCount(active_layers: u32) u32 {
+    std.debug.assert(active_layers >= 3);
+    return 3 + ((active_layers - 3) % 3);
+}
+
+inline fn layerTwiddles(
+    twiddles: []const M31,
+    line_log_size: u32,
+    stage: u32,
+) []const M31 {
+    std.debug.assert(stage <= line_log_size);
+    const count = @as(usize, 1) << @intCast(line_log_size - stage);
+    return twiddles[twiddles.len - count * 2 .. twiddles.len - count];
+}
+
+fn forwardBottomLayers(
+    values: []M31,
+    line_log_size: u32,
+    twiddles: []const M31,
+    layer_count: u32,
+) void {
+    const t01s = layerTwiddles(twiddles, line_log_size, 1);
+    const t2s = layerTwiddles(twiddles, line_log_size, 2);
+    switch (layer_count) {
+        3 => fft_kernels.fftBottomThreeLayersForwardM31(values, t2s, t01s),
+        4 => fft_kernels.fftBottomFourLayersForwardM31(
+            values,
+            layerTwiddles(twiddles, line_log_size, 3),
+            t2s,
+            t01s,
+        ),
+        5 => fft_kernels.fftBottomFiveLayersForwardM31(
+            values,
+            layerTwiddles(twiddles, line_log_size, 4),
+            layerTwiddles(twiddles, line_log_size, 3),
+            t2s,
+            t01s,
+        ),
+        else => unreachable,
+    }
+}
+
+fn inverseBottomLayers(
+    values: []M31,
+    line_log_size: u32,
+    itwiddles: []const M31,
+    layer_count: u32,
+) void {
+    const it01s = layerTwiddles(itwiddles, line_log_size, 1);
+    const it2s = layerTwiddles(itwiddles, line_log_size, 2);
+    switch (layer_count) {
+        3 => fft_kernels.fftBottomThreeLayersInverseM31(values, it2s, it01s),
+        4 => fft_kernels.fftBottomFourLayersInverseM31(
+            values,
+            layerTwiddles(itwiddles, line_log_size, 3),
+            it2s,
+            it01s,
+        ),
+        5 => fft_kernels.fftBottomFiveLayersInverseM31(
+            values,
+            layerTwiddles(itwiddles, line_log_size, 4),
+            layerTwiddles(itwiddles, line_log_size, 3),
+            it2s,
+            it01s,
+        ),
+        else => unreachable,
+    }
+}
 
 pub const PolyError = error{
     InvalidLength,
@@ -88,14 +161,16 @@ fn evaluateBufferTailLayers(
 ) void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
-    const fuse_bottom = line_log_size >= 3;
     var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
-    const stop: u32 = if (fuse_bottom) 2 else 0;
-    while (skipped < skip_layers and layer_idx > stop) {
+    while (skipped < skip_layers and layer_idx > 0) {
         layer_idx -= 1;
         skipped += 1;
     }
+    const active_layers = layer_idx + 1;
+    const fuse_bottom = line_log_size >= 3 and active_layers >= 3;
+    const bottom_layers = if (fuse_bottom) fusedBottomLayerCount(active_layers) else 0;
+    const stop: u32 = if (fuse_bottom) bottom_layers - 1 else 0;
     while (layer_idx > stop) {
         if (layer_idx >= 5 and
             fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
@@ -120,11 +195,7 @@ fn evaluateBufferTailLayers(
     }
 
     if (fuse_bottom) {
-        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
-        const t2s = twiddle_tree.twiddles[twiddle_len - (len2 * 2) .. twiddle_len - len2];
-        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
-        const t01s = twiddle_tree.twiddles[twiddle_len - (len1 * 2) .. twiddle_len - len1];
-        fft_kernels.fftBottomThreeLayersForwardM31(values, t2s, t01s);
+        forwardBottomLayers(values, line_log_size, twiddle_tree.twiddles, bottom_layers);
         return;
     }
 
@@ -193,14 +264,14 @@ pub fn interpolateIntoBufferWithTwiddles(
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
     const fuse_bottom = line_log_size >= 3;
+    const bottom_layers = if (fuse_bottom)
+        fusedBottomLayerCount(line_log_size + 1)
+    else
+        0;
     var layer_idx: u32 = 0;
     if (fuse_bottom) {
-        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
-        const it2s = twiddle_tree.itwiddles[itwiddle_len - (len2 * 2) .. itwiddle_len - len2];
-        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
-        const it01s = twiddle_tree.itwiddles[itwiddle_len - (len1 * 2) .. itwiddle_len - len1];
-        fft_kernels.fftBottomThreeLayersInverseM31(coeffs, it2s, it01s);
-        layer_idx = 2;
+        inverseBottomLayers(coeffs, line_log_size, twiddle_tree.itwiddles, bottom_layers);
+        layer_idx = bottom_layers - 1;
     } else {
         const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
         const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
@@ -300,16 +371,16 @@ pub fn interpolateBuffersWithTwiddles(
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
     const fuse_bottom = line_log_size >= 3;
+    const bottom_layers = if (fuse_bottom)
+        fusedBottomLayerCount(line_log_size + 1)
+    else
+        0;
     var layer_idx: u32 = 0;
     if (fuse_bottom) {
-        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
-        const it2s = twiddle_tree.itwiddles[itwiddle_len - (len2 * 2) .. itwiddle_len - len2];
-        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
-        const it01s = twiddle_tree.itwiddles[itwiddle_len - (len1 * 2) .. itwiddle_len - len1];
         for (coeffs_batch) |coeffs| {
-            fft_kernels.fftBottomThreeLayersInverseM31(coeffs, it2s, it01s);
+            inverseBottomLayers(coeffs, line_log_size, twiddle_tree.itwiddles, bottom_layers);
         }
-        layer_idx = 2;
+        layer_idx = bottom_layers - 1;
     } else {
         const first_line_len = @as(usize, 1) << @intCast(line_log_size - 1);
         const first_line_itwiddles = twiddle_tree.itwiddles[itwiddle_len - (first_line_len * 2) .. itwiddle_len - first_line_len];
@@ -442,14 +513,16 @@ fn evaluateBuffersTailLayers(
 ) PolyError!void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
-    const fuse_bottom = line_log_size >= 3;
     var skipped: u32 = 0;
     var layer_idx: u32 = line_log_size;
-    const stop: u32 = if (fuse_bottom) 2 else 0;
-    while (skipped < skip_layers and layer_idx > stop) {
+    while (skipped < skip_layers and layer_idx > 0) {
         layer_idx -= 1;
         skipped += 1;
     }
+    const active_layers = layer_idx + 1;
+    const fuse_bottom = line_log_size >= 3 and active_layers >= 3;
+    const bottom_layers = if (fuse_bottom) fusedBottomLayerCount(active_layers) else 0;
+    const stop: u32 = if (fuse_bottom) bottom_layers - 1 else 0;
     while (layer_idx > stop) {
         if (layer_idx >= 5 and
             fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
@@ -478,12 +551,8 @@ fn evaluateBuffersTailLayers(
     }
 
     if (fuse_bottom) {
-        const len2 = @as(usize, 1) << @intCast(line_log_size - 2);
-        const t2s = twiddle_tree.twiddles[twiddle_len - (len2 * 2) .. twiddle_len - len2];
-        const len1 = @as(usize, 1) << @intCast(line_log_size - 1);
-        const t01s = twiddle_tree.twiddles[twiddle_len - (len1 * 2) .. twiddle_len - len1];
         for (values_batch) |values| {
-            fft_kernels.fftBottomThreeLayersForwardM31(values, t2s, t01s);
+            forwardBottomLayers(values, line_log_size, twiddle_tree.twiddles, bottom_layers);
         }
         return;
     }
