@@ -1901,6 +1901,111 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.00463,
+     "ci_low": 0.954037,
+     "commit": "174be4268f6919cd8f4e55923b5ca5b60ac5836c",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.131962,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:56aaae22de12db6a77ace8707586cd0b49bd6e5832ad22be104db531de59010f",
+     "gates": "G1..G5:pass",
+     "harness_commit": "685d2224daeb",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T01:32:14Z",
+     "judged_r": 0.977196,
+     "measurement_rounds": 15,
+     "measurement_seconds": 60.708902,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:29a8294eeb0db6e778e4372fa2c212e480ac6c7489f008522e3a3363ceb59d49",
+     "outcome": "rejected",
+     "peak_rss_mib": 4.719322,
+     "predecessor": "bc8c167cb210",
+     "proof_bytes": 24965,
+     "prove_ms": 1.237292,
+     "row_id": "sha256:cc18b1ed049ddd2b94946c3f8b9c957ba1f2eaf6e80d17805b777c9773591333",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-21-quotient-pipeline-compound",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.988515,
+     "ci_low": 0.954163,
+     "commit": "174be4268f6919cd8f4e55923b5ca5b60ac5836c",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 1.085818,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:f18a4ff914517aafb54c3b14d9d14689ba67d20aa283874fddcb1d8ca3da4be3",
+     "gates": "G4:fail",
+     "harness_commit": "685d2224daeb",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T01:32:14Z",
+     "judged_r": 0.970982,
+     "measurement_rounds": 15,
+     "measurement_seconds": 63.109364,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:69ab248b910447bb6daaa918353c544229eec0ff573e507571624ae1053b483e",
+     "outcome": "rejected",
+     "peak_rss_mib": 20.469437,
+     "predecessor": "bc8c167cb210",
+     "proof_bytes": 45200,
+     "prove_ms": 5.143625,
+     "row_id": "sha256:80d617f4aafc8764b4a39cf45acb3140ce9f2000a0a3903482ca48f630b19453",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-21-quotient-pipeline-compound",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 1.061683,
+     "ci_low": 0.950573,
+     "commit": "174be4268f6919cd8f4e55923b5ca5b60ac5836c",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 1.739576,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:8cef877ad4bd5aeea351ecd21da21efd14d82f78f520710d15883060c370baf8",
+     "gates": "G4:fail",
+     "harness_commit": "685d2224daeb",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T01:32:15Z",
+     "judged_r": 1.005731,
+     "measurement_rounds": 15,
+     "measurement_seconds": 75.276544,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:7a96c714a551215824edfa5efdd23c439e9538bcb69fd953164a98cb96ba5b76",
+     "outcome": "rejected",
+     "peak_rss_mib": 20.78196,
+     "predecessor": "bc8c167cb210",
+     "proof_bytes": 41840,
+     "prove_ms": 8.999583,
+     "row_id": "sha256:d586bcbd7e763dbc478895e2c5f7d69e8a1db27da5aed9edce28d72420f0b10c",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-21-quotient-pipeline-compound",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -1908,8 +2013,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -1920,7 +2025,7 @@
       },
       "effective_score": 0.966256,
       "evidence_share": {
-       "claimed": 1,
+       "claimed": 2,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -1938,9 +2043,10 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 1,
+       "count": 2,
        "observation_ids": [
-        "sha256:8bcb47029f94472ace45b8c1291b18cbb958f5e71c2c42355bbafdd0a32f5e14"
+        "sha256:8bcb47029f94472ace45b8c1291b18cbb958f5e71c2c42355bbafdd0a32f5e14",
+        "sha256:69ab248b910447bb6daaa918353c544229eec0ff573e507571624ae1053b483e"
        ]
       }
      },
@@ -2231,8 +2337,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2344,8 +2450,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2356,10 +2462,10 @@
       },
       "effective_score": 1.0,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -2374,8 +2480,10 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:29a8294eeb0db6e778e4372fa2c212e480ac6c7489f008522e3a3363ceb59d49"
+       ]
       }
      },
      "frontier": [
@@ -2560,8 +2668,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2572,10 +2680,10 @@
       },
       "effective_score": 1.0,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -2590,8 +2698,10 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:7a96c714a551215824edfa5efdd23c439e9538bcb69fd953164a98cb96ba5b76"
+       ]
       }
      },
      "frontier": [
@@ -2881,8 +2991,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -4622,8 +4732,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5083,8 +5193,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5124,8 +5234,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5410,8 +5520,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5871,8 +5981,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6044,8 +6154,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6085,8 +6195,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6126,8 +6236,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 92,
-       "seconds": 23536
+       "commits": 104,
+       "seconds": 31488
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7285,7 +7395,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "f1ea516b3f594bf605e33615d06a7b9a3eb3452845831f8858dbb05a0259a566",
+   "autoresearch/ledger/promotions.tsv": "3feb2219c5b28941389d623430f9370ccdf40416b21a2e1c39484489d13694a5",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -7384,13 +7494,22 @@
    "autoresearch/submissions/2026-07-21-paired-circle-basis-reuse/verdict.json": "626dc2f42771b87906a99120af906844d941a703a7a197c9fc241696b6dae050",
    "autoresearch/submissions/2026-07-21-qm31-direct-lane-base-multiply-cpu-metal/verdict-core_metal-wide.json": "87efb9c7ee1262a15f6ca752f7b9420585cb1ff7b0a8c5ebd84b759a8ab8731a",
    "autoresearch/submissions/2026-07-21-qm31-direct-lane-base-multiply-cpu-metal/verdict.json": "581ca6e586355ed4c9b0cf27697c273e315be5c3e76f9a0b5e49db19cda48da8",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk-packed-finalize/verdict-deep.json": "bd8aa1ecc937412c0065ca84388b73d7f397c6c2f2786aec08390692b5205217",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk-packed-finalize/verdict-wide.json": "74097b979c0fcf060ba6fdba0765921afa71a140c70c97fc3ff09a2dd07cbc18",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk-packed-finalize/verdict.json": "bb3b087b65c5bfc6a36cec3405e58a2784cc48a8d407984666b85718807abdbc",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk/verdict-deep.json": "8904faf647355b95d794ab15cc292ec428e6c95fe90586be78b1ef6dbcd2c431",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk/verdict-wide.json": "74097b979c0fcf060ba6fdba0765921afa71a140c70c97fc3ff09a2dd07cbc18",
+   "autoresearch/submissions/2026-07-21-quotient-coset-walk/verdict.json": "bb3b087b65c5bfc6a36cec3405e58a2784cc48a8d407984666b85718807abdbc",
+   "autoresearch/submissions/2026-07-21-quotient-pipeline-compound/verdict-deep.json": "efdb9d7561e826fc24b0fbeba235ae80f9688f6c23e6c1d7371c73a682f37b6c",
+   "autoresearch/submissions/2026-07-21-quotient-pipeline-compound/verdict-wide.json": "32f8b4e0f2f9d92de02c319a18fb10247df41d3b55709c1510dc2f428bb9c2bb",
+   "autoresearch/submissions/2026-07-21-quotient-pipeline-compound/verdict.json": "927454e9f945931822351bfc950a8d4444d5382792c955dd8279db731632e812",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict-core_metal-xlarge.json": "5014675896cb369b5893a60e5e0df7228729ebcb52b62bafb4edb00676ce3778",
    "autoresearch/submissions/2026-07-21-shared-umin-native-metal-lde/verdict.json": "de5a885f42529c423d03efe4e7a866cc179abc319556381be30a002cb102c468",
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "dda24d0ce666",
-  "repo_commit_time": "2026-07-21T23:19:43Z"
+  "repo_commit": "4767b1cef29c",
+  "repo_commit_time": "2026-07-22T01:32:15Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -14019,31 +14138,37 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 1,
+      "available_points": 2,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 3.4042615930271327,
         "judged_at_utc": "2026-07-21T21:00:46Z",
         "points": 1,
         "row_id": "sha256:142cce237fd6fc54fb30cafc7d3b2daa200ee93ea63a72eb48bf659fc1234251"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 1.2430928831839738,
+        "judged_at_utc": "2026-07-22T01:32:14Z",
+        "points": 2,
+        "row_id": "sha256:80d617f4aafc8764b4a39cf45acb3140ce9f2000a0a3903482ca48f630b19453"
        }
       ],
       "latest": {
-       "actual_rounds": 7,
+       "actual_rounds": 15,
        "actual_rounds_per_workload": {
-        "plonk_log14": 7
+        "plonk_log14": 15
        },
-       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 15,
        "available": true,
        "configured_rounds": 15,
-       "credited_ln_improvement": 0.0343264695266928,
-       "credited_ln_improvement_per_measurement_hour": 3.4042615930271327,
-       "gradient_snr": 3.327045721302803,
-       "judged_at_utc": "2026-07-21T21:00:46Z",
-       "measurement_wall_hours": 0.010083381840280101,
-       "row_id": "sha256:142cce237fd6fc54fb30cafc7d3b2daa200ee93ea63a72eb48bf659fc1234251",
-       "submission_id": "2026-07-21-deferred-first-tree-current-main",
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-22T01:32:14Z",
+       "measurement_wall_hours": 0.017530378958326764,
+       "row_id": "sha256:80d617f4aafc8764b4a39cf45acb3140ce9f2000a0a3903482ca48f630b19453",
+       "submission_id": "2026-07-21-quotient-pipeline-compound",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -14208,14 +14333,32 @@
         "row_id": "sha256:142cce237fd6fc54fb30cafc7d3b2daa200ee93ea63a72eb48bf659fc1234251",
         "submission_id": "2026-07-21-deferred-first-tree-current-main",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 15,
+        "actual_rounds_per_workload": {
+         "plonk_log14": 15
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-22T01:32:14Z",
+        "measurement_wall_hours": 0.017530378958326764,
+        "row_id": "sha256:80d617f4aafc8764b4a39cf45acb3140ce9f2000a0a3903482ca48f630b19453",
+        "submission_id": "2026-07-21-quotient-pipeline-compound",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.0343264695266928,
-       "credited_ln_improvement_per_measurement_hour": 3.4042615930271327,
-       "measurement_wall_hours": 0.010083381840280101,
-       "median_gradient_snr": 3.327045721302803,
-       "points": 1
+       "credited_ln_improvement_per_measurement_hour": 1.2430928831839738,
+       "measurement_wall_hours": 0.027613760798606866,
+       "median_gradient_snr": 1.6635228606514014,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 18
@@ -14280,10 +14423,34 @@
       "unavailable_points": 0
      },
      "small": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 0.0,
+        "judged_at_utc": "2026-07-22T01:32:14Z",
+        "points": 1,
+        "row_id": "sha256:cc18b1ed049ddd2b94946c3f8b9c957ba1f2eaf6e80d17805b777c9773591333"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 15,
+       "actual_rounds_per_workload": {
+        "wf_log10x8": 15
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 15,
+       "available": true,
+       "configured_rounds": 15,
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-22T01:32:14Z",
+       "measurement_wall_hours": 0.016863583865552857,
+       "row_id": "sha256:cc18b1ed049ddd2b94946c3f8b9c957ba1f2eaf6e80d17805b777c9773591333",
+       "submission_id": "2026-07-21-quotient-pipeline-compound",
+       "verdict_kind": "claimed"
+      },
       "time_series": [
        {
         "available": false,
@@ -14372,23 +14539,65 @@
         "submission_id": "2026-07-21-cpu-merkle-subtree-scheduling",
         "unavailable_reason": "legacy_row_has_no_search_health_evidence",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 15,
+        "actual_rounds_per_workload": {
+         "wf_log10x8": 15
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-22T01:32:14Z",
+        "measurement_wall_hours": 0.016863583865552857,
+        "row_id": "sha256:cc18b1ed049ddd2b94946c3f8b9c957ba1f2eaf6e80d17805b777c9773591333",
+        "submission_id": "2026-07-21-quotient-pipeline-compound",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.0,
+       "credited_ln_improvement_per_measurement_hour": 0.0,
+       "measurement_wall_hours": 0.016863583865552857,
+       "median_gradient_snr": 0.0,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 11
      },
      "wide": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 0.0,
+        "judged_at_utc": "2026-07-22T01:32:15Z",
+        "points": 1,
+        "row_id": "sha256:d586bcbd7e763dbc478895e2c5f7d69e8a1db27da5aed9edce28d72420f0b10c"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 15,
+       "actual_rounds_per_workload": {
+        "wf_log14x32": 15
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 15,
+       "available": true,
+       "configured_rounds": 15,
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-22T01:32:15Z",
+       "measurement_wall_hours": 0.020910151064720897,
+       "row_id": "sha256:d586bcbd7e763dbc478895e2c5f7d69e8a1db27da5aed9edce28d72420f0b10c",
+       "submission_id": "2026-07-21-quotient-pipeline-compound",
+       "verdict_kind": "claimed"
+      },
       "time_series": [
        {
         "available": false,
@@ -14501,14 +14710,32 @@
         "submission_id": "2026-07-21-fft-bottom-layer-fusion",
         "unavailable_reason": "legacy_row_has_no_search_health_evidence",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 15,
+        "actual_rounds_per_workload": {
+         "wf_log14x32": 15
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-22T01:32:15Z",
+        "measurement_wall_hours": 0.020910151064720897,
+        "row_id": "sha256:d586bcbd7e763dbc478895e2c5f7d69e8a1db27da5aed9edce28d72420f0b10c",
+        "submission_id": "2026-07-21-quotient-pipeline-compound",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.0,
+       "credited_ln_improvement_per_measurement_hour": 0.0,
+       "measurement_wall_hours": 0.020910151064720897,
+       "median_gradient_snr": 0.0,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 14
@@ -15564,6 +15791,60 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "wide"
+  },
+  {
+   "id": "2026-07-21-quotient-coset-walk",
+   "judged_r": null,
+   "note": "# Bit-reversed coset walk for lazy quotient point generation\n\n## Model and harness\n\nModel: Kimi (Moonshot AI) via kimi-code CLI, working as lane KIMI APOLLO in\nthe local three-agent mailbox (CLAUDE-MERSENNE research boss, CODEX ANVIL\nleaf lane). Harness: repo-resident `stwo-perf` at canonical tip\n`2ab16c66a306`, Zig 0.15.2 and Python 3.12.12, ReleaseFast on an Apple\nM4 Pro arm64 macOS host. The paired predecessor is the unchanged\ncurrent-main checkout. A reasoning-first, sanitized session transcript is\nattached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nLazy quotient evaluation visits every lifting-domain position in natural\norder and computes `domain.at(bitReverseIndex(position, n))` per row through\n`CirclePointIndex.toPoint()`: one circle-group addition per set index bit,\nabout 7.5 additions per row at log 15. Env-gated tile timers attributed\nroughly 19% of Apollo-lane quotient compute to this point generation.\n\nConsecutive positions p-1 -> p flip the c trailing ones of p-1\n(c = ctz(~(p-1))) plus bit c, so in n-bit bit-reversed index space the index\ndelta is 2^(n-c) + 2^(n-1-c) - 2^n (mod 2^n). Domain points satisfy\nat(idx) = s * Q(idx mod half) with Q(j) = P(initial + j*step), and Q has\nperiod half, so each row costs exactly one group addition with a precomputed\npoint delta plus a sign-branch conjugation. This is the CPU analogue of the\nlanded Metal linear quotient domain walk. The same circle group law is used,\nso every emitted point is byte-identical to the direct call it replaces.\n\n## Changes\n\nNew `src/prover/pcs/quotient_domain_walk.zig` provides\n`BitReversedCosetWalk`: init seeds the first point directly (any span start,\nincluding non-aligned worker spans) and precomputes one point delta per\npossible trailing-ones count; `next()` emits the current point and advances\nwith one group add and conditional conjugation. Four hot call sites now walk\ninstead of recomputing: `executeBatched` and `executeScalar` in\n`quotient_tile_executor.zig`, and `executeMaterialized`,\n`executeMaterializedScalar`, `executeStreaming`, and\n`executeStreamingScalar` in `quotient_row_executor.zig`.\n\nUnit tests prove byte-identical walks versus direct\n`domain.at(bitReverseIndex)` for log sizes {1,2,3,4,5,11,15}, over full\ndomains and arbitrary non-aligned starts (1, 7, 2731, half-1, half, size-3).\n\n## S1 evidence (stwo-prof isolates, live repo imports, 2^15 canonic domain)\n\n| arm | ns/op | instructions/op | cycles/op |\n| --- | ---: | ---: | ---: |\n| direct at(bitReverse) | 25.54 | 359.5 | 100.4 |\n| incremental walk | 4.45 | 56.1 | 17.5 |\n\nChained accumulators over 2000 iterations x 32768 points were identical for\nboth arms (c6b31e2026c68821), confirming the walk emits the same points.\n\n## Results\n\nPaired S3 verdicts against predecessor `8e58d7015e28` \u2014 which contains\nevery promoted change at submission time (the only later merge, PR #46, was\nrecorded neutral and no ledger frontier row moved). 13/13 regression guards\ngreen, G1-G5 pass on every tabled class:\n\n| class | rounds | A ms | B ms | ratio | 95% CI | theta | verdict |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n| small | 15 | 1.651 | 1.642 | 0.9872 | [0.9694, 1.0065] | 0.0373 | confirmed-neutral |\n| wide | 7 | 10.419 | 10.318 | 0.9871 | [0.9778, 0.9992] | 0.0293 | confirmed-neutral |\n| deep | 15 | 7.201 | 7.099 | 0.9870 | [0.9636, 1.0067] | 0.0183 | not significant |\n\nReplication runs (same candidate, all G1-G3 green, byte-identical digests):\ndeep 0.9904 [0.9775, 1.0022] and 0.9766 [0.9541, 0.9955]; a final batch\nagainst tip `2ab16c66a306` measured small 0.9991 [0.9816, 1.0167], wide\n0.9876 [0.7900, 1.0610], deep 0.9934 [0.9679, 1.0638] \u2014 consistent central\nratios with noise-widened CIs from a chronically loaded shared host (the\nwide/deep rows' upper CIs, not their medians, tripped the G4 matrix-row\nbudget on those two noise runs). The ledger frontier did not move between\nany of these runs: the tabled verdicts' predecessor contains every promoted\nchange, and the only intervening merge (PR #46) was recorded neutral.\n\nThe mechanism is consistent (~1-2% per class across six independent paired\nruns) and the deep class repeatedly measures with its whole CI below 1.0.\nWhere a class CI does not clear the class theta, the row is reported\nhonestly as confirmed-neutral / not significant rather than rounded up.\n\nProof digests remained the fixed workload values: small `91741aec...bea5700`,\nwide `57a7d291...0f3374`, deep `d63a2c92...b69dbaf`.\n\n## Caveats\n\n- The mechanism removes ~19% of Apollo-lane quotient compute, which is a\n  small share of end-to-end prove time; expected effect is near the\n  significance floor and the paired CI decides each class.\n- Point deltas depend only on the domain step and log size; no protocol,\n  statement, or workload digest changes.\n",
+   "outcome": "pending",
+   "solver": "welttowelt",
+   "title": "Bit-reversed coset walk for lazy quotient point generation",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session transcript \u2014 bit-reversed coset walk for lazy quotient evaluation\n\nAgent lane: KIMI APOLLO (kimi-code CLI), 2026-07-21. Local coordination via\n`.stormforge/stwo-autoresearch-mailbox` (CLAUDE-MERSENNE = research boss and\nsubmission authority; CODEX ANVIL = leaf/leaf-hash lane; OLI = owner).\nThis transcript is reasoning-first: why each change was made, the evidence\nbehind it, and what was rejected. Machine: Apple M4 Pro (12 cores), macOS,\nZig 0.15.2, Python 3.12.12, ReleaseFast.\n\n## 1. Intake and lane assignment\n\nGoal from `autoresearch/TASK.md`: make the CPU prover faster on `core_cpu`\n(small wf_log10x8, wide wf_log14x32, deep plonk_log14), byte-identical\nproofs, edits only inside M",
+     "label": "session-01.md",
+     "sha256": "14274c95e81d087b5cfcbaf5cfe6fd1255fcb7a8a96d6f1758e83966471845f3"
+    }
+   ],
+   "verdict_kind": null,
+   "workload_class": null
+  },
+  {
+   "id": "2026-07-21-quotient-coset-walk-packed-finalize",
+   "judged_r": null,
+   "note": "# Bit-reversed coset walk and packed finalize for lazy quotient evaluation\n\n## Model and harness\n\nModel: Kimi (Moonshot AI) via kimi-code CLI, working as lane KIMI APOLLO in\nthe local three-agent mailbox (CLAUDE-MERSENNE research boss, CODEX ANVIL\nleaf lane). Harness: repo-resident `stwo-perf` at canonical tip\n`2ab16c66a306`, Zig 0.15.2 and Python 3.12.12, ReleaseFast on an Apple\nM4 Pro arm64 macOS host. The paired predecessor is the unchanged\ncurrent-main checkout. A reasoning-first, sanitized session transcript is\nattached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nLazy quotient evaluation is a row pipeline: per row it generates the\nbit-reversed domain point, builds batch denominators, accumulates column\ncontributions into numerator planes, and finalizes one quotient. Two parts\nof that pipeline carry avoidable instruction counts, and on a saturated\nout-of-order pipeline removing instructions anywhere lifts the whole loop:\n\n1. **Point generation.** Every row computed\n   `domain.at(bitReverseIndex(position, n))` via\n   `CirclePointIndex.toPoint()`: one circle-group addition per set index\n   bit (~7.5 per row at log 15). Consecutive positions p-1 -> p flip the c\n   trailing ones of p-1 (c = ctz(~(p-1))), so in n-bit bit-reversed index\n   space the index delta is `2^(n-c) + 2^(n-1-c) - 2^n (mod 2^n)`, and each\n   row costs exactly ONE group addition with a precomputed point delta plus\n   a sign-branch conjugation (CPU analogue of the landed Metal linear\n   quotient domain walk).\n\n2. **Finalize.** The batched path repacked four M31 numerator planes into a\n   scalar `QM31` per row, then evaluated the linear term and multiplied by\n   the denominator inverse with scalar QM31/CM31 operations. Keeping\n   numerators in coordinate planes and finalizing VEC_WIDTH rows per pass\n   with Karatsuba CM31 multiplies over Vec4 lanes removes the repack and\n   widens every arithmetic step.\n\nBoth mechanisms use the identical field operations (the circle group law;\nthe same Karatsuba formula), so every emitted point and quotient is\nbyte-identical to the code they replace.\n\n## Changes\n\nNew `src/prover/pcs/quotient_domain_walk.zig` provides\n`BitReversedCosetWalk`: init seeds the first point directly (any span\nstart) and precomputes one point delta per possible trailing-ones count;\n`next()` emits the current point and advances with one group add and a\nconditional conjugation. Four hot call sites now walk instead of\nrecomputing: `executeBatched` and `executeScalar` in\n`quotient_tile_executor.zig`, and `executeMaterialized`,\n`executeMaterializedScalar`, `executeStreaming`, and\n`executeStreamingScalar` in `quotient_row_executor.zig`.\n\n`quotient_tile_executor.executeBatched` also finalizes VEC_WIDTH rows per\npass via the new `finalizeGroupVec4` (plane-native; scalar remainder tail\nfor odd row counts). `executeScalar` and the row executors keep their\nscalar finalize.\n\nConformance tests: walks are byte-identical to direct\n`domain.at(bitReverseIndex)` at log sizes {1,2,3,4,5,11,15} over full\ndomains and arbitrary non-aligned starts; `finalizeGroupVec4` matches\nscalar `finalizeRowQuotients` exactly at batch counts 1/2/3.\n\n## S1 evidence (stwo-prof isolates, live repo imports)\n\n| mechanism | arm A (current) | arm B (candidate) | equivalence |\n| --- | --- | --- | --- |\n| point walk | 25.54 ns/op, 359.5 instr/op | 4.45 ns/op, 56.1 instr/op | chained ACC identical over 2000x32768 pts |\n| packed finalize | 30.35 ns/op, 149.3 instr/op | 15.49 ns/op, 63.9 instr/op | chained ACC identical |\n\nFalsified companions (kept out): batch-fused numerator accumulation\n(ALU-port saturated at IPC ~4.8, cycles tied), 4-chain parallel-scan batch\ninversion (-12% cycles on a ~2% slice), packed denominator values (34.1 ->\n30.9 instr/op, cycles within noise).\n\n## Results\n\nPaired S3 verdicts against predecessor `8e58d7015e28` \u2014 which contains\nevery promoted change at submission time (the only later merge, PR #46, was\nrecorded neutral and no ledger frontier row moved). 13/13 regression guards\ngreen, G1-G5 pass on every tabled class:\n\n| class | mechanism | rounds | ratio | 95% CI | theta | verdict |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n| small | walk (finalize n/a: row path) | 15 | 0.9872 | [0.9694, 1.0065] | 0.0373 | confirmed-neutral |\n| wide | walk | 7 | 0.9871 | [0.9778, 0.9992] | 0.0293 | confirmed-neutral |\n| deep | walk | 15 | 0.9870 | [0.9636, 1.0067] | 0.0183 | not significant |\n| deep | walk + packed finalize | 15 | 0.9611 | [0.9149, 0.9884] | 0.0183 | not significant |\n| wide | walk + packed finalize | 15 | 0.9874 | [0.9710, 1.0043] | 0.0293 | confirmed-neutral |\n\nReplication runs (same candidates, all G1-G3 green, byte-identical\ndigests): walk deep 0.9904 [0.9775, 1.0022] and 0.9766 [0.9541, 0.9955];\ncompound batch on tip `2ab16c66a306` (ambient host noise; two regression\nguards tripped with even medians \u2014 treated as noise per project ops\nguidance). Central deep effect is -3.9% for the compound; the local host's\nA/A dispersion, not the effect size, keeps the CI from clearing the class\ntheta. The judged re-run on the locked host decides.\n\nProof digests remained the fixed workload values: small `91741aec...bea5700`,\nwide `57a7d291...0f3374`, deep `d63a2c92...b69dbaf`.\n\n## Caveats\n\n- Small-class quotient execution uses the row-executor (non-batched) path;\n  it receives the walk but not the packed finalize.\n- Deep-class CIs from this shared host are wide; two deep compound runs\n  agree on a ~2-4% central effect with CIs spanning the gate.\n",
+   "outcome": "pending",
+   "solver": "welttowelt",
+   "title": "Bit-reversed coset walk and packed finalize for lazy quotient evaluation",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session transcript \u2014 bit-reversed coset walk for lazy quotient evaluation\n\nAgent lane: KIMI APOLLO (kimi-code CLI), 2026-07-21. Local coordination via\n`.stormforge/stwo-autoresearch-mailbox` (CLAUDE-MERSENNE = research boss and\nsubmission authority; CODEX ANVIL = leaf/leaf-hash lane; OLI = owner).\nThis transcript is reasoning-first: why each change was made, the evidence\nbehind it, and what was rejected. Machine: Apple M4 Pro (12 cores), macOS,\nZig 0.15.2, Python 3.12.12, ReleaseFast.\n\n## 1. Intake and lane assignment\n\nGoal from `autoresearch/TASK.md`: make the CPU prover faster on `core_cpu`\n(small wf_log10x8, wide wf_log14x32, deep plonk_log14), byte-identical\nproofs, edits only inside M",
+     "label": "session-01.md",
+     "sha256": "8cec42bb8a5e6a45cfa577c6b17eca524ba3088a7cea7129400e3953151b9918"
+    }
+   ],
+   "verdict_kind": null,
+   "workload_class": null
+  },
+  {
+   "id": "2026-07-21-quotient-pipeline-compound",
+   "judged_r": 0.970982,
+   "note": "# Quotient row pipeline compound: coset walk, packed finalize, stack-chunked inversion\n\n## Model and harness\n\nModel: Kimi (Moonshot AI) via kimi-code CLI, working as lane KIMI APOLLO in\nthe local three-agent mailbox (CLAUDE-MERSENNE research boss, CODEX ANVIL\nleaf lane). Harness: repo-resident `stwo-perf` at canonical tip `bc8c167`,\nZig 0.15.2 and Python 3.12.12, ReleaseFast on an Apple M4 Pro arm64 macOS\nhost. The paired predecessor is the unchanged current-main checkout. A\nreasoning-first, sanitized session transcript is attached as\n`transcripts/session-01.md`.\n\nThis compound is the maintainer-directed repackaging of three mechanisms\nfrom closed drafts #49/#54 (walk, packed finalize) and #61 (stack-chunked\ninversion): \"revisited only as part of a larger measured compound ... a\nfuture compound must be remeasured from current main.\"\n\n## Hypothesis\n\n1. **Bit-reversed coset walk.** Lazy quotient rows computed\n   `domain.at(bitReverseIndex(position, n))` per row via\n   `CirclePointIndex.toPoint()` (~7.5 circle-group adds per row at log 15).\n   Consecutive positions flip the c trailing ones of p-1, so in n-bit\n   bit-reversed index space the delta is `2^(n-c) + 2^(n-1-c) - 2^n\n   (mod 2^n)`; each row costs one group addition with a precomputed point\n   delta plus sign-branch conjugation (CPU analogue of the landed Metal\n   linear domain walk).\n\n2. **Packed lane finalize.** The batched tile path repacked four M31\n   numerator planes into a scalar `QM31` per row. `finalizeGroupVec4`\n   evaluates the linear term and the denominator-inverse multiply with\n   Karatsuba CM31 over Vec4 rows \u2014 the same exact field operations as\n   scalar `finalizeRowQuotients` (S1: 30.35 -> 15.49 ns/op).\n\n3. **Stack-chunked batch inversion.** Domains below 8192 lifting rows\n   (including the scored small class) ran one full CM31 inversion per row\n   in `beginRow` (~312 ns/row, ~80% of small's quotient compute). The\n   scalar row paths now prepare 32-row chunks on the stack and invert them\n   with the existing Montgomery batch inversion (one inversion + ~3 muls\n   per element). Zero added heap: peak RSS matches the per-row path.\n\n## Changes\n\nNew `src/prover/pcs/quotient_domain_walk.zig` provides\n`BitReversedCosetWalk`; its call sites are the four hot point generators\nin `quotient_tile_executor.zig` and `quotient_row_executor.zig`.\n`quotient_tile_executor.executeBatched` also finalizes VEC_WIDTH rows per\npass via `finalizeGroupVec4` (scalar remainder tail). The scalar row\npaths (`executeStreamingScalar`, `executeMaterializedScalar`) are\nrestructured into 32-row stack chunks with batch inversion and quad-lane\nfinalize (`finalizeQuadVec4`); `batch_count > 16` falls back to the\noriginal per-row loop. Conformance tests: walks vs direct\n`domain.at(bitReverseIndex)` at six log sizes; packed finalize vs scalar\n`finalizeRowQuotients` at batch counts 1/2/3 in both executors.\n\n## Evidence\n\n- S1 isolates: walk 25.54 -> 4.45 ns/op (359.5 -> 56.1 instr/op); packed\n  finalize 30.35 -> 15.49 ns/op (149.3 -> 63.9 instr/op); chained\n  accumulators byte-identical for both. In-repo batched-vs-scalar\n  equivalence tests cover the inversion; the walk carries conformance\n  tests at six log sizes; the finalize carries packed-vs-scalar tests at\n  batch counts 1/2/3.\n- Maintainer's judge measurement of the stack-chunk alone on current main\n  (closed draft #61): small R=0.9769 [0.9599, 0.9966] \u2014 a real ~2.3% that\n  this compound builds on rather than resubmits alone.\n- Paired S3 on tip `bc8c167` (this compound): see table below.\n- Proof digests unchanged: small `91741aec...bea5700`, wide\n  `57a7d291...0f3374`, deep `d63a2c92...b69dbaf`.\n\n## Results\n\nPaired S3 verdicts against the current tip (`bc8c167`). Every reported run\npassed G1-G3 with byte-identical cross-arm digests; resource vectors\nincluding RSS within budgets unless noted:\n\n| compound | class | rounds | ratio | 95% CI | theta | verdict |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n| walk+finalize+chunk | small | 15 | 0.9499 | [0.8745, 0.9772] | 0.0373 | not significant |\n| walk+finalize+chunk | wide | 15 | 1.0057 | [0.9506, 1.0601] | 0.0293 | not significant |\n| walk+finalize+chunk | deep | 15 | 0.9710 | [0.9538, 0.9885] | 0.0183 | not significant |\n| + quad finalize (v3) | small | 15 | 0.9772 | [0.9543, 1.0036] | 0.0373 | not significant |\n\nReference points on quieter runs and the locked judge host: the\nstack-chunk alone measured small 0.8771 [0.7904, 0.9419] locally (pre-\ndeferred-tree main) and 0.9769 [0.9599, 0.9966] on the maintainer's judge\n(current main); walk+finalize measured deep 0.9611 [0.9149, 0.9884] on an\nearlier tip. Evening host load (avg >20) widens every local CI; the locked\njudge re-run decides.\n\n## Caveats\n\n- Mechanism 3 only affects sub-8192-row domains (small class and 2^11-2^12\n  guards); wide/deep already use the heap-batched tile path.\n- Local host A/A dispersion is high in the evening measurement windows; all\n  runs are reported, including noise-shaped guard trips.\n",
+   "outcome": "rejected",
+   "solver": "welttowelt",
+   "title": "Quotient row pipeline compound: coset walk, packed finalize, stack-chunked inversion",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session transcript \u2014 bit-reversed coset walk for lazy quotient evaluation\n\nAgent lane: KIMI APOLLO (kimi-code CLI), 2026-07-21. Local coordination via\n`.stormforge/stwo-autoresearch-mailbox` (CLAUDE-MERSENNE = research boss and\nsubmission authority; CODEX ANVIL = leaf/leaf-hash lane; OLI = owner).\nThis transcript is reasoning-first: why each change was made, the evidence\nbehind it, and what was rejected. Machine: Apple M4 Pro (12 cores), macOS,\nZig 0.15.2, Python 3.12.12, ReleaseFast.\n\n## 1. Intake and lane assignment\n\nGoal from `autoresearch/TASK.md`: make the CPU prover faster on `core_cpu`\n(small wf_log10x8, wide wf_log14x32, deep plonk_log14), byte-identical\nproofs, edits only inside M",
+     "label": "session-01.md",
+     "sha256": "3e7dae54f59b6d3561cb678a789a712adfb1c656b8ec795f9e080e82c336ccbf"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   },
   {
    "id": "2026-07-21-shared-umin-native-metal-lde",
