@@ -302,6 +302,18 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
                 );
                 continue;
             }
+            if (!view.is_direct) {
+                accumulateLiftedRuns(
+                    scratch,
+                    view.values,
+                    view.shift_amt,
+                    start,
+                    row_count,
+                    contribution.batch_index,
+                    coefficients,
+                );
+                continue;
+            }
             for (0..row_count) |row| {
                 const position = start + row;
                 const source_index = ((position >> view.shift_amt) << 1) + (position & 1);
@@ -310,6 +322,69 @@ fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count:
                     const numerator = scratch.numerator(contribution.batch_index, coordinate, row);
                     numerator.* = numerator.add(base.mul(coefficients[coordinate]));
                 }
+            }
+        }
+    }
+}
+
+/// Accumulates an implicitly lifted column without repeating its field
+/// products for every output row. A non-direct view repeats one even/odd source
+/// pair across each `2^shift_amt`-row run. Products are invariant within that
+/// run, so compute the two parity values once and broadcast packed additions
+/// into the output-stationary numerator planes.
+fn accumulateLiftedRuns(
+    scratch: *Scratch,
+    values: []const M31,
+    shift_amt: std.math.Log2Int(usize),
+    start: usize,
+    row_count: usize,
+    batch: usize,
+    coefficients: [qm31.SECURE_EXTENSION_DEGREE]M31,
+) void {
+    std.debug.assert(shift_amt >= 2);
+    const end = start + row_count;
+    var position = start;
+    while (position < end) {
+        const source_block = position >> shift_amt;
+        const block_end = @min(end, (source_block + 1) << shift_amt);
+        const source_index = source_block << 1;
+        std.debug.assert(source_index + 1 < values.len);
+
+        var products: [qm31.SECURE_EXTENSION_DEGREE][2]M31 = undefined;
+        var even_first: [qm31.SECURE_EXTENSION_DEGREE]m31.PackedM31 = undefined;
+        var odd_first: [qm31.SECURE_EXTENSION_DEGREE]m31.PackedM31 = undefined;
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            products[coordinate] = .{
+                values[source_index].mul(coefficients[coordinate]),
+                values[source_index + 1].mul(coefficients[coordinate]),
+            };
+            var even_lanes: [m31.PACK_WIDTH]u32 = undefined;
+            var odd_lanes: [m31.PACK_WIDTH]u32 = undefined;
+            inline for (0..m31.PACK_WIDTH) |lane| {
+                even_lanes[lane] = products[coordinate][lane & 1].v;
+                odd_lanes[lane] = products[coordinate][1 - (lane & 1)].v;
+            }
+            even_first[coordinate] = @bitCast(even_lanes);
+            odd_first[coordinate] = @bitCast(odd_lanes);
+        }
+
+        while (block_end - position >= m31.PACK_WIDTH) : (position += m31.PACK_WIDTH) {
+            const local_row = position - start;
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                const plane = batch * qm31.SECURE_EXTENSION_DEGREE + coordinate;
+                const numerators = scratch.numerators.ptr + plane * scratch.row_capacity + local_row;
+                const addend = if ((position & 1) == 0)
+                    even_first[coordinate]
+                else
+                    odd_first[coordinate];
+                m31.storePacked(numerators, m31.addPacked(m31.loadPacked(numerators), addend));
+            }
+        }
+        while (position < block_end) : (position += 1) {
+            const parity = position & 1;
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                const numerator = scratch.numerator(batch, coordinate, position - start);
+                numerator.* = numerator.add(products[coordinate][parity]);
             }
         }
     }
@@ -631,6 +706,36 @@ test "quotient tile input policy selects only the measured batched domain" {
     try std.testing.expect(!shouldUseBoundedInput(12));
     try std.testing.expect(shouldUseBoundedInput(13));
     try std.testing.expect(shouldUseBoundedInput(14));
+}
+
+test "lifted run accumulation matches scalar lifting across boundaries" {
+    var scratch = try Scratch.init(std.testing.allocator, 1, 37);
+    defer scratch.deinit(std.testing.allocator);
+    var values: [64]M31 = undefined;
+    for (&values, 0..) |*value, i| value.* = M31.fromCanonical(@intCast(i * 97 + 11));
+    const coefficients = [qm31.SECURE_EXTENSION_DEGREE]M31{
+        M31.fromCanonical(3), M31.fromCanonical(5),
+        M31.fromCanonical(7), M31.fromCanonical(11),
+    };
+    const Case = struct { shift: u6, start: usize, len: usize };
+    for ([_]Case{
+        .{ .shift = 2, .start = 0, .len = 37 },
+        .{ .shift = 3, .start = 3, .len = 31 },
+        .{ .shift = 7, .start = 5, .len = 29 },
+    }) |case| {
+        @memset(scratch.numerators, M31.zero());
+        accumulateLiftedRuns(&scratch, &values, case.shift, case.start, case.len, 0, coefficients);
+        for (0..case.len) |row| {
+            const position = case.start + row;
+            const source_index = ((position >> case.shift) << 1) + (position & 1);
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                try std.testing.expectEqual(
+                    values[source_index].mul(coefficients[coordinate]).v,
+                    scratch.numerator(0, coordinate, row).v,
+                );
+            }
+        }
+    }
 }
 
 test "packed finalize matches scalar finalizeRowQuotients for all batch counts" {
