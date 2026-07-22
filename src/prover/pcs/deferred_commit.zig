@@ -153,10 +153,55 @@ pub fn resolveObserved(scheme: anytype, allocator: std.mem.Allocator) anyerror!v
     }
     var tree = slot.tree.?;
     slot.tree = null;
-    errdefer tree.deinit(allocator);
-    try scheme.trees.append(allocator, tree);
+    scheme.trees.append(allocator, tree) catch |err| {
+        // Leave the scheme self-consistent on the rare allocation failure:
+        // the worker is joined, so the pending slot must not survive for a
+        // later resolve/discard to re-join.
+        scheme.pending_commit = null;
+        tree.deinit(allocator);
+        allocator.destroy(slot);
+        return err;
+    };
     pending.appended_unmixed = true;
     scheme.pending_commit = pending;
+}
+
+test "resolveObserved: failed append clears pending and leaks nothing" {
+    const MockTree = struct {
+        freed: *bool,
+        fn root(self: *const @This()) u64 {
+            _ = self;
+            return 0;
+        }
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            _ = allocator;
+            self.freed.* = true;
+        }
+    };
+    const MockScheme = struct {
+        pending_commit: ?Pending(MockTree) = null,
+        trees: std.ArrayListUnmanaged(MockTree) = .{},
+    };
+    var freed = false;
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var scheme = MockScheme{};
+    const slot = try std.testing.allocator.create(Pending(MockTree).Slot);
+    slot.* = .{ .tree = .{ .freed = &freed } };
+    const Worker = struct {
+        fn run() void {}
+    };
+    scheme.pending_commit = .{
+        .thread = try std.Thread.spawn(.{}, Worker.run, .{}),
+        .slot = slot,
+    };
+    try std.testing.expectError(
+        error.OutOfMemory,
+        resolveObserved(&scheme, failing.allocator()),
+    );
+    try std.testing.expect(scheme.pending_commit == null);
+    try std.testing.expect(freed);
+    try std.testing.expectEqual(@as(usize, 0), scheme.trees.items.len);
+    scheme.trees.deinit(std.testing.allocator);
 }
 
 /// Abort path: join and discard a deferred build without mixing. A tree
