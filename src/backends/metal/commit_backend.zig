@@ -5,6 +5,7 @@ const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
+const secure_poly = @import("stwo_prover_impl").poly.circle.secure_poly;
 
 const FoldCoordinate = enum { x, y };
 const fri_inverse_cache_min_values: usize = 1 << 13;
@@ -71,13 +72,35 @@ pub const MetalCommitBackend = struct {
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
+        secure_poly.installBackendCircleIfftHook(interpolateLargeSecureComposition, 19);
     }
 
     pub fn initializeRuntime(
         allocator: std.mem.Allocator,
         policy: RuntimeInitializationPolicy,
     ) !void {
-        return shared_runtime.initialize(allocator, policy);
+        try shared_runtime.initialize(allocator, policy);
+        secure_poly.installBackendCircleIfftHook(interpolateLargeSecureComposition, 19);
+    }
+
+    fn interpolateLargeSecureComposition(
+        allocator: std.mem.Allocator,
+        values: []const []@import("stwo_core").fields.m31.M31,
+        domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        twiddle_tree: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
+    ) !bool {
+        if (domain.logSize() < 19) return false;
+        var lease = shared_runtime.acquireExisting() catch return false;
+        defer lease.deinit();
+        _ = try lease.runtime.transformCircle(
+            allocator,
+            values,
+            twiddle_tree.itwiddles,
+            domain.logSize(),
+            true,
+        );
+        telemetry.record(.metal_circle_transform_dispatch);
+        return true;
     }
 
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {

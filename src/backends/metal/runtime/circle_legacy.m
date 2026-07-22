@@ -16,32 +16,62 @@ bool stwo_zig_metal_circle_transform(
         uint32_t value_count = 1u << log_size;
         uint32_t pair_count = value_count >> 1u;
         size_t flat_count = (size_t)column_count * value_count;
-        id<MTLBuffer> values = [runtime.device newBufferWithLength:flat_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        size_t values_bytes = flat_count * sizeof(uint32_t);
+        size_t page_size = (size_t)getpagesize();
+        bool contiguous_values = true;
+        for (uint32_t column = 1u; column < column_count; ++column)
+            contiguous_values &= columns[column] == columns[0] + (size_t)column * value_count;
+        bool direct_values = log_size >= 19u && contiguous_values && ((uintptr_t)columns[0] % page_size) == 0u &&
+            (values_bytes % page_size) == 0u;
+        id<MTLBuffer> values = direct_values
+            ? [runtime.device newBufferWithBytesNoCopy:columns[0]
+                                                length:values_bytes
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil]
+            : [runtime.device newBufferWithLength:values_bytes options:MTLResourceStorageModeShared];
         id<MTLBuffer> twiddle_buffer = [runtime.device newBufferWithBytes:twiddles length:(NSUInteger)pair_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         if (values == nil || twiddle_buffer == nil) {
             write_error(error_message, error_message_len, @"Metal circle transform allocation failed");
             return false;
         }
         uint32_t *flat = values.contents;
-        for (uint32_t column = 0; column < column_count; ++column) {
-            memcpy(flat + (size_t)column * value_count, columns[column], (size_t)value_count * sizeof(uint32_t));
-        }
+        if (!direct_values)
+            for (uint32_t column = 0; column < column_count; ++column)
+                memcpy(flat + (size_t)column * value_count, columns[column], (size_t)value_count * sizeof(uint32_t));
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         MTLSize grid = MTLSizeMake(pair_count, column_count, 1u);
         if (inverse) {
-            id<MTLComputeCommandEncoder> first = [command computeCommandEncoder];
-            [first setComputePipelineState:runtime.circleIfftFirst];
-            [first setBuffer:values offset:0 atIndex:0];
-            [first setBuffer:twiddle_buffer offset:0 atIndex:1];
-            [first setBytes:&log_size length:sizeof(log_size) atIndex:2];
-            [first setBytes:&column_count length:sizeof(column_count) atIndex:3];
-            [first dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftFirst.maxTotalThreadsPerThreadgroup), 1u, 1u)];
-            [first endEncoding];
+            uint32_t inverse_start_layer = 1u;
+            if (log_size >= 19u) {
+                id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
+                [fused setComputePipelineState:runtime.circleIfftFused];
+                [fused setBuffer:values offset:0 atIndex:0];
+                [fused setBuffer:twiddle_buffer offset:0 atIndex:1];
+                [fused setBytes:&log_size length:sizeof(log_size) atIndex:2];
+                [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [fused dispatchThreadgroups:MTLSizeMake(value_count >> 11u, column_count, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                [fused endEncoding];
+                inverse_start_layer = 11u;
+            } else {
+                id<MTLComputeCommandEncoder> first = [command computeCommandEncoder];
+                [first setComputePipelineState:runtime.circleIfftFirst];
+                [first setBuffer:values offset:0 atIndex:0];
+                [first setBuffer:twiddle_buffer offset:0 atIndex:1];
+                [first setBytes:&log_size length:sizeof(log_size) atIndex:2];
+                [first setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [first dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleIfftFirst.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+                [first endEncoding];
+            }
 
             uint32_t twiddle_offset = 0u;
             uint32_t layer_size = pair_count;
-            for (uint32_t layer = 1u; layer < log_size; ++layer) {
+            for (uint32_t layer = 1u; layer < inverse_start_layer; ++layer) {
+                layer_size >>= 1u;
+                twiddle_offset += layer_size;
+            }
+            for (uint32_t layer = inverse_start_layer; layer < log_size; ++layer) {
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleIfftLayer];
                 [encoder setBuffer:values offset:0 atIndex:0];
@@ -95,9 +125,9 @@ bool stwo_zig_metal_circle_transform(
             write_error(error_message, error_message_len, command.error.localizedDescription ?: @"Metal circle transform failed");
             return false;
         }
-        for (uint32_t column = 0; column < column_count; ++column) {
-            memcpy(columns[column], flat + (size_t)column * value_count, (size_t)value_count * sizeof(uint32_t));
-        }
+        if (!direct_values)
+            for (uint32_t column = 0; column < column_count; ++column)
+                memcpy(columns[column], flat + (size_t)column * value_count, (size_t)value_count * sizeof(uint32_t));
         if (gpu_milliseconds != NULL) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;
     }
