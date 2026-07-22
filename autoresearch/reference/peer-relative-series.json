@@ -1,9 +1,9 @@
 {
-  "schema": "peer-relative-series-contract-v1",
+  "schema": "peer-relative-series-contract-v2",
   "reference_kind": "peer-relative-series",
   "name": "peer-relative-wide-fibonacci",
   "title": "Wide-Fibonacci position versus ClementWalter/stwo PR #6",
-  "series_id": "clementwalter-pr6-wide-fibonacci-v1",
+  "series_id": "clementwalter-pr6-wide-fibonacci-v2",
   "peer_source": {
     "repository": "https://github.com/ClementWalter/stwo",
     "pull_request": 6,
@@ -11,7 +11,7 @@
   },
   "workload": {
     "name": "wide_fibonacci",
-    "log_n_rows": [14, 16, 18, 20],
+    "log_n_rows": [14, 16, 18, 20, 22],
     "sequence_len_columns": 100
   },
   "lanes": {
@@ -22,11 +22,12 @@
   },
   "measurement": {
     "runner": "autoresearch/reference/measure_peer_series.py",
-    "run_schema": "autoresearch/reference/peer-series-point.schema.json",
+    "run_schema": "autoresearch/reference/pr6-wide-series-point.schema.json",
+    "legacy_v1_run_schema": "autoresearch/reference/peer-series-point.schema.json",
     "run_glob": "autoresearch/reference/peer-series/runs/*.json",
     "cadence": "every direct end-to-end audit point",
-    "interleaving": "balanced four-lane rotation per size and round",
-    "primary_metric": "verified_request_ms",
+    "interleaving": "independent peer/candidate A-B-B-A comparisons for CPU and Metal, at least seven rounds",
+    "primary_metrics": ["verified_request_ms", "cold_process_ms"],
     "protocols": {
       "peer": "Blake2sM31Channel/Blake2sM31MerkleChannel with PcsConfig::default(); concrete security, FRI, PoW, commitment, and proof-size values retained per sample",
       "stwo_zig": "functional"
@@ -34,6 +35,12 @@
     "large_resource_profile": {
       "name": "large",
       "log_n_rows": [18, 20]
+    },
+    "extreme_resource_profile": {
+      "name": "extreme",
+      "log_n_rows": [22],
+      "committed_cells": 419430400,
+      "accounted_bytes": 6710886400
     }
   },
   "proof_equivalence": {
@@ -46,6 +53,7 @@
   },
   "publication": {
     "series_runs_are_immutable": true,
-    "empty_series_meaning": "not calibrated; never infer parity or a performance milestone"
+    "empty_series_meaning": "not calibrated; never infer parity or a performance milestone",
+    "supremacy_limitation": "This series closes only the five wide-Fibonacci cells. It cannot satisfy PR6 Supremacy without exact Blake, Plonk, fixed-wide-Fibonacci, and state-machine evidence."
   }
 }

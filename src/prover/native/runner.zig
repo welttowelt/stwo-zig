@@ -150,6 +150,7 @@ fn executeExample(
     workload: config.Workload,
     request: Spec.Request,
 ) ![]u8 {
+    if (args.product_identity) |identity| try identity.validate();
     const resource_before = try process_usage.sample();
     const blake2_selection = blake2_hash.getDefaultBackendSelection();
     const requested_blake2_mode: blake2_hash.BackendMode = switch (args.blake2_backend) {
@@ -362,9 +363,18 @@ fn executeExample(
     const workload_digest = examples.descriptorDigest(workload, args.protocol);
     var workload_digest_hex = std.fmt.bytesToHex(workload_digest, .lower);
 
-    var provenance_owned = try provenance.collect(allocator);
+    var provenance_owned = if (args.product_identity) |identity|
+        try provenance.collectEmbedded(allocator, identity.implementation_commit)
+    else
+        try provenance.collect(allocator);
     defer provenance_owned.deinit(allocator);
-    const git_status = try provenance.collectGitStatus(allocator);
+    const git_status = if (args.product_identity != null)
+        provenance.GitStatus{
+            .output = try allocator.alloc(u8, 0),
+            .available = true,
+        }
+    else
+        try provenance.collectGitStatus(allocator);
     defer allocator.free(git_status.output);
     const overrides = provenance_owned.environment_overrides;
 
@@ -382,7 +392,10 @@ fn executeExample(
     const meets_sampling_contract = args.warmups >= config.MIN_HEADLINE_WARMUPS and
         args.samples >= minimum_samples;
     const evidence_class = args.evidenceClass(meets_sampling_contract);
-    const git_dirty = git_status.output.len != 0;
+    const git_dirty = if (args.product_identity) |identity|
+        identity.implementation_dirty
+    else
+        git_status.output.len != 0;
     const provenance_complete = provenance_owned.git_available and git_status.available and
         overrides.len == 0;
     const telemetry_valid = telemetry.valid(backend, warmup_telemetry, sample_telemetry);

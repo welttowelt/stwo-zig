@@ -415,7 +415,7 @@ pub fn writeUsage(writer: anytype, backend: Backend) !void {
         \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH
         \\  --blake2-backend MODE  auto, scalar, or simd (default: auto)
-        \\  --resource-profile NAME  standard or large (default: standard)
+        \\  --resource-profile NAME  standard, large, or extreme (default: standard)
         \\  --profiled           Diagnostic instrumentation; never headline MHz
     );
     if (backend == .metal_hybrid) try writer.writeAll(
@@ -504,6 +504,16 @@ test "native proof config: resource profiles preserve default and admit reviewed
     try std.testing.expectEqual(ResourceProfile.large, large.resource_profile);
     const admission = try admitWorkload(large.workload(), large.resource_profile);
     try std.testing.expectEqual(@as(u64, 104_857_600), admission.geometry.committed_cells);
+    const extreme = (try parseArgs(.cpu_native, &.{
+        "--example",          "wide_fibonacci",
+        "--log-n-rows",       "22",
+        "--sequence-len",     "100",
+        "--resource-profile", "extreme",
+    })).run;
+    try std.testing.expectEqual(ResourceProfile.extreme, extreme.resource_profile);
+    const extreme_admission = try admitWorkload(extreme.workload(), extreme.resource_profile);
+    try std.testing.expectEqual(@as(u64, 419_430_400), extreme_admission.geometry.committed_cells);
+    try std.testing.expectEqual(@as(u64, 6_710_886_400), extreme_admission.geometry.accounted_bytes);
     try std.testing.expectError(error.CommittedCellBudgetExceeded, parseArgs(.cpu_native, &.{
         "--example",          "wide_fibonacci",
         "--log-n-rows",       "22",

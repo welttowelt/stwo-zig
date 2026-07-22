@@ -15,10 +15,13 @@ pub const STANDARD_MAX_COMMITTED_CELLS: u64 = 33_554_432;
 pub const STANDARD_MAX_ACCOUNTED_BYTES: u64 = 536_870_912;
 pub const LARGE_MAX_COMMITTED_CELLS: u64 = 134_217_728;
 pub const LARGE_MAX_ACCOUNTED_BYTES: u64 = 2_147_483_648;
+pub const EXTREME_MAX_COMMITTED_CELLS: u64 = 419_430_400;
+pub const EXTREME_MAX_ACCOUNTED_BYTES: u64 = 6_710_886_400;
 
 pub const Profile = enum {
     standard,
     large,
+    extreme,
 
     pub fn limits(self: Profile) Limits {
         return switch (self) {
@@ -29,6 +32,10 @@ pub const Profile = enum {
             .large => .{
                 .max_committed_cells = LARGE_MAX_COMMITTED_CELLS,
                 .max_accounted_bytes = LARGE_MAX_ACCOUNTED_BYTES,
+            },
+            .extreme => .{
+                .max_committed_cells = EXTREME_MAX_COMMITTED_CELLS,
+                .max_accounted_bytes = EXTREME_MAX_ACCOUNTED_BYTES,
             },
         };
     }
@@ -125,12 +132,32 @@ test "resource admission: large cell boundary is inclusive and fail closed" {
     );
 }
 
+test "resource admission: extreme cell boundary is inclusive and fail closed" {
+    const columns_at = EXTREME_MAX_COMMITTED_CELLS / 1024;
+    const below = try admit(.extreme, 10, columns_at - 1);
+    try std.testing.expectEqual(EXTREME_MAX_COMMITTED_CELLS - 1024, below.geometry.committed_cells);
+    const at = try admit(.extreme, 10, columns_at);
+    try std.testing.expectEqual(EXTREME_MAX_COMMITTED_CELLS, at.geometry.committed_cells);
+    try std.testing.expectError(
+        error.CommittedCellBudgetExceeded,
+        admit(.extreme, 10, columns_at + 1),
+    );
+}
+
 test "resource admission: reviewed large profile admits log20x100 only" {
     const admitted = try admit(.large, 20, 100);
     try std.testing.expectEqual(@as(u64, 104_857_600), admitted.geometry.committed_cells);
     try std.testing.expectEqual(@as(u64, 1_677_721_600), admitted.geometry.accounted_bytes);
     try std.testing.expectError(error.CommittedCellBudgetExceeded, admit(.large, 22, 100));
     try std.testing.expectError(error.CommittedCellBudgetExceeded, admit(.large, 22, 512));
+}
+
+test "resource admission: extreme admits log22x100 without weakening large" {
+    const admitted = try admit(.extreme, 22, 100);
+    try std.testing.expectEqual(@as(u64, 419_430_400), admitted.geometry.committed_cells);
+    try std.testing.expectEqual(@as(u64, 6_710_886_400), admitted.geometry.accounted_bytes);
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, admit(.large, 22, 100));
+    try std.testing.expectError(error.CommittedCellBudgetExceeded, admit(.extreme, 22, 101));
 }
 
 test "resource admission: checked geometry distinguishes arithmetic and memory failures" {
@@ -152,7 +179,7 @@ test "resource admission: checked geometry distinguishes arithmetic and memory f
 }
 
 test "resource admission: production policies bind cell and byte accounting" {
-    inline for (.{ Profile.standard, Profile.large }) |profile| {
+    inline for (.{ Profile.standard, Profile.large, Profile.extreme }) |profile| {
         const limits = profile.limits();
         try std.testing.expectEqual(
             limits.max_committed_cells * ACCOUNTED_BYTES_PER_COMMITTED_CELL,

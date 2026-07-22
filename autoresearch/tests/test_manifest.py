@@ -89,6 +89,52 @@ class ManifestTest(unittest.TestCase):
                 self.assertEqual(len(workloads), 1)
                 self.assertIn("--resource-profile large", workloads[0].args)
 
+    def test_pr6_supremacy_board_is_complete_and_fail_closed(self):
+        group = self.m.group_for_board("pr6_supremacy")
+        self.assertFalse(group.enabled)
+        self.assertFalse(group.promotion_eligible)
+        self.assertTrue(group.disabled_reason)
+        self.assertEqual(group.report_schema, "pr6_supremacy_v1")
+        expected = {
+            *(f"pr6_wide_fibonacci_log{log_size}" for log_size in (14, 16, 18, 20, 22)),
+            *(f"pr6_blake_log{log_size}" for log_size in (10, 12, 14, 16)),
+            *(f"pr6_plonk_log{log_size}" for log_size in (12, 14, 16)),
+            *(f"pr6_fixed_wide_fibonacci_log{log_size}" for log_size in range(4, 9)),
+            "pr6_state_machine_log8",
+        }
+        self.assertEqual({workload.workload_id for workload in group.workloads}, expected)
+        self.assertEqual(len(group.workloads), 18)
+        self.assertEqual(self.m.workloads(board="pr6_supremacy"), [])
+        self.assertEqual(
+            len(self.m.workloads(board="pr6_supremacy", include_disabled=True)), 18,
+        )
+        log22 = next(
+            workload for workload in group.workloads
+            if workload.workload_id == "pr6_wide_fibonacci_log22"
+        )
+        self.assertEqual(log22.workload_class, "extreme")
+        self.assertIn("--width 100", log22.args)
+        self.assertIn("--resource-profile extreme", log22.args)
+        raw = self.m.raw["workload_registry"]["groups"]["pr6_supremacy"]
+        self.assertEqual(
+            raw["correctness_oracle"]["performance_peer_commit"],
+            "07ea1ccca13351028da94e66babf79e7ce91437f",
+        )
+        self.assertEqual(
+            raw["correctness_oracle"]["rust_toolchain"], "nightly-2025-07-14",
+        )
+        self.assertEqual(group.mechanism_telemetry, manifest_mod.PR6_MECHANISM_TELEMETRY)
+        self.assertEqual(group.resource_telemetry, manifest_mod.PR6_RESOURCE_TELEMETRY)
+
+    def test_extreme_profile_does_not_change_live_scored_classes(self):
+        extreme = self.m.workload_class("extreme")
+        self.assertFalse(extreme.scored)
+        self.assertEqual(extreme.resource_profile, "extreme")
+        self.assertEqual(
+            self.m.class_names(scored_only=True),
+            ["small", "wide", "deep", "xlarge", "huge"],
+        )
+
     def test_native_and_riscv_groups_are_enabled(self):
         by_id = {g.group_id: g for g in self.m.groups()}
         self.assertIn("native", by_id)
@@ -258,6 +304,29 @@ class RegistryValidationTest(unittest.TestCase):
         with self.assertRaises(manifest_mod.ManifestError) as ctx:
             manifest_mod._validate(raw)
         self.assertIn("unsupported report_schema", str(ctx.exception))
+
+    def test_nonstandard_resource_class_requires_matching_explicit_arg(self):
+        raw = self._base_raw()
+        raw["workload_registry"]["classes"]["extreme"] = {
+            "scored": False,
+            "resource": {
+                "profile": "extreme",
+                "command_timeout_seconds": 60,
+                "wall_clock_cap_seconds": 60,
+            },
+            "sampling": {
+                "warmups": 1,
+                "samples_per_round": 1,
+                "min_rounds": 1,
+                "max_rounds": 1,
+            },
+        }
+        workload = raw["workload_registry"]["groups"]["native"]["workloads"]["wf"]
+        workload["class"] = "extreme"
+        with self.assertRaisesRegex(manifest_mod.ManifestError, "resource-profile extreme"):
+            manifest_mod._validate(raw)
+        workload["args"] += " --resource-profile extreme"
+        manifest_mod._validate(raw)
 
     def test_legacy_riscv_report_schema_is_rejected(self):
         raw = self._base_raw()

@@ -46,6 +46,22 @@ pub fn collect(allocator: std.mem.Allocator) !Owned {
     return collectWithCommit(allocator, git_commit, git_available);
 }
 
+/// Collect runtime override provenance around an already validated build-time
+/// product identity. Product binaries bind commit/tree/dirty state when built;
+/// copying that immutable commit avoids two child git processes on every cold
+/// proof request without weakening identity-free compatibility tools.
+pub fn collectEmbedded(
+    allocator: std.mem.Allocator,
+    implementation_commit: []const u8,
+) !Owned {
+    if (implementation_commit.len != 40) return error.InvalidEmbeddedCommit;
+    return collectWithCommit(
+        allocator,
+        try allocator.dupe(u8, implementation_commit),
+        true,
+    );
+}
+
 fn collectWithCommit(
     allocator: std.mem.Allocator,
     git_commit: []u8,
@@ -96,4 +112,22 @@ fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]u8 {
         else => return error.ProvenanceCommandFailed,
     }
     return allocator.dupe(u8, std.mem.trim(u8, result.stdout, " \t\r\n"));
+}
+
+test "embedded product provenance preserves commit and runtime overrides" {
+    const allocator = std.testing.allocator;
+    var owned = try collectEmbedded(
+        allocator,
+        "0123456789012345678901234567890123456789",
+    );
+    defer owned.deinit(allocator);
+    try std.testing.expect(owned.git_available);
+    try std.testing.expectEqualStrings(
+        "0123456789012345678901234567890123456789",
+        owned.git_commit,
+    );
+    try std.testing.expectError(
+        error.InvalidEmbeddedCommit,
+        collectEmbedded(allocator, "short"),
+    );
 }

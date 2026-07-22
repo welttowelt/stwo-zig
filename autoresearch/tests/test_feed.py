@@ -78,10 +78,26 @@ class FeedTest(unittest.TestCase):
         future = set(scope["future_boards"])
         self.assertEqual(owned | future, set(ledger.BOARDS))
         self.assertEqual(owned & future, set())
-        # Every owned board is owned by exactly the manifest's groups.
-        self.assertEqual(owned, {g["board"] for g in scope["groups"].values()})
+        # Promotion-ineligible dark boards are staged, not smuggled into the
+        # live ledger universe.
+        self.assertEqual(
+            owned,
+            {
+                g["board"] for g in scope["groups"].values()
+                if g["promotion_eligible"]
+            },
+        )
+        self.assertEqual(
+            set(scope["staged_boards"]),
+            {
+                g["board"] for g in scope["groups"].values()
+                if not g["promotion_eligible"]
+            },
+        )
+        self.assertIn("pr6_supremacy", scope["staged_boards"])
         for group in scope["groups"].values():
             self.assertIn("enabled", group)
+            self.assertIn("promotion_eligible", group)
             self.assertTrue(group["workloads"])
             for workload in group["workloads"].values():
                 self.assertIn(workload["class"], scope["class_registry"])
