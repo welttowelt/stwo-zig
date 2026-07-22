@@ -408,6 +408,54 @@ pub fn commitColumns(
     node_seed: [8]u32,
     domain_prefix_bytes: u32,
 ) (MetalError || std.mem.Allocator.Error)!Tree {
+    return commitColumnsConfigured(
+        self,
+        allocator,
+        columns,
+        log_sizes,
+        lifting_log_size,
+        leaf_seed,
+        node_seed,
+        domain_prefix_bytes,
+        null,
+    );
+}
+
+pub fn commitColumnsWithBacking(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    columns: []const []const u32,
+    log_sizes: []const u32,
+    lifting_log_size: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+    backing: []const u32,
+) (MetalError || std.mem.Allocator.Error)!Tree {
+    return commitColumnsConfigured(
+        self,
+        allocator,
+        columns,
+        log_sizes,
+        lifting_log_size,
+        leaf_seed,
+        node_seed,
+        domain_prefix_bytes,
+        backing,
+    );
+}
+
+fn commitColumnsConfigured(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    columns: []const []const u32,
+    log_sizes: []const u32,
+    lifting_log_size: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+    backing: ?[]const u32,
+) (MetalError || std.mem.Allocator.Error)!Tree {
     if (columns.len == 0 or columns.len != log_sizes.len) return MetalError.InvalidColumns;
     if (!validDomainPrefixBytes(domain_prefix_bytes)) return MetalError.InvalidColumns;
 
@@ -448,6 +496,8 @@ pub fn commitColumns(
         sorted_columns.ptr,
         sorted_lengths.ptr,
         sorted_log_sizes.ptr,
+        if (backing) |words| words.ptr else null,
+        if (backing) |words| words.len else 0,
         @intCast(columns.len),
         lifting_log_size,
         &leaf_seed,

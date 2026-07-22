@@ -632,7 +632,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.decommitSparseLeafGroupResident == nil || runtime.clearArenaSpans == nil ||
             runtime.leafAbsorbResident == nil || runtime.leafAbsorbCompactResident == nil ||
             runtime.parentsPlainSparse == nil ||
-            runtime.circleExpandSparse == nil || runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
+            runtime.circleExpandSparse == nil ||
+            runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftRadix4Sparse == nil ||
             runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||

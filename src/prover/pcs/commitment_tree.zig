@@ -91,7 +91,13 @@ pub fn CommitmentTreeProverForBackend(comptime B: type, comptime H: type) type {
                 column_refs[i] = column.values;
             }
 
-            var commitment = try B.commitMerkle(H, allocator, column_refs);
+            var commitment = if (comptime @hasDecl(B, "commitMerkleWithBacking"))
+                if (column_backing_buffers) |buffers|
+                    try B.commitMerkleWithBacking(H, allocator, column_refs, buffers)
+                else
+                    try B.commitMerkle(H, allocator, column_refs)
+            else
+                try B.commitMerkle(H, allocator, column_refs);
             errdefer commitment.deinit(allocator);
 
             return .{

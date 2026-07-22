@@ -107,7 +107,10 @@ bool stwo_zig_metal_circle_lde(
     void *runtime_ptr,
     const uint32_t *const *source_columns,
     uint32_t *const *base_columns,
-    uint32_t *const *extended_columns,
+    uint32_t *extended_words,
+    size_t extended_word_count,
+    uint32_t extended_start,
+    uint32_t extended_stride,
     uint32_t column_count,
     uint32_t base_log_size,
     uint32_t extended_log_size,
@@ -118,7 +121,7 @@ bool stwo_zig_metal_circle_lde(
     char *error_message,
     size_t error_message_len
 ) {
-    if (runtime_ptr == NULL || source_columns == NULL || base_columns == NULL || extended_columns == NULL ||
+    if (runtime_ptr == NULL || source_columns == NULL || base_columns == NULL || extended_words == NULL ||
         inverse_twiddles == NULL || forward_twiddles == NULL || column_count == 0u ||
         base_log_size < 3u || extended_log_size <= base_log_size || extended_log_size >= 31u) return false;
     @autoreleasepool {
@@ -128,35 +131,44 @@ bool stwo_zig_metal_circle_lde(
         uint32_t base_pairs = base_len >> 1u;
         uint32_t extended_pairs = extended_len >> 1u;
         size_t flat_base_count = (size_t)column_count * base_len;
-        size_t flat_extended_count = (size_t)column_count * extended_len;
+        size_t required_words = (size_t)extended_start +
+            (size_t)(column_count - 1u) * extended_stride + extended_len;
+        if (extended_stride < extended_len || required_words > extended_word_count ||
+            required_words > UINT32_MAX || extended_word_count > SIZE_MAX / sizeof(uint32_t)) {
+            write_error(error_message, error_message_len, @"Metal circle LDE arena layout is invalid");
+            return false;
+        }
+        size_t page_size = (size_t)getpagesize();
+        size_t base_bytes = flat_base_count * sizeof(uint32_t);
         bool contiguous_base = true;
-        bool contiguous_extended = true;
         bool source_is_base = true;
-        for (uint32_t column = 1; column < column_count; ++column) {
+        for (uint32_t column = 1u; column < column_count; ++column)
             contiguous_base &= base_columns[column] == base_columns[0] + (size_t)column * base_len;
-            contiguous_extended &= extended_columns[column] == extended_columns[0] + (size_t)column * extended_len;
-        }
-        for (uint32_t column = 0; column < column_count; ++column) {
+        for (uint32_t column = 0u; column < column_count; ++column)
             source_is_base &= source_columns[column] == base_columns[column];
-        }
-        id<MTLBuffer> coefficients = contiguous_base
+        bool direct_base = contiguous_base && ((uintptr_t)base_columns[0] % page_size) == 0u &&
+            (base_bytes % page_size) == 0u;
+        id<MTLBuffer> coefficients = direct_base
             ? [runtime.device newBufferWithBytesNoCopy:base_columns[0]
-                                                length:flat_base_count * sizeof(uint32_t)
+                                                length:base_bytes
                                                options:MTLResourceStorageModeShared
                                            deallocator:nil]
-            : [runtime.device newBufferWithLength:flat_base_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> extended = contiguous_extended
-            ? [runtime.device newBufferWithBytesNoCopy:extended_columns[0]
-                                                length:flat_extended_count * sizeof(uint32_t)
+            : [runtime.device newBufferWithLength:base_bytes options:MTLResourceStorageModeShared];
+        size_t extended_bytes = extended_word_count * sizeof(uint32_t);
+        bool direct_extended = ((uintptr_t)extended_words % page_size) == 0u &&
+            (extended_bytes % page_size) == 0u;
+        id<MTLBuffer> extended = direct_extended
+            ? [runtime.device newBufferWithBytesNoCopy:extended_words
+                                                length:extended_bytes
                                                options:MTLResourceStorageModeShared
                                            deallocator:nil]
-            : [runtime.device newBufferWithLength:flat_extended_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+            : [runtime.device newBufferWithLength:extended_bytes options:MTLResourceStorageModeShared];
         id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_twiddles length:(NSUInteger)base_pairs * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> forward_buffer = [runtime.device newBufferWithBytes:forward_twiddles length:(NSUInteger)extended_pairs * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> base_offsets = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> extended_offsets = [runtime.device newBufferWithLength:(NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        if (coefficients == nil || extended == nil || inverse_buffer == nil ||
-            forward_buffer == nil || base_offsets == nil || extended_offsets == nil) {
+        if (coefficients == nil || extended == nil || inverse_buffer == nil || forward_buffer == nil ||
+            base_offsets == nil || extended_offsets == nil) {
             write_error(error_message, error_message_len, @"Metal circle LDE allocation failed");
             return false;
         }
@@ -164,13 +176,7 @@ bool stwo_zig_metal_circle_lde(
         uint32_t *extended_offset_words = extended_offsets.contents;
         for (uint32_t column = 0; column < column_count; ++column) {
             base_offset_words[column] = column * base_len;
-            extended_offset_words[column] = column * extended_len;
-        }
-        uint32_t *coefficient_words = coefficients.contents;
-        if (source_is_base && !contiguous_base) {
-            for (uint32_t column = 0; column < column_count; ++column) {
-                memcpy(coefficient_words + (size_t)column * base_len, source_columns[column], (size_t)base_len * sizeof(uint32_t));
-            }
+            extended_offset_words[column] = extended_start + column * extended_stride;
         }
 
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
@@ -179,7 +185,6 @@ bool stwo_zig_metal_circle_lde(
             id<MTLBlitCommandEncoder> upload = [command blitCommandEncoder];
             size_t column = 0;
             size_t destination_words = 0;
-            size_t page_size = (size_t)getpagesize();
             while (column < column_count) {
                 size_t run_start = column;
                 size_t run_words = base_len;
@@ -209,6 +214,11 @@ bool stwo_zig_metal_circle_lde(
                 destination_words += run_words;
             }
             [upload endEncoding];
+        } else if (!direct_base) {
+            uint32_t *coefficient_words = coefficients.contents;
+            for (uint32_t column = 0u; column < column_count; ++column)
+                memcpy(coefficient_words + (size_t)column * base_len,
+                       source_columns[column], (size_t)base_len * sizeof(uint32_t));
         }
         MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
         uint32_t inverse_start_layer = 1u;
@@ -266,6 +276,7 @@ bool stwo_zig_metal_circle_lde(
             ++inverse_layer;
         }
         uint32_t total_base_values = (uint32_t)flat_base_count;
+        bool skewed_layout = extended_stride != extended_len;
         uint32_t fuse_top_two = extended_log_size == base_log_size + 1u && base_log_size >= 12u;
         if (fuse_top_two == 0u) {
             id<MTLComputeCommandEncoder> scale = [command computeCommandEncoder];
@@ -282,11 +293,13 @@ bool stwo_zig_metal_circle_lde(
         [expand setBuffer:coefficients offset:0 atIndex:0];
         [expand setBuffer:extended offset:0 atIndex:1];
         [expand setBuffer:forward_buffer offset:0 atIndex:2];
-        [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-        [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:4];
-        [expand setBytes:&column_count length:sizeof(column_count) atIndex:5];
-        [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:6];
-        [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:7];
+        [expand setBuffer:base_offsets offset:0 atIndex:3];
+        [expand setBuffer:extended_offsets offset:0 atIndex:4];
+        [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:5];
+        [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:6];
+        [expand setBytes:&column_count length:sizeof(column_count) atIndex:7];
+        [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:8];
+        [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:9];
         NSUInteger expand_count = fuse_top_two != 0u ? base_len >> 1u : extended_len;
         [expand dispatchThreads:MTLSizeMake(expand_count, column_count, 1u) threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
         [expand endEncoding];
@@ -313,35 +326,66 @@ bool stwo_zig_metal_circle_lde(
             }
             uint32_t forward_offset = extended_pairs - (1u << (extended_log_size - layer));
             id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleRfftLayer];
-            [encoder setBuffer:extended offset:0 atIndex:0];
-            [encoder setBuffer:forward_buffer offset:0 atIndex:1];
-            [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
-            [encoder setBytes:&layer length:sizeof(layer) atIndex:3];
-            [encoder setBytes:&forward_offset length:sizeof(forward_offset) atIndex:4];
-            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
-            [encoder dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLayer.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            if (skewed_layout) {
+                [encoder setComputePipelineState:runtime.circleRfftLayerSparse];
+                [encoder setBuffer:extended offset:0 atIndex:0];
+                [encoder setBuffer:extended_offsets offset:0 atIndex:1];
+                [encoder setBuffer:forward_buffer offset:0 atIndex:2];
+                [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [encoder setBytes:&layer length:sizeof(layer) atIndex:4];
+                [encoder setBytes:&forward_offset length:sizeof(forward_offset) atIndex:5];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
+                [encoder dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLayerSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            } else {
+                [encoder setComputePipelineState:runtime.circleRfftLayer];
+                [encoder setBuffer:extended offset:(NSUInteger)extended_start * sizeof(uint32_t) atIndex:0];
+                [encoder setBuffer:forward_buffer offset:0 atIndex:1];
+                [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
+                [encoder setBytes:&layer length:sizeof(layer) atIndex:3];
+                [encoder setBytes:&forward_offset length:sizeof(forward_offset) atIndex:4];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:5];
+                [encoder dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLayer.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            }
             [encoder endEncoding];
             --layer;
         }
         if (extended_log_size >= 11u) {
             id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
-            [fused setComputePipelineState:runtime.circleRfftFused];
-            [fused setBuffer:extended offset:0 atIndex:0];
-            [fused setBuffer:forward_buffer offset:0 atIndex:1];
-            [fused setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
-            [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+            if (skewed_layout) {
+                [fused setComputePipelineState:runtime.circleRfftFusedSparse];
+                [fused setBuffer:extended offset:0 atIndex:0];
+                [fused setBuffer:extended_offsets offset:0 atIndex:1];
+                [fused setBuffer:forward_buffer offset:0 atIndex:2];
+                [fused setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
+            } else {
+                [fused setComputePipelineState:runtime.circleRfftFused];
+                [fused setBuffer:extended offset:(NSUInteger)extended_start * sizeof(uint32_t) atIndex:0];
+                [fused setBuffer:forward_buffer offset:0 atIndex:1];
+                [fused setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
+                [fused setBytes:&column_count length:sizeof(column_count) atIndex:3];
+            }
             [fused dispatchThreadgroups:MTLSizeMake(extended_len >> 11u, column_count, 1u)
                      threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
             [fused endEncoding];
         } else {
             id<MTLComputeCommandEncoder> last = [command computeCommandEncoder];
-            [last setComputePipelineState:runtime.circleRfftLast];
-            [last setBuffer:extended offset:0 atIndex:0];
-            [last setBuffer:forward_buffer offset:0 atIndex:1];
-            [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
-            [last setBytes:&column_count length:sizeof(column_count) atIndex:3];
-            [last dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLast.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            if (skewed_layout) {
+                [last setComputePipelineState:runtime.circleRfftLastSparse];
+                [last setBuffer:extended offset:0 atIndex:0];
+                [last setBuffer:extended_offsets offset:0 atIndex:1];
+                [last setBuffer:forward_buffer offset:0 atIndex:2];
+                [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+                [last setBytes:&column_count length:sizeof(column_count) atIndex:4];
+                [last dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLastSparse.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            } else {
+                [last setComputePipelineState:runtime.circleRfftLast];
+                [last setBuffer:extended offset:(NSUInteger)extended_start * sizeof(uint32_t) atIndex:0];
+                [last setBuffer:forward_buffer offset:0 atIndex:1];
+                [last setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:2];
+                [last setBytes:&column_count length:sizeof(column_count) atIndex:3];
+                [last dispatchThreads:extended_grid threadsPerThreadgroup:MTLSizeMake(MIN((NSUInteger)256u, runtime.circleRfftLast.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+            }
             [last endEncoding];
         }
 
@@ -351,10 +395,18 @@ bool stwo_zig_metal_circle_lde(
             write_error(error_message, error_message_len, command.error.localizedDescription ?: @"Metal circle LDE failed");
             return false;
         }
-        uint32_t *extended_words = extended.contents;
-        for (uint32_t column = 0; column < column_count; ++column) {
-            if (!contiguous_base) memcpy(base_columns[column], coefficient_words + (size_t)column * base_len, (size_t)base_len * sizeof(uint32_t));
-            if (!contiguous_extended) memcpy(extended_columns[column], extended_words + (size_t)column * extended_len, (size_t)extended_len * sizeof(uint32_t));
+        if (!direct_base || !direct_extended) {
+            uint32_t *coefficient_words = coefficients.contents;
+            uint32_t *extension_words = extended.contents;
+            for (uint32_t column = 0; column < column_count; ++column) {
+                if (!direct_base)
+                    memcpy(base_columns[column], coefficient_words + (size_t)column * base_len,
+                           (size_t)base_len * sizeof(uint32_t));
+                if (!direct_extended)
+                    memcpy(extended_words + extended_offset_words[column],
+                           extension_words + extended_offset_words[column],
+                           (size_t)extended_len * sizeof(uint32_t));
+            }
         }
         if (gpu_milliseconds != NULL) *gpu_milliseconds = (command.GPUEndTime - command.GPUStartTime) * 1000.0;
         return true;

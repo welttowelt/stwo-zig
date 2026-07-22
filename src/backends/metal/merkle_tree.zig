@@ -106,7 +106,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
             allocator: std.mem.Allocator,
             columns: []const []const M31,
         ) !Self {
-            return commitOwned(runtime, allocator, columns, false);
+            return commitOwned(runtime, allocator, columns, false, null);
         }
 
         pub fn commitShared(
@@ -114,7 +114,16 @@ pub fn MetalMerkleTree(comptime H: type) type {
             allocator: std.mem.Allocator,
             columns: []const []const M31,
         ) !Self {
-            return commitOwned(runtime, allocator, columns, true);
+            return commitOwned(runtime, allocator, columns, true, null);
+        }
+
+        pub fn commitSharedBacking(
+            runtime: *runtime_mod.Runtime,
+            allocator: std.mem.Allocator,
+            columns: []const []const M31,
+            backing: []const M31,
+        ) !Self {
+            return commitOwned(runtime, allocator, columns, true, backing);
         }
 
         fn commitOwned(
@@ -122,6 +131,7 @@ pub fn MetalMerkleTree(comptime H: type) type {
             allocator: std.mem.Allocator,
             columns: []const []const M31,
             tracks_shared_runtime: bool,
+            backing: ?[]const M31,
         ) !Self {
             const log_sizes = try allocator.alloc(u32, columns.len);
             defer allocator.free(log_sizes);
@@ -139,15 +149,27 @@ pub fn MetalMerkleTree(comptime H: type) type {
                 word_columns[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(column));
             }
 
-            const tree = try runtime.commitColumns(
-                allocator,
-                word_columns,
-                log_sizes,
-                max_log_size,
-                H.leafSeed(),
-                H.nodeSeed(),
-                H.domainPrefixBytes(),
-            );
+            const tree = if (backing) |values|
+                try runtime.commitColumnsWithBacking(
+                    allocator,
+                    word_columns,
+                    log_sizes,
+                    max_log_size,
+                    H.leafSeed(),
+                    H.nodeSeed(),
+                    H.domainPrefixBytes(),
+                    std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(values)),
+                )
+            else
+                try runtime.commitColumns(
+                    allocator,
+                    word_columns,
+                    log_sizes,
+                    max_log_size,
+                    H.leafSeed(),
+                    H.nodeSeed(),
+                    H.domainPrefixBytes(),
+                );
 
             return fromResidentOwned(tree, tracks_shared_runtime);
         }

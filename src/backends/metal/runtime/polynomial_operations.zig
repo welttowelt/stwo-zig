@@ -575,12 +575,15 @@ pub fn transformCircleResident(
     return gpu_ms;
 }
 
-pub fn transformCircleLde(
+pub fn transformCircleLdeInto(
     self: *Runtime,
     allocator: std.mem.Allocator,
     source_columns: []const []const @import("stwo_core").fields.m31.M31,
     base_columns: []const []@import("stwo_core").fields.m31.M31,
     extended_columns: []const []@import("stwo_core").fields.m31.M31,
+    transform_buffer: []@import("stwo_core").fields.m31.M31,
+    extended_start: usize,
+    extended_stride: usize,
     inverse_twiddles: []const @import("stwo_core").fields.m31.M31,
     forward_twiddles: []const @import("stwo_core").fields.m31.M31,
     base_log_size: u32,
@@ -596,14 +599,17 @@ pub fn transformCircleLde(
     defer allocator.free(base_ptrs);
     const source_ptrs = try allocator.alloc([*]const u32, source_columns.len);
     defer allocator.free(source_ptrs);
-    const extended_ptrs = try allocator.alloc([*]u32, extended_columns.len);
-    defer allocator.free(extended_ptrs);
     for (source_columns, base_columns, extended_columns, 0..) |source, base, extended, index| {
         if (source.len != base_len or base.len != base_len or extended.len != extended_len) return MetalError.CircleTransformFailed;
+        if (extended.ptr != transform_buffer.ptr + extended_start + index * extended_stride) {
+            return MetalError.CircleTransformFailed;
+        }
         source_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(source)).ptr;
         base_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(base)).ptr;
-        extended_ptrs[index] = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(extended)).ptr;
     }
+    const required_words = extended_start + (extended_columns.len - 1) * extended_stride + extended_len;
+    if (extended_stride < extended_len or required_words > transform_buffer.len) return MetalError.CircleTransformFailed;
+    const transform_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(transform_buffer));
     const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_twiddles));
     const forward_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(forward_twiddles));
     const scale_factor = (@import("stwo_core").fields.m31.M31.fromCanonical(@intCast(base_len)).inv() catch
@@ -614,7 +620,10 @@ pub fn transformCircleLde(
         self.handle,
         source_ptrs.ptr,
         base_ptrs.ptr,
-        extended_ptrs.ptr,
+        transform_words.ptr,
+        transform_words.len,
+        @intCast(extended_start),
+        @intCast(extended_stride),
         @intCast(base_columns.len),
         base_log_size,
         extended_log_size,
@@ -628,5 +637,46 @@ pub fn transformCircleLde(
         std.log.err("Metal circle LDE failed: {s}", .{std.mem.sliceTo(&message, 0)});
         return MetalError.CircleTransformFailed;
     }
+    return gpu_ms;
+}
+
+pub fn transformCircleLde(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    source_columns: []const []const @import("stwo_core").fields.m31.M31,
+    base_columns: []const []@import("stwo_core").fields.m31.M31,
+    extended_columns: []const []@import("stwo_core").fields.m31.M31,
+    inverse_twiddles: []const @import("stwo_core").fields.m31.M31,
+    forward_twiddles: []const @import("stwo_core").fields.m31.M31,
+    base_log_size: u32,
+    extended_log_size: u32,
+) (MetalError || std.mem.Allocator.Error)!f64 {
+    if (extended_columns.len == 0 or extended_log_size >= @bitSizeOf(usize)) {
+        return MetalError.CircleTransformFailed;
+    }
+    const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+    const transform_len = std.math.mul(usize, extended_columns.len, extended_len) catch
+        return MetalError.CircleTransformFailed;
+    const transform_buffer = try allocator.alloc(@import("stwo_core").fields.m31.M31, transform_len);
+    defer allocator.free(transform_buffer);
+    const transform_columns = try allocator.alloc([]@import("stwo_core").fields.m31.M31, extended_columns.len);
+    defer allocator.free(transform_columns);
+    for (transform_columns, 0..) |*column, index| {
+        column.* = transform_buffer[index * extended_len .. (index + 1) * extended_len];
+    }
+    const gpu_ms = try self.transformCircleLdeInto(
+        allocator,
+        source_columns,
+        base_columns,
+        transform_columns,
+        transform_buffer,
+        0,
+        extended_len,
+        inverse_twiddles,
+        forward_twiddles,
+        base_log_size,
+        extended_log_size,
+    );
+    for (extended_columns, transform_columns) |destination, source| @memcpy(destination, source);
     return gpu_ms;
 }

@@ -8,10 +8,6 @@ const telemetry = @import("telemetry.zig");
 
 const FoldCoordinate = enum { x, y };
 const fri_inverse_cache_min_values: usize = 1 << 13;
-/// Builds the inverse-coordinate vector for a Metal FRI fold with one linear
-/// coset walk. Scattering natural point j to bitReverse(j) is equivalent to
-/// the former per-output indexed reconstruction because bit reversal is an
-/// involution, while avoiding O(N log N) circle-group work on the host.
 fn prepareBitReversedFoldInverses(
     coordinates: []@import("stwo_core").fields.m31.M31,
     inverses: []@import("stwo_core").fields.m31.M31,
@@ -61,10 +57,6 @@ pub fn shutdown() MetalCommitBackend.ShutdownError!void {
     return MetalCommitBackend.shutdown();
 }
 
-/// CPU-compatible prover backend whose commitment constructor is Metal.
-///
-/// The remaining operation methods are intentionally delegated to the CPU
-/// backend until their transaction-level Metal replacements are resident.
 pub const MetalCommitBackend = struct {
     pub const rawQuotientInputs = true;
     pub const TelemetrySnapshot = telemetry.Snapshot;
@@ -73,9 +65,6 @@ pub const MetalCommitBackend = struct {
     pub const ShutdownError = shared_runtime.ShutdownError;
     pub const RuntimeLifecycleSnapshot = shared_runtime.LifecycleSnapshot;
     pub const RuntimeInitializationPolicy = shared_runtime.InitializationPolicy;
-    /// Streaming commitment currently owns a CPU leaf-hasher state machine.
-    /// Materialize the prepared LDE columns once so Metal can consume the
-    /// complete tree in a single command buffer.
     pub const preferMonolithicCommit = true;
     pub const lazyFriFoldInverseWorkspace = true;
 
@@ -91,8 +80,6 @@ pub const MetalCommitBackend = struct {
         return shared_runtime.initialize(allocator, policy);
     }
 
-    /// Reads counters and cache statistics from the one shared backend
-    /// runtime. Snapshotting before warmup fails instead of creating a device.
     pub fn telemetrySnapshot() TelemetryError!TelemetrySnapshot {
         var lease = try shared_runtime.acquireExisting();
         defer lease.deinit();
@@ -111,10 +98,6 @@ pub const MetalCommitBackend = struct {
         return shared_runtime.platformIdentityAlloc(allocator);
     }
 
-    /// Releases the process-wide runtime at a quiescent request boundary.
-    ///
-    /// In-flight calls and live Metal-backed columns, trees, or buffers make
-    /// this fail closed rather than invalidating their runtime or device.
     pub fn shutdown() ShutdownError!void {
         return shared_runtime.shutdown();
     }
@@ -210,9 +193,6 @@ pub const MetalCommitBackend = struct {
         return column;
     }
 
-    /// Places coordinate conversion where the immediately following Merkle
-    /// commitment will execute. Small host commitments avoid a synchronous GPU
-    /// dispatch and allocate their coordinate planes from the proof allocator.
     pub fn secureColumnForMerkle(
         allocator: std.mem.Allocator,
         evaluation: @import("stwo_prover_impl").line.LineEvaluation,
@@ -233,9 +213,6 @@ pub const MetalCommitBackend = struct {
     ) !MerkleTree(H) {
         var cells: usize = 0;
         for (columns) |column| cells = try std.math.add(usize, cells, column.len);
-        // An empty commitment has no leaves or hash work to accelerate. Keep
-        // the canonical empty-tree representation without classifying it as a
-        // CPU execution fallback.
         if (cells == 0) {
             const empty_tree = try merkle.MerkleProverLifted(H).commit(allocator, columns);
             return MerkleTree(H).fromHost(empty_tree);
@@ -249,6 +226,30 @@ pub const MetalCommitBackend = struct {
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
         const resident_tree = try MerkleTree(H).commitShared(lease.runtime, allocator, columns);
+        telemetry.record(.resident_merkle_commit);
+        return resident_tree;
+    }
+
+    pub fn commitMerkleWithBacking(
+        comptime H: type,
+        allocator: std.mem.Allocator,
+        columns: []const []const @import("stwo_core").fields.m31.M31,
+        backing_buffers: []const []@import("stwo_core").fields.m31.M31,
+    ) !MerkleTree(H) {
+        var cells: usize = 0;
+        for (columns) |column| cells = try std.math.add(usize, cells, column.len);
+        if (cells == 0 or !commit_policy.usesResidentMerkle(cells) or backing_buffers.len != 1) {
+            return commitMerkle(H, allocator, columns);
+        }
+
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        const resident_tree = try MerkleTree(H).commitSharedBacking(
+            lease.runtime,
+            allocator,
+            columns,
+            backing_buffers[0],
+        );
         telemetry.record(.resident_merkle_commit);
         return resident_tree;
     }
@@ -274,9 +275,6 @@ pub const MetalCommitBackend = struct {
         std.log.debug("Metal quotient kernel: {d:.3}ms", .{gpu_ms});
     }
 
-    /// Produces the first FRI quotient column and its lifted Merkle tree in one
-    /// command buffer. The caller retains the resident column independently;
-    /// the returned tree owns only its hash layers after the terminal wait.
     pub fn commitLazyMerkle(
         comptime H: type,
         allocator: std.mem.Allocator,
@@ -391,6 +389,9 @@ pub const MetalCommitBackend = struct {
         source_values: []const []const @import("stwo_core").fields.m31.M31,
         base_values: []const []@import("stwo_core").fields.m31.M31,
         extended_values: []const []@import("stwo_core").fields.m31.M31,
+        transform_buffer: []@import("stwo_core").fields.m31.M31,
+        extended_start: usize,
+        extended_stride: usize,
         base_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
         base_twiddles: @import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const @import("stwo_core").fields.m31.M31),
         extended_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
@@ -417,11 +418,14 @@ pub const MetalCommitBackend = struct {
         }
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
-        const gpu_ms = try lease.runtime.transformCircleLde(
+        const gpu_ms = try lease.runtime.transformCircleLdeInto(
             allocator,
             source_values,
             base_values,
             extended_values,
+            transform_buffer,
+            extended_start,
+            extended_stride,
             base_twiddles.itwiddles,
             extended_twiddles.twiddles,
             base_domain.logSize(),
@@ -518,10 +522,6 @@ pub const MetalCommitBackend = struct {
         return current;
     }
 
-    /// Folds a production-size single-fold evaluation and commits the next FRI
-    /// layer in one Metal submission. Small, non-resident, and multi-fold
-    /// inputs retain the established fallback until the scheduler supplies
-    /// explicit next-layer packing metadata.
     pub fn foldLineAndCommitNext(
         comptime H: type,
         allocator: std.mem.Allocator,
@@ -633,9 +633,6 @@ pub const MetalCommitBackend = struct {
         return .{ .evaluation = folded, .column = coordinates, .tree = tree };
     }
 
-    /// Executes the complete single-fold Blake2s line-FRI dependency chain in
-    /// one Metal epoch. The optional result is null before any mutation when
-    /// the channel, shape, or resident-storage contract is unsupported.
     pub fn commitFriLineCascade(
         comptime H: type,
         allocator: std.mem.Allocator,
@@ -773,9 +770,6 @@ pub const MetalCommitBackend = struct {
         };
     }
 
-    /// Adopts a successful resident cascade into the generic prover's private
-    /// layer types. Keeping this ownership transfer here leaves the generic
-    /// scheduler with only a narrow optional backend hook.
     pub fn commitFriLayers(
         comptime H: type,
         comptime InnerLayerProver: type,

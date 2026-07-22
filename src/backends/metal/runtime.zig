@@ -8,7 +8,7 @@ const command_epoch = @import("command_epoch.zig");
 const shader_manifest = @import("shaders/manifest.zig");
 
 comptime {
-    if (shader_manifest.core_shader_abi != 6) @compileError("Metal core shader ABI drift");
+    if (shader_manifest.core_shader_abi != 7) @compileError("Metal core shader ABI drift");
 }
 
 pub const CommandEpoch = command_epoch.CommandEpoch;
@@ -201,6 +201,7 @@ pub const Runtime = struct {
     pub const qm31ToCoordinates = resident_ops.qm31ToCoordinates;
     pub const felt252Oracle = resident_ops.felt252Oracle;
     pub const commitColumns = resident_ops.commitColumns;
+    pub const commitColumnsWithBacking = resident_ops.commitColumnsWithBacking;
     pub const computeQuotients = polynomial_ops.computeQuotients;
     pub const computeQuotientsAndCommit = polynomial_ops.computeQuotientsAndCommit;
     pub const evaluateCoefficientPlans = polynomial_ops.evaluateCoefficientPlans;
@@ -208,6 +209,7 @@ pub const Runtime = struct {
     pub const transformCircle = polynomial_ops.transformCircle;
     pub const transformCircleResident = polynomial_ops.transformCircleResident;
     pub const transformCircleLde = polynomial_ops.transformCircleLde;
+    pub const transformCircleLdeInto = polynomial_ops.transformCircleLdeInto;
 };
 
 /// Deferred compatibility hooks that deliberately bypass production admission.

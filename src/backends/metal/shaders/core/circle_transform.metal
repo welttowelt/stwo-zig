@@ -99,21 +99,23 @@ kernel void stwo_zig_circle_expand_coefficients(
     device uint *coefficients [[buffer(0)]],
     device uint *extended [[buffer(1)]],
     device const uint *twiddles [[buffer(2)]],
-    constant uint &base_log_size [[buffer(3)]],
-    constant uint &extended_log_size [[buffer(4)]],
-    constant uint &column_count [[buffer(5)]],
-    constant uint &scale_factor [[buffer(6)]],
-    constant uint &fuse_top_two [[buffer(7)]],
+    device const uint *source_offsets [[buffer(3)]],
+    device const uint *destination_offsets [[buffer(4)]],
+    constant uint &base_log_size [[buffer(5)]],
+    constant uint &extended_log_size [[buffer(6)]],
+    constant uint &column_count [[buffer(7)]],
+    constant uint &scale_factor [[buffer(8)]],
+    constant uint &fuse_top_two [[buffer(9)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     uint extended_len = 1u << extended_log_size;
     uint base_len = 1u << base_log_size;
     if (position.y >= column_count) return;
+    uint coefficient_base = source_offsets[position.y];
+    uint output_base = destination_offsets[position.y];
     if (fuse_top_two != 0u) {
         uint half_len = base_len >> 1u;
         if (position.x >= half_len) return;
-        uint coefficient_base = position.y << base_log_size;
-        uint output_base = position.y << extended_log_size;
         uint lhs = m31_mul(coefficients[coefficient_base + position.x], scale_factor);
         uint rhs = m31_mul(coefficients[coefficient_base + half_len + position.x], scale_factor);
         coefficients[coefficient_base + position.x] = lhs;
@@ -131,9 +133,9 @@ kernel void stwo_zig_circle_expand_coefficients(
     }
     if (position.x >= extended_len) return;
     uint value = position.x < base_len
-        ? coefficients[(position.y << base_log_size) + position.x]
+        ? coefficients[coefficient_base + position.x]
         : 0u;
-    extended[(position.y << extended_log_size) + position.x] = value;
+    extended[output_base + position.x] = value;
 }
 
 kernel void stwo_zig_circle_expand_sparse(
