@@ -1,0 +1,409 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "b02e87f926ec",
+  "repo_commit": "4d0f1e3c8a14",
+  "predecessor_commit": "971db238e3e4",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "core_metal",
+    "workload_class": "xlarge",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "dc6522752aa8",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": true,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 1.63
+    }
+  },
+  "search_health": {
+    "schema_version": 1,
+    "decision": {
+      "schema_version": 1,
+      "board": "core_metal",
+      "workload_class": "xlarge",
+      "trailing_window": 8,
+      "trailing_evidence_count": 4,
+      "trailing_median_gradient_snr": 10.726576405586611,
+      "gradient_snr_threshold": 2.0,
+      "configured_rounds": 9,
+      "auto_boost_rounds": 5,
+      "maximum_rounds": 25,
+      "target_rounds": 9,
+      "workload_count": 1,
+      "class_wall_deadline_seconds": 900.0,
+      "estimated_seconds_per_round": 8.327738996340324,
+      "deadline_round_limit": 108,
+      "auto_boost_applied": false,
+      "auto_boost_reason": "trailing_median_at_or_above_threshold",
+      "recorded_before_measurement": true
+    },
+    "decision_sha256": "sha256:a412ef7ca38ffc384dfcbdd7c75663fc2dbc4260cfaf4e5e034658f2e1d40adc",
+    "actual_rounds": 5,
+    "actual_rounds_per_workload": {
+      "mwf_log18x100": 5
+    },
+    "objective_wall_seconds": 10.173202749923803,
+    "measurement_wall_seconds": 42.21460858301725,
+    "measurement_wall_hours": 0.011726280161949237,
+    "gradient_snr": null,
+    "credited_ln_improvement": null,
+    "credited_ln_improvement_per_measurement_hour": null,
+    "credit_status": "pending_ledger_adjudication",
+    "decision_record": "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/search-health-decision.json"
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 1/1 workloads"
+    },
+    "G2": {
+      "pass": true,
+      "detail": "no locked or out-of-scope path touched"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "native mechanism telemetry policy unchanged"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.1129 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "mwf_log18x100": {
+        "r": 0.364541,
+        "ci": [
+          0.354896,
+          0.371271
+        ],
+        "rounds": 5,
+        "a_median_ms": 133.066458,
+        "b_median_ms": 47.65848,
+        "request_ratio": 0.616457,
+        "rss_ratio": 0.996733,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.61569,
+            "ci": [
+              0.612312,
+              0.619014
+            ],
+            "observations": 5,
+            "candidate": 3.505301135
+          },
+          "peak_rss_mib": {
+            "ratio": 0.996733,
+            "ci": [
+              0.996433,
+              0.997019
+            ],
+            "observations": 5,
+            "candidate": 517.2981796264648
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 74328.0
+          }
+        },
+        "mechanism_verified": null,
+        "proof_bytes": 74328,
+        "measurement_seconds": 10.150609,
+        "resources_complete": null
+      }
+    },
+    "R_geomean": 0.364541,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 2651074401,
+      "ci": [
+        0.354896,
+        0.371271
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 47.65848,
+      "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+      "proof_bytes": 74328,
+      "measurement_seconds": 10.150609,
+      "measurement_rounds": 5
+    },
+    "theta": 0.018954,
+    "aa_dispersion": 0.009477,
+    "significant": true,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    },
+    "resource_portfolio": {
+      "peak_rss_mib": {
+        "ratio_geomean": 0.9967333984386475,
+        "upper_ci_geomean": 0.9970185803871883,
+        "candidate_geomean": 517.2981796264647
+      },
+      "energy_j": {
+        "ratio_geomean": 0.615689645000798,
+        "upper_ci_geomean": 0.6190135617766255,
+        "candidate_geomean": 3.505301135
+      },
+      "proof_bytes": {
+        "ratio_geomean": 1.0,
+        "upper_ci_geomean": 1.0,
+        "candidate_geomean": 74328.00000000003
+      }
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": 0.996733,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": 3.505301135,
+    "proof_bytes": 74328.00000000003
+  },
+  "holdout": null,
+  "guards": {
+    "guard_blake_10x10": {
+      "r": 1.003729,
+      "ci": [
+        0.967086,
+        1.01666
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
+    },
+    "guard_blake_12x16": {
+      "r": 0.991866,
+      "ci": [
+        0.964079,
+        1.025815
+      ],
+      "rounds": 8,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+    },
+    "guard_plonk_14": {
+      "r": 1.011969,
+      "ci": [
+        0.990365,
+        1.031716
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
+    },
+    "guard_plonk_16": {
+      "r": 1.01881,
+      "ci": [
+        1.012733,
+        1.031143
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+    },
+    "guard_poseidon_10": {
+      "r": 1.006516,
+      "ci": [
+        0.986096,
+        1.031752
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
+    },
+    "guard_poseidon_13": {
+      "r": 1.004611,
+      "ci": [
+        0.976371,
+        1.031092
+      ],
+      "rounds": 8,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
+    },
+    "guard_sm_14": {
+      "r": 0.997769,
+      "ci": [
+        0.973592,
+        1.013152
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
+    },
+    "guard_sm_16": {
+      "r": 1.006173,
+      "ci": [
+        1.002858,
+        1.009962
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
+    },
+    "guard_wf_10x8": {
+      "r": 1.025062,
+      "ci": [
+        1.022672,
+        1.030375
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
+    },
+    "guard_wf_14x32": {
+      "r": 0.965123,
+      "ci": [
+        0.94042,
+        0.989361
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
+    },
+    "guard_wf_16x64": {
+      "r": 1.003802,
+      "ci": [
+        0.979189,
+        1.01942
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+    },
+    "guard_xor_14": {
+      "r": 0.99465,
+      "ci": [
+        0.982782,
+        1.026722
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
+    },
+    "guard_xor_16": {
+      "r": 1.005751,
+      "ci": [
+        1.000486,
+        1.013345
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
+    }
+  },
+  "rust_oracle": [
+    {
+      "workload": "mwf_log18x100",
+      "verified": true,
+      "oracle": "pinned-rust-stwo",
+      "artifact_sha256": "49f9555c8a3d6d1f47045a7a22caf961745d503174d840b8e21a414aaf74cfb4"
+    }
+  ],
+  "skipped_groups": [],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "mwf_log18x100": {
+        "round_ratios": [
+          0.365762,
+          0.376779,
+          0.354252,
+          0.364541,
+          0.35554
+        ],
+        "proof_digest": "f845568c14599a08c16a14bf255b2e1938df3df27cfdbf961d06f663909ced8f",
+        "request_ratio": 0.616457,
+        "rss_ratio": 0.996733,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.61569,
+            "ci": [
+              0.612312,
+              0.619014
+            ],
+            "observations": 5,
+            "candidate": 3.505301135
+          },
+          "peak_rss_mib": {
+            "ratio": 0.996733,
+            "ci": [
+              0.996433,
+              0.997019
+            ],
+            "observations": 5,
+            "candidate": 517.2981796264648
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 74328.0
+          }
+        },
+        "report_sha256s": [
+          "f17885b73a76aa6316377da8587e59a107ecf3e06b1f76306876111e18dcdc31",
+          "ca8b840755d2e8dae2f8c38e406af9cc966a8a570d1dff34dbd394cb38eed0ff",
+          "8cd3250af2c7bf8518b6976ae668acc152a5046b5b2fc379c8f35619b3560f9e",
+          "4ddba0a7c7e24fd8165571cac0f5fffd14eeb236580077e595f6ae0653205444",
+          "4cf91b629000caad9182c2df8259456b0ecaa298034f650369fb84ebfad1ee46",
+          "ed65b2d642e4480f7421b3fb228089a7354d28126a9050329655063efb018e54",
+          "c47b88e21687b1fe31f8207ef3c3bdb7906c36447979bdbb2aab3d427cab621e",
+          "063286ce344a69f74b795f05be1faec3d76e6f2849251402f4a0ccbca8944372",
+          "cb4f0ec51d0518462b814b7a3648431d76fd21aa7b8d7dad60416984801be590",
+          "e9d7e46a2d6297cea1ee10ee83eb0fa4f9ea26eae2a2371a74fdc07ace71b140"
+        ],
+        "mechanism_verified": null,
+        "resources_complete": null
+      }
+    },
+    "reports": [
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a1.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b1.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a2.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b2.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a3.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b3.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a4.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b4.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.a5.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-gpu-air-recurrence/autoresearch/.runs/latest/mwf_log18x100.b5.json"
+    ]
+  }
+}
