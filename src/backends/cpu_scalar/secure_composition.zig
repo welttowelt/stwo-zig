@@ -222,24 +222,33 @@ var pending_mutex: std.Thread.Mutex = .{};
 var pending_validation: ?*PendingValidation = null;
 var pending_allocator: std.mem.Allocator = undefined;
 
+const Poly = prover.air.component_prover.Poly;
+
+/// Deferred-validation context (values-steal, ruling 2 07-23). We STEAL the
+/// trace's Poly value slices — the referee owns and frees them on join, and
+/// empty slices are swapped into the live trace so prove.zig's block-scoped
+/// `deinitDeep` frees only empty shells + the (unneeded, unread-downstream)
+/// coefficients. Zero copy, zero RSS delta. Sound because: (a) `trace` is
+/// block-scoped in prove.zig with no post-composition reader of its VALUES
+/// (verified by scope + the digest-identical A/B); (b) the underlying local
+/// is `var trace`, so the one @constCast to swap the slices is legal.
 const DeferredCtx = struct {
     allocator: std.mem.Allocator,
     components: []const ComponentProver,
     random_coeff: QM31,
-    // Deep-copied slice headers: the hook's `trace` may be a call-scoped
-    // view; only the column DATA is long-lived. We own these arrays.
-    trace_polys: [][]const Poly,
+    stolen_values: [][]const M31, // freed by the referee on join
+    trace_headers: [][]const Poly, // owned header arrays (point at stolen values)
     trace_value: Trace,
     fast_digest: [Blake2s256.digest_length]u8,
     slot: *PendingValidation,
 
-    fn deinitTraceCopy(self: *DeferredCtx) void {
-        for (self.trace_polys) |inner| self.allocator.free(inner);
-        self.allocator.free(self.trace_polys);
+    fn deinitStolen(self: *DeferredCtx) void {
+        for (self.stolen_values) |vals| self.allocator.free(@constCast(vals));
+        self.allocator.free(self.stolen_values);
+        for (self.trace_headers) |inner| self.allocator.free(inner);
+        self.allocator.free(self.trace_headers);
     }
 };
-
-const Poly = prover.air.component_prover.Poly;
 
 fn spawnDeferredValidation(
     allocator: std.mem.Allocator,
@@ -255,20 +264,42 @@ fn spawnDeferredValidation(
     errdefer allocator.destroy(slot);
     const ctx = try allocator.create(DeferredCtx);
     errdefer allocator.destroy(ctx);
-    const outer = try allocator.alloc([]const Poly, trace.polys.items.len);
-    errdefer allocator.free(outer);
-    var copied: usize = 0;
-    errdefer for (outer[0..copied]) |inner| allocator.free(inner);
-    for (trace.polys.items, 0..) |inner, i| {
-        outer[i] = try allocator.dupe(Poly, inner);
-        copied += 1;
+
+    // Count total columns and steal every Poly value slice.
+    var total_cols: usize = 0;
+    for (trace.polys.items) |inner| total_cols += inner.len;
+    const stolen = try allocator.alloc([]const M31, total_cols);
+    errdefer allocator.free(stolen);
+    const headers = try allocator.alloc([]const Poly, trace.polys.items.len);
+    errdefer allocator.free(headers);
+    var built: usize = 0;
+    errdefer for (headers[0..built]) |inner| allocator.free(inner);
+
+    // The referee needs the value slices AND matching headers with those
+    // slices; steal both. @constCast(trace): the underlying prove.zig local
+    // is `var trace` (precondition b) — this is the one sanctioned cast.
+    const mutable_items = @constCast(trace.polys.items);
+    var col: usize = 0;
+    for (mutable_items, 0..) |inner, i| {
+        const dup = try allocator.dupe(Poly, inner);
+        headers[i] = dup;
+        const mutable_inner = @constCast(inner);
+        for (mutable_inner, 0..) |*poly, j| {
+            stolen[col] = poly.values; // take ownership of the real slice
+            dup[j].values = poly.values; // referee's header points at it
+            poly.values = &[_]M31{}; // swap empty: deinitDeep frees nothing
+            col += 1;
+        }
+        built += 1;
     }
+
     ctx.* = .{
         .allocator = allocator,
         .components = components,
         .random_coeff = random_coeff,
-        .trace_polys = outer,
-        .trace_value = .{ .polys = .{ .items = @constCast(outer) } },
+        .stolen_values = stolen,
+        .trace_headers = headers,
+        .trace_value = .{ .polys = .{ .items = @constCast(headers) } },
         .fast_digest = fast_digest,
         .slot = slot,
     };
@@ -279,7 +310,7 @@ fn spawnDeferredValidation(
 
 fn deferredValidationMain(ctx: *DeferredCtx) void {
     defer ctx.allocator.destroy(ctx);
-    defer ctx.deinitTraceCopy();
+    defer ctx.deinitStolen();
     var expected = referenceComposition(
         ctx.allocator,
         ctx.components,
