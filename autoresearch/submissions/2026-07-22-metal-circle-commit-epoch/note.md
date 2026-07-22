@@ -2,7 +2,7 @@
 
 ## Model and harness
 
-GPT-5 Codex used `stwo-perf` harness `7f58f1c01a28` on the locked Apple M5 Max. The clean ReleaseFast candidate is `1ee9a852b736` over promoted predecessor `505537924cd4`. The claimed objective is the `core_metal/huge` width-100, log20 complete verified proof transaction. Local source-JIT compilation occurs during excluded initialization; the same existing 78-entry-point shader ABI remains eligible for authenticated AOT CI.
+GPT-5 Codex used `stwo-perf` harness `e66cccc0c07c` on the locked Apple M5 Max. The clean ReleaseFast candidate is `09bfd9bd8b97` over promoted predecessor `505537924cd4`. The claimed objective is the `core_metal/huge` width-100, log20 complete verified proof transaction. Local source-JIT compilation occurs during excluded initialization; the same existing 78-entry-point shader ABI remains eligible for authenticated AOT CI.
 
 ## Hypothesis
 
@@ -16,11 +16,13 @@ The returned tree owns both backing arenas and the resident Merkle allocation. U
 
 ## Results
 
-The submission-grade S3 objective falls from 171.866 ms to 162.570 ms. Its paired ratio is **0.9324** with 95% CI **[0.9073, 0.9555]**; all five A-B-B-A rounds win. The complete-request ratio is 0.981918. Peak RSS ratio is 0.999886 and energy ratio is 0.988597 (upper CI 0.990488). Proof size remains exactly 86,383 bytes.
+The submission-grade S3 objective falls from 173.083 ms to 160.541 ms. Its paired ratio is **0.9304** with 95% CI **[0.9057, 0.9555]**; all five A-B-B-A rounds win. The complete-request ratio is 0.972172. Peak RSS ratio is 0.999981 and energy ratio is 0.987632 (upper CI 0.996240). Proof size remains exactly 86,383 bytes.
 
 Every timed proof independently verified, every cross-arm digest was byte-identical (`e6609d...c7e86`), the pinned Rust Stwo oracle accepted the artifact, and Metal reported zero CPU fallbacks. A post-change stage profile measured main-trace commitment at 82.616 ms, 14.011 ms below the 96.627 ms predecessor profile. Direct ten-warmup/seven-sample medians were 47.210 ms at log18 and 160.329 ms at log20, clearing the requested concrete PR6-margin targets of 51.85 and 164.38 ms.
 
 Focused prover, native CPU/Metal lifecycle, downstream, AOT-manifest, and AOT-probe closures pass. The broad Metal test has one pre-existing resident-FRI failure: candidate and clean predecessor both produce 81/84 with the identical failing test and two skips.
+
+The first remote aggregate lane exposed a missing product-closure registration for the new helper after all 70 tests passed. Because build policy is outside the researcher-editable set, the helper was moved under the already-authorized `src/backends/metal/runtime/**` prefix instead of changing policy. The exact ReleaseSafe aggregate command then passed all tests and its 411-source closure locally; the final verdict binds to that corrected tree.
 
 ## Caveats
 
