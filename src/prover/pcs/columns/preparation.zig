@@ -262,10 +262,12 @@ fn prepareColumnsCombinedForBackend(
         };
         const extended_start: usize = 0;
         // AIR evaluators walk a row across columns. An exact power-of-two
-        // column stride aliases cache and translation structures; one cache
-        // line of skew rotates both while preserving ordinary column slices.
+        // column stride aliases cache and translation structures. Large
+        // columns amortize an odd-page rotation; retain the cheaper cache-line
+        // rotation for small columns where a page of padding is material.
+        const page_rotate = column_count >= 64 and extended_domain.size() >= (1 << 18);
         const extended_stride = extended_domain.size() +
-            @as(usize, if (column_count >= 64) 16 else 0);
+            @as(usize, if (page_rotate) page_words + 16 else if (column_count >= 64) 16 else 0);
         const extended_span = try std.math.add(
             usize,
             try std.math.mul(usize, column_count - 1, extended_stride),
