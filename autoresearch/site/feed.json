@@ -2188,8 +2188,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2512,8 +2512,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2698,8 +2698,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2916,8 +2916,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3239,8 +3239,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5438,8 +5438,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5899,8 +5899,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6086,8 +6086,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6372,8 +6372,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6870,8 +6870,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7082,8 +7082,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7123,8 +7123,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7164,8 +7164,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 176,
-       "seconds": 66124
+       "commits": 180,
+       "seconds": 69774
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8110,6 +8110,18 @@
     "scored": true,
     "wall_clock_cap_seconds": 600
    },
+   "extreme": {
+    "command_timeout_seconds": 7200,
+    "resource_profile": "extreme",
+    "sampling": {
+     "max_rounds": 15,
+     "min_rounds": 7,
+     "samples_per_round": 1,
+     "warmups": 10
+    },
+    "scored": false,
+    "wall_clock_cap_seconds": 7200
+   },
    "huge": {
     "command_timeout_seconds": 1200,
     "resource_profile": "large",
@@ -8170,6 +8182,7 @@
     "board": "core_metal",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "native_proof_v7",
     "workloads": {
      "mplonk_log14": {
@@ -8198,6 +8211,7 @@
     "board": "core_cpu",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "native_proof_v7",
     "workloads": {
      "plonk_log14": {
@@ -8222,10 +8236,92 @@
      }
     }
    },
+   "pr6_supremacy": {
+    "board": "pr6_supremacy",
+    "disabled_reason": "PR6 Supremacy remains disabled until every exact workload port, log22 oracle vector, both timing boundaries, locked-M5 statistical gate, and authenticated judged verdict are complete.",
+    "enabled": false,
+    "promotion_eligible": false,
+    "report_schema": "pr6_supremacy_v1",
+    "workloads": {
+     "pr6_blake_log10": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log12": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log14": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_blake_log16": {
+      "class": "deep",
+      "native_unit": "Blake scheduler rows"
+     },
+     "pr6_fixed_wide_fibonacci_log4": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log5": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log6": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log7": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_fixed_wide_fibonacci_log8": {
+      "class": "small",
+      "native_unit": "committed cells"
+     },
+     "pr6_plonk_log12": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_plonk_log14": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_plonk_log16": {
+      "class": "deep",
+      "native_unit": "Plonk gates"
+     },
+     "pr6_state_machine_log8": {
+      "class": "small",
+      "native_unit": "state-machine rows"
+     },
+     "pr6_wide_fibonacci_log14": {
+      "class": "wide",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log16": {
+      "class": "wide",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log18": {
+      "class": "xlarge",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log20": {
+      "class": "huge",
+      "native_unit": "committed cells"
+     },
+     "pr6_wide_fibonacci_log22": {
+      "class": "extreme",
+      "native_unit": "committed cells"
+     }
+    }
+   },
    "riscv": {
     "board": "riscv",
     "disabled_reason": null,
     "enabled": true,
+    "promotion_eligible": true,
     "report_schema": "riscv_proof_v2",
     "workloads": {
      "riscv_alu_test": {
@@ -8315,21 +8411,25 @@
    "core_cpu",
    "core_metal",
    "riscv"
+  ],
+  "staged_boards": [
+   "pr6_supremacy"
   ]
  },
  "provenance": {
   "determinism": "pure function of the named inputs; a committed feed names the commit it was generated FROM (one-commit lag by construction) \u2014 verify via inputs_sha256, not commit equality",
   "dirty_inputs": [],
   "inputs_sha256": {
-   "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
+   "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
    "autoresearch/ledger/promotions.tsv": "f64ed302f3543d1c0511d88f382a6517e0952fa1d734c0f6761bc8fe56ff4ec5",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
-   "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
+   "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
    "autoresearch/reference/peer-rust-simd.json": "ce288cb814b134306a5b7cab8ea3ec7a19b6d231684d6434a337bfb35d130cbf",
    "autoresearch/reference/peer-series-point.schema.json": "e0b1d6ece5e107ab72172fbf3a9a96f918e16e3c876e310072b2c2de18f1bb26",
    "autoresearch/reference/peer-series/runs/0c3cd97c500dfb69391aa77682f0e7c656e8bd49.json": "4299628cac4283bbe5ba565da2fc68caef780a48933185da8083bdf65ed0526c",
+   "autoresearch/reference/pr6-wide-series-point.schema.json": "c84d9b4d4c34a070b1d71c63442abd02209033954a730e70e709791e4f4a0377",
    "autoresearch/reference/riscv-calibration-epoch-2.json": "6828deeadcf7807becaa724196f34fe5f5b01609745bb757b86f376d9c651135",
    "autoresearch/submissions/2026-07-20-deeper-merkle-pool-parallelism/verdict.json": "5b5467d17a0d90cb20836b91279d6026661b8d3a54de27d94f5473ee7ac6c603",
    "autoresearch/submissions/2026-07-20-four-way-fri-leaf-cascade/verdict.json": "0126af7e3098622480086a6fc2f2db66911964d20ab7d86bcd138fe6746f7aa1",
@@ -8451,8 +8551,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "02c3e8c3a9d5",
-  "repo_commit_time": "2026-07-22T11:09:31Z"
+  "repo_commit": "cde6e491ccb8",
+  "repo_commit_time": "2026-07-22T13:10:21+01:00"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -8742,7 +8842,15 @@
    },
    "measurement": {
     "cadence": "every direct end-to-end audit point",
-    "interleaving": "balanced four-lane rotation per size and round",
+    "extreme_resource_profile": {
+     "accounted_bytes": 6710886400,
+     "committed_cells": 419430400,
+     "log_n_rows": [
+      22
+     ],
+     "name": "extreme"
+    },
+    "interleaving": "independent peer/candidate A-B-B-A comparisons for CPU and Metal, at least seven rounds",
     "large_resource_profile": {
      "log_n_rows": [
       18,
@@ -8750,13 +8858,17 @@
      ],
      "name": "large"
     },
-    "primary_metric": "verified_request_ms",
+    "legacy_v1_run_schema": "autoresearch/reference/peer-series-point.schema.json",
+    "primary_metrics": [
+     "verified_request_ms",
+     "cold_process_ms"
+    ],
     "protocols": {
      "peer": "Blake2sM31Channel/Blake2sM31MerkleChannel with PcsConfig::default(); concrete security, FRI, PoW, commitment, and proof-size values retained per sample",
      "stwo_zig": "functional"
     },
     "run_glob": "autoresearch/reference/peer-series/runs/*.json",
-    "run_schema": "autoresearch/reference/peer-series-point.schema.json",
+    "run_schema": "autoresearch/reference/pr6-wide-series-point.schema.json",
     "runner": "autoresearch/reference/measure_peer_series.py"
    },
    "name": "peer-relative-wide-fibonacci",
@@ -8775,18 +8887,20 @@
    },
    "publication": {
     "empty_series_meaning": "not calibrated; never infer parity or a performance milestone",
-    "series_runs_are_immutable": true
+    "series_runs_are_immutable": true,
+    "supremacy_limitation": "This series closes only the five wide-Fibonacci cells. It cannot satisfy PR6 Supremacy without exact Blake, Plonk, fixed-wide-Fibonacci, and state-machine evidence."
    },
    "reference_kind": "peer-relative-series",
-   "schema": "peer-relative-series-contract-v1",
-   "series_id": "clementwalter-pr6-wide-fibonacci-v1",
+   "schema": "peer-relative-series-contract-v2",
+   "series_id": "clementwalter-pr6-wide-fibonacci-v2",
    "title": "Wide-Fibonacci position versus ClementWalter/stwo PR #6",
    "workload": {
     "log_n_rows": [
      14,
      16,
      18,
-     20
+     20,
+     22
     ],
     "name": "wide_fibonacci",
     "sequence_len_columns": 100
@@ -16609,6 +16723,106 @@
        "measurement_wall_hours": 0.06134791462973226,
        "median_gradient_snr": 18.54620970754991,
        "points": 5
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     }
+    }
+   },
+   "pr6_supremacy": {
+    "classes": {
+     "deep": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "extreme": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "huge": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "small": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "wide": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
+      },
+      "trailing_window": 8,
+      "unavailable_points": 0
+     },
+     "xlarge": {
+      "available": false,
+      "available_points": 0,
+      "decay": [],
+      "latest": null,
+      "time_series": [],
+      "trailing": {
+       "credited_ln_improvement": null,
+       "credited_ln_improvement_per_measurement_hour": null,
+       "measurement_wall_hours": null,
+       "median_gradient_snr": null,
+       "points": 0
       },
       "trailing_window": 8,
       "unavailable_points": 0
