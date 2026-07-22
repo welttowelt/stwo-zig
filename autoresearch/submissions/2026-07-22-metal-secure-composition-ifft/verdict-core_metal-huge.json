@@ -1,0 +1,409 @@
+{
+  "schema_version": 1,
+  "kind": "claimed",
+  "harness_commit": "ce5d828dee5f",
+  "repo_commit": "96fa8908f28e",
+  "predecessor_commit": "40cd456fd998",
+  "scope": "s3",
+  "declared_objective": {
+    "board": "core_metal",
+    "workload_class": "huge",
+    "dimension": "time"
+  },
+  "environment": {
+    "host": "dc6522752aa8",
+    "os": "Darwin 25.5.0",
+    "zig_version": "0.15.2",
+    "release_fast": true,
+    "clean_tree": true,
+    "judge_lock_held": false,
+    "preflight": {
+      "load_ok": true,
+      "load1": 1.07
+    }
+  },
+  "search_health": {
+    "schema_version": 1,
+    "decision": {
+      "schema_version": 1,
+      "board": "core_metal",
+      "workload_class": "huge",
+      "trailing_window": 8,
+      "trailing_evidence_count": 2,
+      "trailing_median_gradient_snr": 7.792093171143076,
+      "gradient_snr_threshold": 2.0,
+      "configured_rounds": 5,
+      "auto_boost_rounds": 5,
+      "maximum_rounds": 25,
+      "target_rounds": 5,
+      "workload_count": 1,
+      "class_wall_deadline_seconds": 1200.0,
+      "estimated_seconds_per_round": 12.174973854108249,
+      "deadline_round_limit": 98,
+      "auto_boost_applied": false,
+      "auto_boost_reason": "trailing_median_at_or_above_threshold",
+      "recorded_before_measurement": true
+    },
+    "decision_sha256": "sha256:09684f53633cb8563b81458c2c9df637c604492b66ed688460a4c36f9d0e76e4",
+    "actual_rounds": 5,
+    "actual_rounds_per_workload": {
+      "mwf_log20x100": 5
+    },
+    "objective_wall_seconds": 17.907348208944313,
+    "measurement_wall_seconds": 43.23494250001386,
+    "measurement_wall_hours": 0.01200970625000385,
+    "gradient_snr": null,
+    "credited_ln_improvement": null,
+    "credited_ln_improvement_per_measurement_hour": null,
+    "credit_status": "pending_ledger_adjudication",
+    "decision_record": "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/search-health-decision.json"
+  },
+  "gates": {
+    "G1": {
+      "pass": true,
+      "detail": "every timed sample verified; cross-arm proof digests byte-identical per round; pinned correctness oracle verified 1/1 workloads"
+    },
+    "G2": {
+      "pass": true,
+      "detail": "no locked or out-of-scope path touched"
+    },
+    "G3": {
+      "pass": true,
+      "detail": "native mechanism telemetry policy unchanged"
+    },
+    "G4": {
+      "pass": true,
+      "detail": "candidate/anchor 0.2827 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
+    },
+    "G5": {
+      "pass": true,
+      "detail": "local advisory run"
+    }
+  },
+  "score": {
+    "per_workload": {
+      "mwf_log20x100": {
+        "r": 0.938229,
+        "ci": [
+          0.929261,
+          0.942724
+        ],
+        "rounds": 5,
+        "a_median_ms": 502.098625,
+        "b_median_ms": 468.573417,
+        "request_ratio": 0.963881,
+        "rss_ratio": 1.000019,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.936785,
+            "ci": [
+              0.934864,
+              0.942437
+            ],
+            "observations": 5,
+            "candidate": 9.321036988
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000019,
+            "ci": [
+              0.999957,
+              1.000033
+            ],
+            "observations": 5,
+            "candidate": 1646.6269226074219
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 86383.0
+          }
+        },
+        "mechanism_verified": null,
+        "proof_bytes": 86383,
+        "measurement_seconds": 17.885848,
+        "resources_complete": null
+      }
+    },
+    "R_geomean": 0.938229,
+    "portfolio": {
+      "ci_method": "independent_workload_round_bootstrap_percentile_v1",
+      "ci_level": 0.95,
+      "bootstrap_iterations": 4000,
+      "seed": 423517478,
+      "ci": [
+        0.929261,
+        0.942724
+      ],
+      "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
+      "b_median_ms_geomean": 468.573417,
+      "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
+      "proof_bytes": 86383,
+      "measurement_seconds": 17.885848,
+      "measurement_rounds": 5
+    },
+    "theta": 0.01,
+    "aa_dispersion": 0.004282,
+    "significant": true,
+    "neutral": false,
+    "promotion_significance": {
+      "eligible": true,
+      "method": "independent_workload_round_bootstrap_percentile_v1",
+      "reason": "prove-time objective uses the deterministic workload portfolio CI"
+    },
+    "resource_portfolio": {
+      "peak_rss_mib": {
+        "ratio_geomean": 1.000019006892992,
+        "upper_ci_geomean": 1.000033247620949,
+        "candidate_geomean": 1646.626922607422
+      },
+      "energy_j": {
+        "ratio_geomean": 0.9367845477678759,
+        "upper_ci_geomean": 0.9424373022355375,
+        "candidate_geomean": 9.321036988
+      },
+      "proof_bytes": {
+        "ratio_geomean": 1.0,
+        "upper_ci_geomean": 1.0,
+        "candidate_geomean": 86382.99999999994
+      }
+    }
+  },
+  "tiebreakers": {
+    "rss_ratio": 1.000019,
+    "waits": null,
+    "dispatches": null,
+    "energy_j": 9.321036988,
+    "proof_bytes": 86382.99999999994
+  },
+  "holdout": null,
+  "guards": {
+    "guard_blake_10x10": {
+      "r": 1.015347,
+      "ci": [
+        0.990951,
+        1.036479
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
+    },
+    "guard_blake_12x16": {
+      "r": 0.99284,
+      "ci": [
+        0.970589,
+        1.003627
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
+    },
+    "guard_plonk_14": {
+      "r": 1.013025,
+      "ci": [
+        1.009462,
+        1.02043
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
+    },
+    "guard_plonk_16": {
+      "r": 1.005808,
+      "ci": [
+        0.99951,
+        1.021851
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
+    },
+    "guard_poseidon_10": {
+      "r": 0.97562,
+      "ci": [
+        0.96386,
+        0.984332
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
+    },
+    "guard_poseidon_13": {
+      "r": 1.01736,
+      "ci": [
+        1.01178,
+        1.026641
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
+    },
+    "guard_sm_14": {
+      "r": 0.996638,
+      "ci": [
+        0.971306,
+        1.019352
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
+    },
+    "guard_sm_16": {
+      "r": 1.005839,
+      "ci": [
+        0.99788,
+        1.033787
+      ],
+      "rounds": 5,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
+    },
+    "guard_wf_10x8": {
+      "r": 0.971718,
+      "ci": [
+        0.920199,
+        1.023021
+      ],
+      "rounds": 12,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
+    },
+    "guard_wf_14x32": {
+      "r": 0.995449,
+      "ci": [
+        0.984858,
+        1.032758
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
+    },
+    "guard_wf_16x64": {
+      "r": 1.026959,
+      "ci": [
+        1.005889,
+        1.047932
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
+    },
+    "guard_xor_14": {
+      "r": 1.011146,
+      "ci": [
+        0.989923,
+        1.036039
+      ],
+      "rounds": 6,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
+    },
+    "guard_xor_16": {
+      "r": 1.012175,
+      "ci": [
+        0.998755,
+        1.017798
+      ],
+      "rounds": 3,
+      "budget_upper": 1.05,
+      "pass": true,
+      "proof_digest": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
+    }
+  },
+  "rust_oracle": [
+    {
+      "workload": "mwf_log20x100",
+      "verified": true,
+      "oracle": "pinned-rust-stwo",
+      "artifact_sha256": "8a66bd21ec4076cde6d887ec1a10f034b34a8597e28643f57aae14dbd9cbf00e"
+    }
+  ],
+  "skipped_groups": [],
+  "evidence": {
+    "pairing": "round-level ABBA (bench reports expose medians, not raw samples)",
+    "per_workload": {
+      "mwf_log20x100": {
+        "round_ratios": [
+          0.946179,
+          0.920763,
+          0.93776,
+          0.938229,
+          0.939269
+        ],
+        "proof_digest": "e6609d0564a47192212bec7973e2660c2eea88bef90c573c3df09569cc3c7e86",
+        "request_ratio": 0.963881,
+        "rss_ratio": 1.000019,
+        "resources": {
+          "energy_j": {
+            "ratio": 0.936785,
+            "ci": [
+              0.934864,
+              0.942437
+            ],
+            "observations": 5,
+            "candidate": 9.321036988
+          },
+          "peak_rss_mib": {
+            "ratio": 1.000019,
+            "ci": [
+              0.999957,
+              1.000033
+            ],
+            "observations": 5,
+            "candidate": 1646.6269226074219
+          },
+          "proof_bytes": {
+            "ratio": 1.0,
+            "ci": [
+              1.0,
+              1.0
+            ],
+            "observations": 1,
+            "candidate": 86383.0
+          }
+        },
+        "report_sha256s": [
+          "9914a9e66238788876d40131d49ec6272432265de6bb0c5b50afc1d4952f3ac9",
+          "2df2f38e94e2c56184225b52c00d9daec61d9e50bfe8e2feb586d9109594b26d",
+          "6b9e42bf8587dfdc5699c11d9251363aa725bbc9db02b9eecc7063dd46fd9726",
+          "54f04d74b01e221227a68d06dda838b19769a64d59f82d099c8f50b74f0a2982",
+          "216c7d55bf67db32fec22f8324f9c22c427196c17c1383ee263787641b8082ac",
+          "3db4557dc1ca8c6451e5ab1833bee13deaca62e71525e2444c91425eb301c83c",
+          "c8b0858708249bdc9cb7378fecc7eb6d1625d87751f5e8a9c87fc4d2304b4f68",
+          "8ca47d9510a20c2d3c3d8a2b8ab78460144b66b205f975eedf69bef56492d0fa",
+          "51463647d1f99d1d28e78580f78934adaeb381b1b27f775979ef16bd2e1d9356",
+          "6824e2cde028ed720ce0195a88fe3fb5e51576d21ec6e1ea5379daac1245bc61"
+        ],
+        "mechanism_verified": null,
+        "resources_complete": null
+      }
+    },
+    "reports": [
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.a1.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.b1.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.a2.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.b2.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.a3.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.b3.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.a4.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.b4.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.a5.json",
+      "/Users/theodorepender/code/auto-researching/ws-metal-secure-ifft/autoresearch/.runs/latest/mwf_log20x100.b5.json"
+    ]
+  }
+}
