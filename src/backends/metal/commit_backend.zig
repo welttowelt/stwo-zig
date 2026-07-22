@@ -3,7 +3,7 @@ const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const commit_policy = @import("commit_policy.zig");
 const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
-const secure_composition = @import("secure_composition.zig");
+const secure_composition = @import("runtime/secure_composition.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 

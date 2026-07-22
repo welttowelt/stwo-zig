@@ -4,8 +4,8 @@ const std = @import("std");
 const m31 = @import("stwo_core").fields.m31;
 const domain_mod = @import("stwo_core").poly.circle.domain;
 const prover_poly = @import("stwo_prover_impl").poly;
-const shared_runtime = @import("shared_runtime.zig");
-const telemetry = @import("telemetry.zig");
+const shared_runtime = @import("../shared_runtime.zig");
+const telemetry = @import("../telemetry.zig");
 
 const M31 = m31.M31;
 const CircleDomain = domain_mod.CircleDomain;
