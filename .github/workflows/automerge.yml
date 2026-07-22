@@ -36,8 +36,13 @@ jobs:
           set -euo pipefail
           AUTHOR_OK='OWNER MEMBER COLLABORATOR'
 
-          prs=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
-            --jq '.[] | select(.state == "open") | .number' || true)
+          # List open PRs and match the head sha directly: the
+          # commits/{sha}/pulls API does not associate commits that live
+          # only in a contributor's fork, so fork submissions were invisible
+          # to this job and sat green-but-unmerged until a human noticed.
+          prs=$(gh pr list --repo "$REPO" --state open \
+            --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\") | .number" || true)
           [ -z "$prs" ] && { echo "no open PR at $HEAD_SHA"; exit 0; }
 
           for pr in $prs; do
