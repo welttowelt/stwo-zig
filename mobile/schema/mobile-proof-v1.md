@@ -27,8 +27,12 @@ Validity rules (v1):
 - **Sampling contract (one regime for the whole board):** a scored row
   reports the median of `samples` verified prove-only measurements after
   `warmups` untimed verified warmups, with the timed region covering
-  proving only (encode/verify excluded) — i.e. native_proof_v7 semantics.
-  Both flavors implement this today; any deviation disqualifies the row.
+  proving only (encode/verify excluded) — native_proof_v7 semantics.
+  **Declared relaxation vs v7 headline rules:** this board fixes
+  warmups=2, samples=5 (thermal/battery budget on phones makes v7's
+  headline sample counts hostile); rows are board-eligible at w2/s5 and
+  the relaxation is explicit, not inherited. Both flavors implement this
+  today; any deviation disqualifies the row.
 - **Toolchain/flag pinning (per epoch):** rows record the exact build
   flags; epoch 1 pins zig `-OReleaseFast -mcpu baseline` and rust
   `--release` at the repo's pinned toolchains. Changing flags = new epoch.
