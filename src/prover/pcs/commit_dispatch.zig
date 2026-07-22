@@ -39,12 +39,17 @@ pub fn tryPrecommitted(
     log_blowup_factor: u32,
     retention_policy: anytype,
     twiddle_source: anytype,
+    source_backing_buffers: ?[][]@import("stwo_core").fields.m31.M31,
 ) !?commitment_tree.CommitmentTreeProverForBackend(B, H) {
     if (comptime !@hasDecl(B, "prepareAndCommitOwned")) return null;
     // The public commit contract owns `owned_columns` on every error.  A
     // backend returns `null` without consuming them, but an allocation error
     // cannot fall through to the generic path and must release them here.
-    errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+    errdefer if (source_backing_buffers) |buffers| {
+        allocator.free(owned_columns);
+        for (buffers) |buffer| allocator.free(buffer);
+        allocator.free(buffers);
+    } else column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
     const prepared = (try B.prepareAndCommitOwned(
         H,
         allocator,
@@ -52,6 +57,7 @@ pub fn tryPrecommitted(
         log_blowup_factor,
         retention_policy,
         twiddle_source,
+        source_backing_buffers,
     )) orelse return null;
     return commitment_tree.CommitmentTreeProverForBackend(B, H).initPrecommitted(
         prepared.columns,

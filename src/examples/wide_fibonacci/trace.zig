@@ -1,12 +1,19 @@
 //! Wide Fibonacci statement validation and trace preparation.
 
 const std = @import("std");
-const core_air_utils = @import("stwo_core").air.utils;
+const core_utils = @import("stwo_core").utils;
 const m31 = @import("stwo_core").fields.m31;
 const prover_pcs = @import("stwo_prover_impl").pcs;
+const work_pool = @import("stwo_prover_impl").work_pool;
 const prover_transaction = @import("../common/prover_transaction.zig");
 
 const M31 = m31.M31;
+const GenericBackend = struct {};
+
+/// Affine row seeds followed by `next = a^2 + b^2` in canonical M31.
+/// The seven-word form is the backend-neutral quadratic-recurrence ABI:
+/// a offset/step, b offset/step, previous/current square weights, constant.
+pub const quadratic_recurrence_recipe: [7]u32 = .{ 1, 0, 0, 1, 1, 1, 0 };
 
 pub const Statement = struct {
     log_n_rows: u32,
@@ -28,6 +35,14 @@ pub fn generate(
     allocator: std.mem.Allocator,
     statement: Statement,
 ) (std.mem.Allocator.Error || Error)![][]M31 {
+    return generateForBackend(GenericBackend, allocator, statement);
+}
+
+pub fn generateForBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) anyerror![][]M31 {
     if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return error.InvalidLogSize;
     if (statement.sequence_len < 2) return error.InvalidSequenceLength;
 
@@ -45,38 +60,105 @@ pub fn generate(
         initialized += 1;
     }
 
-    const bit_reversed_rows = try allocator.alloc(usize, n);
-    defer allocator.free(bit_reversed_rows);
-    for (0..n) |row| {
-        bit_reversed_rows[row] = core_air_utils.circleBitReversedIndex(
-            statement.log_n_rows,
-            row,
-        ) catch return error.InvalidLogSize;
-    }
-
-    const previous = try allocator.alloc(M31, n);
-    defer allocator.free(previous);
-    const current = try allocator.alloc(M31, n);
-    defer allocator.free(current);
-
-    for (0..n) |row| {
-        const bit_reversed = bit_reversed_rows[row];
-        previous[row] = M31.one();
-        current[row] = M31.fromCanonical(@intCast(row));
-        columns[0][bit_reversed] = previous[row];
-        columns[1][bit_reversed] = current[row];
-    }
-
-    for (columns[2..]) |column| {
-        for (0..n) |row| {
-            const next = previous[row].square().add(current[row].square());
-            column[bit_reversed_rows[row]] = next;
-            previous[row] = current[row];
-            current[row] = next;
+    if (comptime @hasDecl(Backend, "fillQuadraticRecurrenceTrace")) {
+        if (!@hasDecl(Backend, "admitsQuadraticRecurrenceTrace"))
+            @compileError("quadratic recurrence backend requires structural admission");
+        if (Backend.admitsQuadraticRecurrenceTrace(n, n_cols)) {
+            try Backend.fillQuadraticRecurrenceTrace(
+                columns,
+                statement.log_n_rows,
+                quadratic_recurrence_recipe,
+            );
+            return columns;
         }
     }
 
+    // Storage positions are independent recurrence instances. Deriving the
+    // logical row from each contiguous bit-reversed-circle position avoids a
+    // full permutation table and lets workers write coalesced column ranges.
+    const FillWork = struct {
+        columns: [][]M31,
+        log_n_rows: u32,
+        start: usize,
+        end: usize,
+
+        fn run(work: *@This()) void {
+            var storage_index = work.start;
+            while (storage_index + m31.PACK_WIDTH <= work.end) : (storage_index += m31.PACK_WIDTH) {
+                var seed_values: [m31.PACK_WIDTH]u32 = undefined;
+                for (&seed_values, 0..) |*seed, lane| {
+                    seed.* = @intCast(logicalRow(
+                        work.log_n_rows,
+                        storage_index + lane,
+                    ));
+                }
+
+                var previous: m31.PackedM31 = @splat(1);
+                var current: m31.PackedM31 = seed_values;
+                m31.storePacked(work.columns[0].ptr + storage_index, previous);
+                m31.storePacked(work.columns[1].ptr + storage_index, current);
+                for (work.columns[2..]) |column| {
+                    const next = m31.addPacked(
+                        m31.mulPacked(previous, previous),
+                        m31.mulPacked(current, current),
+                    );
+                    m31.storePacked(column.ptr + storage_index, next);
+                    previous = current;
+                    current = next;
+                }
+            }
+
+            while (storage_index < work.end) : (storage_index += 1) {
+                var previous = M31.one();
+                var current = M31.fromCanonical(@intCast(logicalRow(
+                    work.log_n_rows,
+                    storage_index,
+                )));
+                work.columns[0][storage_index] = previous;
+                work.columns[1][storage_index] = current;
+                for (work.columns[2..]) |column| {
+                    const next = previous.square().add(current.square());
+                    column[storage_index] = next;
+                    previous = current;
+                    current = next;
+                }
+            }
+        }
+    };
+
+    const active_pool = work_pool.getGlobalPool();
+    const worker_count = if (active_pool) |pool|
+        @max(@as(usize, 1), @min(pool.workerCount(), n / 4096))
+    else
+        1;
+    const chunk_len = std.math.divCeil(usize, n, worker_count) catch unreachable;
+    var works: [work_pool.MAX_WORKERS]FillWork = undefined;
+    for (0..worker_count) |worker| {
+        const start = worker * chunk_len;
+        works[worker] = .{
+            .columns = columns,
+            .log_n_rows = statement.log_n_rows,
+            .start = start,
+            .end = @min(n, start + chunk_len),
+        };
+    }
+    if (worker_count > 1) {
+        var wait_group: std.Thread.WaitGroup = .{};
+        for (works[1..worker_count]) |*work| {
+            active_pool.?.spawnWg(&wait_group, FillWork.run, .{work});
+        }
+        FillWork.run(&works[0]);
+        wait_group.wait();
+    } else {
+        FillWork.run(&works[0]);
+    }
+
     return columns;
+}
+
+inline fn logicalRow(log_n_rows: u32, storage_index: usize) usize {
+    const circle_index = core_utils.bitReverseIndex(storage_index, log_n_rows);
+    return core_utils.circleDomainIndexToCosetIndex(circle_index, log_n_rows);
 }
 
 pub fn deinit(allocator: std.mem.Allocator, columns: [][]M31) void {
@@ -88,10 +170,22 @@ pub fn prepare(
     allocator: std.mem.Allocator,
     statement: Statement,
 ) (std.mem.Allocator.Error || Error)!PreparedInput {
-    const columns = try generate(allocator, statement);
-    var main = prover_transaction.OwnedColumns.init(
-        try intoOwnedColumns(allocator, statement.log_n_rows, columns),
-    );
+    return prepareForBackend(GenericBackend, allocator, statement);
+}
+
+pub fn prepareForBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) anyerror!PreparedInput {
+    var main = if (try generateContiguousOwnedForBackend(Backend, allocator, statement)) |owned|
+        owned
+    else blk: {
+        const columns = try generateForBackend(Backend, allocator, statement);
+        break :blk prover_transaction.OwnedColumns.init(
+            try intoOwnedColumns(allocator, statement.log_n_rows, columns),
+        );
+    };
     errdefer main.deinit(allocator);
 
     var preprocessed = prover_transaction.OwnedColumns.init(
@@ -99,14 +193,63 @@ pub fn prepare(
     );
     errdefer preprocessed.deinit(allocator);
 
+    const preprocessed_taken = preprocessed.takeWithBacking();
+    const main_taken = main.takeWithBacking();
     return .{
         .request = statement,
-        .trace = try prover_transaction.PreparedTrace.initOwned(
+        .trace = try prover_transaction.PreparedTrace.initOwnedWithBacking(
             allocator,
-            preprocessed.take(),
-            main.take(),
+            prover_transaction.OwnedColumns{
+                .columns = preprocessed_taken.columns,
+                .backing_buffers = preprocessed_taken.backing_buffers,
+            },
+            prover_transaction.OwnedColumns{
+                .columns = main_taken.columns,
+                .backing_buffers = main_taken.backing_buffers,
+            },
         ),
     };
+}
+
+fn generateContiguousOwnedForBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) anyerror!?prover_transaction.OwnedColumns {
+    if (comptime !@hasDecl(Backend, "preferContiguousQuadraticRecurrenceTrace") or
+        !@hasDecl(Backend, "admitsQuadraticRecurrenceTrace") or
+        !@hasDecl(Backend, "fillQuadraticRecurrenceTrace")) return null;
+    if (!Backend.preferContiguousQuadraticRecurrenceTrace) return null;
+    if (statement.log_n_rows == 0 or statement.log_n_rows >= 31)
+        return error.InvalidLogSize;
+    if (statement.sequence_len < 2) return error.InvalidSequenceLength;
+
+    const row_count = try checkedPow2(statement.log_n_rows);
+    const column_count: usize = @intCast(statement.sequence_len);
+    if (!Backend.admitsQuadraticRecurrenceTrace(row_count, column_count)) return null;
+    const cell_count = std.math.mul(usize, row_count, column_count) catch
+        return error.InvalidLogSize;
+
+    const arena = try allocator.alloc(M31, cell_count);
+    errdefer allocator.free(arena);
+    const backing_buffers = try allocator.alloc([]M31, 1);
+    errdefer allocator.free(backing_buffers);
+    backing_buffers[0] = arena;
+    const columns = try allocator.alloc(prover_pcs.ColumnEvaluation, column_count);
+    errdefer allocator.free(columns);
+    const views = try allocator.alloc([]M31, column_count);
+    defer allocator.free(views);
+    for (columns, views, 0..) |*column, *view, index| {
+        const values = arena[index * row_count ..][0..row_count];
+        column.* = .{ .log_size = statement.log_n_rows, .values = values };
+        view.* = values;
+    }
+    try Backend.fillQuadraticRecurrenceTrace(
+        views,
+        statement.log_n_rows,
+        quadratic_recurrence_recipe,
+    );
+    return prover_transaction.OwnedColumns.initWithBacking(columns, backing_buffers);
 }
 
 fn checkedPow2(log_size: u32) Error!usize {

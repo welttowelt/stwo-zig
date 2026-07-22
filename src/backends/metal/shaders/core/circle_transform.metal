@@ -231,9 +231,10 @@ kernel void stwo_zig_circle_rfft_layer_sparse(
     arena[idx1] = m31_sub(lhs, product);
 }
 
-// Composes forward layers L and L-1. Each thread owns the four values touched
-// by both layers, so the intermediate values remain in registers and need no
-// device-wide barrier or second arena pass.
+// Composes two or three adjacent layers. Bit 30 selects the eight-value,
+// three-layer schedule and bit 31 selects inverse order. Each thread owns the
+// complete radix tuple, so intermediates remain in registers and never need a
+// device-wide barrier or another full-arena pass.
 kernel void stwo_zig_circle_rfft_radix4_sparse(
     device uint *arena [[buffer(0)]],
     device const uint *destination_offsets [[buffer(1)]],
@@ -243,13 +244,102 @@ kernel void stwo_zig_circle_rfft_radix4_sparse(
     constant uint &column_count [[buffer(5)]],
     uint2 position [[thread_position_in_grid]]
 ) {
-    uint tuple_count = 1u << (log_size - 2u);
-    uint stage = layer & 0x7fffffffu;
+    bool radix8 = (layer & 0x40000000u) != 0u;
+    uint tuple_count = 1u << (log_size - (radix8 ? 3u : 2u));
+    uint stage = layer & 0x3fffffffu;
     bool inverse = (layer & 0x80000000u) != 0u;
     if (position.x >= tuple_count || position.y >= column_count ||
-        (!inverse && stage < 2u) || (inverse && stage + 1u >= log_size)) return;
+        (!inverse && stage < (radix8 ? 3u : 2u)) ||
+        (inverse && stage + (radix8 ? 2u : 1u) >= log_size)) return;
 
     uint pair_count = 1u << (log_size - 1u);
+    if (radix8) {
+        uint indices[8];
+        uint values[8];
+        if (inverse) {
+            uint distance = 1u << stage;
+            uint group = position.x >> stage;
+            uint lane = position.x & (distance - 1u);
+            uint base = destination_offsets[position.y] + (group << (stage + 3u));
+            for (uint item = 0u; item < 8u; ++item) {
+                indices[item] = base + lane + item * distance;
+                values[item] = arena[indices[item]];
+            }
+
+            uint first_offset = pair_count - (1u << (log_size - stage));
+            for (uint pair = 0u; pair < 4u; ++pair) {
+                uint lo = pair << 1u, hi = lo + 1u;
+                uint lhs = values[lo], rhs = values[hi];
+                values[lo] = m31_add(lhs, rhs);
+                values[hi] = m31_mul(
+                    m31_sub(lhs, rhs),
+                    twiddles[first_offset + (group << 2u) + pair]
+                );
+            }
+
+            uint second_offset = pair_count - (1u << (log_size - stage - 1u));
+            for (uint block = 0u; block < 2u; ++block) {
+                uint start = block << 2u;
+                uint twiddle = twiddles[second_offset + (group << 1u) + block];
+                for (uint item = 0u; item < 2u; ++item) {
+                    uint lo = start + item, hi = lo + 2u;
+                    uint lhs = values[lo], rhs = values[hi];
+                    values[lo] = m31_add(lhs, rhs);
+                    values[hi] = m31_mul(m31_sub(lhs, rhs), twiddle);
+                }
+            }
+
+            uint third_offset = pair_count - (1u << (log_size - stage - 2u));
+            uint third_twiddle = twiddles[third_offset + group];
+            for (uint item = 0u; item < 4u; ++item) {
+                uint lhs = values[item], rhs = values[item + 4u];
+                values[item] = m31_add(lhs, rhs);
+                values[item + 4u] = m31_mul(m31_sub(lhs, rhs), third_twiddle);
+            }
+        } else {
+            uint distance = 1u << (stage - 2u);
+            uint group = position.x >> (stage - 2u);
+            uint lane = position.x & (distance - 1u);
+            uint base = destination_offsets[position.y] + (group << (stage + 1u));
+            for (uint item = 0u; item < 8u; ++item) {
+                indices[item] = base + lane + item * distance;
+                values[item] = arena[indices[item]];
+            }
+
+            uint first_offset = pair_count - (1u << (log_size - stage));
+            uint first_twiddle = twiddles[first_offset + group];
+            for (uint item = 0u; item < 4u; ++item) {
+                uint lhs = values[item];
+                uint rhs = m31_mul(values[item + 4u], first_twiddle);
+                values[item] = m31_add(lhs, rhs);
+                values[item + 4u] = m31_sub(lhs, rhs);
+            }
+
+            uint second_offset = pair_count - (1u << (log_size - stage + 1u));
+            for (uint block = 0u; block < 2u; ++block) {
+                uint start = block << 2u;
+                uint twiddle = twiddles[second_offset + (group << 1u) + block];
+                for (uint item = 0u; item < 2u; ++item) {
+                    uint lo = start + item, hi = lo + 2u;
+                    uint lhs = values[lo], rhs = m31_mul(values[hi], twiddle);
+                    values[lo] = m31_add(lhs, rhs);
+                    values[hi] = m31_sub(lhs, rhs);
+                }
+            }
+
+            uint third_offset = pair_count - (1u << (log_size - stage + 2u));
+            for (uint pair = 0u; pair < 4u; ++pair) {
+                uint lo = pair << 1u, hi = lo + 1u;
+                uint twiddle = twiddles[third_offset + (group << 2u) + pair];
+                uint lhs = values[lo], rhs = m31_mul(values[hi], twiddle);
+                values[lo] = m31_add(lhs, rhs);
+                values[hi] = m31_sub(lhs, rhs);
+            }
+        }
+        for (uint item = 0u; item < 8u; ++item) arena[indices[item]] = values[item];
+        return;
+    }
+
     if (inverse) {
         // Compose inverse stages L and L+1. The first stage operates on the
         // two adjacent pairs; the second combines their sums and weighted

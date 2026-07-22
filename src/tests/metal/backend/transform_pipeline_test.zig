@@ -6,8 +6,11 @@ const m31 = @import("stwo_core").fields.m31;
 const canonic = @import("stwo_core").poly.circle.canonic;
 const circle_poly = @import("stwo_prover_impl").poly.circle.poly;
 const twiddles = @import("stwo_prover_impl").poly.twiddles;
+const blake2_merkle = @import("stwo_core").vcs_lifted.blake2_merkle;
+const merkle_prover = @import("stwo_prover_impl").vcs_lifted.prover;
 
 const M31 = m31.M31;
+const Hasher = blake2_merkle.Blake2sMerkleHasher;
 
 test "metal: batched circle IFFT and RFFT match CPU" {
     const allocator = std.testing.allocator;
@@ -101,6 +104,115 @@ test "metal: fused circle LDE matches CPU" {
     );
     for (cpu_base, gpu_base) |cpu_column, gpu_column| try std.testing.expectEqualSlices(M31, cpu_column, gpu_column);
     for (cpu_extended, gpu_extended) |cpu_column, gpu_column| try std.testing.expectEqualSlices(M31, cpu_column, gpu_column);
+}
+
+test "metal: forced combined circle LDE and Merkle matches generic path" {
+    const allocator = std.testing.allocator;
+    const backing_allocator = std.heap.page_allocator;
+    var runtime = try metal.Runtime.init();
+    defer runtime.deinit();
+
+    const column_count = 64;
+    const base_log_size: u32 = 16;
+    const extended_log_size = base_log_size + 1;
+    const base_len = @as(usize, 1) << @intCast(base_log_size);
+    const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+    const base_domain = canonic.CanonicCoset.new(base_log_size).circleDomain();
+    const extended_domain = canonic.CanonicCoset.new(extended_log_size).circleDomain();
+    var base_tree = try twiddles.precomputeM31(allocator, base_domain.half_coset);
+    defer twiddles.deinitM31(allocator, &base_tree);
+    var extended_tree = try twiddles.precomputeM31(allocator, extended_domain.half_coset);
+    defer twiddles.deinitM31(allocator, &extended_tree);
+
+    const base_words = column_count * base_len;
+    const page_words = std.heap.pageSize() / @sizeOf(M31);
+    const extended_stride = extended_len + page_words + 16;
+    const extended_span = (column_count - 1) * extended_stride + extended_len;
+    const transform_words = std.mem.alignForward(usize, extended_span, page_words);
+    const metal_base_backing = try backing_allocator.alloc(M31, base_words);
+    defer backing_allocator.free(metal_base_backing);
+    const metal_extended_backing = try backing_allocator.alloc(M31, transform_words);
+    defer backing_allocator.free(metal_extended_backing);
+    const cpu_base_backing = try allocator.alloc(M31, base_words);
+    defer allocator.free(cpu_base_backing);
+    const cpu_extended_backing = try allocator.alloc(M31, column_count * extended_len);
+    defer allocator.free(cpu_extended_backing);
+
+    var source_columns: [column_count][]const M31 = undefined;
+    var metal_base: [column_count][]M31 = undefined;
+    var metal_extended: [column_count][]M31 = undefined;
+    var cpu_base: [column_count][]M31 = undefined;
+    var cpu_extended: [column_count][]M31 = undefined;
+    for (0..column_count) |column_index| {
+        metal_base[column_index] = metal_base_backing[column_index * base_len ..][0..base_len];
+        source_columns[column_index] = metal_base[column_index];
+        metal_extended[column_index] = metal_extended_backing[column_index * extended_stride ..][0..extended_len];
+        cpu_base[column_index] = cpu_base_backing[column_index * base_len ..][0..base_len];
+        cpu_extended[column_index] = cpu_extended_backing[column_index * extended_len ..][0..extended_len];
+        for (metal_base[column_index], 0..) |*value, row| {
+            value.* = M31.fromCanonical(@intCast(
+                (column_index * 104729 + row * 8191 + 43) % m31.Modulus,
+            ));
+        }
+        @memcpy(cpu_base[column_index], metal_base[column_index]);
+    }
+
+    const base_const_tree = twiddles.TwiddleTree([]const M31).init(
+        base_tree.root_coset,
+        base_tree.twiddles,
+        base_tree.itwiddles,
+    );
+    const extended_const_tree = twiddles.TwiddleTree([]const M31).init(
+        extended_tree.root_coset,
+        extended_tree.twiddles,
+        extended_tree.itwiddles,
+    );
+    try circle_poly.interpolateBuffersWithTwiddles(&cpu_base, base_domain, base_const_tree);
+    for (cpu_base, cpu_extended) |base, extended| {
+        @memcpy(extended[0..base.len], base);
+        @memset(extended[base.len..], M31.zero());
+    }
+    try circle_poly.evaluateBuffersWithTwiddles(
+        &cpu_extended,
+        extended_domain,
+        extended_const_tree,
+    );
+
+    var result = try runtime.transformCircleLdeAndCommit(
+        allocator,
+        &source_columns,
+        &metal_base,
+        &metal_extended,
+        metal_extended_backing,
+        0,
+        extended_stride,
+        base_tree.itwiddles,
+        extended_tree.twiddles,
+        base_log_size,
+        extended_log_size,
+        Hasher.leafSeed(),
+        Hasher.nodeSeed(),
+        Hasher.domainPrefixBytes(),
+    );
+    defer result.tree.deinit();
+    try std.testing.expect(result.gpu_ms > 0);
+    for (cpu_base, metal_base) |expected, actual| {
+        try std.testing.expectEqualSlices(M31, expected, actual);
+    }
+    for (cpu_extended, metal_extended) |expected, actual| {
+        try std.testing.expectEqualSlices(M31, expected, actual);
+    }
+
+    var generic_columns: [column_count][]const M31 = undefined;
+    for (cpu_extended, 0..) |column, index| generic_columns[index] = column;
+    var generic_tree = try merkle_prover.MerkleProverLifted(Hasher).commit(
+        allocator,
+        &generic_columns,
+    );
+    defer generic_tree.deinit(allocator);
+    const metal_root = try result.tree.root();
+    const generic_root: [32]u8 = @bitCast(generic_tree.root());
+    try std.testing.expectEqualSlices(u8, &generic_root, &metal_root.hash);
 }
 
 test "metal: prepared sparse coefficient LDE matches CPU" {

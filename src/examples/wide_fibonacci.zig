@@ -63,6 +63,14 @@ pub const genTrace = trace_input.generate;
 pub const deinitTrace = trace_input.deinit;
 pub const prepareInput = trace_input.prepare;
 
+pub fn prepareInputForBackend(
+    comptime Backend: type,
+    allocator: std.mem.Allocator,
+    statement: Statement,
+) anyerror!PreparedInput {
+    return trace_input.prepareForBackend(Backend, allocator, statement);
+}
+
 pub fn prove(
     allocator: std.mem.Allocator,
     pcs_config: pcs_core.PcsConfig,

@@ -76,6 +76,7 @@ test {
     _ = @import("../../../backends/metal/tests/command_epoch.zig");
     _ = @import("../../../backends/metal/tests/fri_fold_commit.zig");
     _ = @import("../../../backends/metal/tests/polynomial_eval.zig");
+    _ = @import("../../../backends/metal/tests/trace_generation.zig");
     _ = @import("transform_pipeline_test.zig");
     std.testing.refAllDecls(cairo_arena_binding);
     std.testing.refAllDecls(cairo_oods);

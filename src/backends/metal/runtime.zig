@@ -8,7 +8,7 @@ const command_epoch = @import("command_epoch.zig");
 const shader_manifest = @import("shaders/manifest.zig");
 
 comptime {
-    if (shader_manifest.core_shader_abi != 7) @compileError("Metal core shader ABI drift");
+    if (shader_manifest.core_shader_abi != 8) @compileError("Metal core shader ABI drift");
 }
 
 pub const CommandEpoch = command_epoch.CommandEpoch;
@@ -37,6 +37,7 @@ pub const MetalError = error{
     CircleTransformFailed,
     CompositionEvaluationFailed,
     WitnessFeedFailed,
+    TraceGenerationFailed,
     CommandEpochFailed,
 };
 
@@ -92,6 +93,11 @@ pub const FriLineCascadeResult = struct {
 pub const LdeCommitResult = struct {
     gpu_ms: f64,
     tree: Tree,
+};
+
+pub const TraceGenerationStats = struct {
+    gpu_ms: f64,
+    copyback_columns: u32,
 };
 
 const session_ops = @import("runtime/session.zig");
@@ -196,6 +202,7 @@ pub const Runtime = struct {
     pub const decommitTraceGroup = opening_ops.decommitTraceGroup;
     pub const decommitAssembleTrace = opening_ops.decommitAssembleTrace;
     pub const witnessInputGather = resident_ops.witnessInputGather;
+    pub const quadraticRecurrenceTrace = resident_ops.quadraticRecurrenceTrace;
     pub const executionTableSplit = resident_ops.executionTableSplit;
     pub const memoryAddressBaseTrace = resident_ops.memoryAddressBaseTrace;
     pub const memoryValueBaseTrace = resident_ops.memoryValueBaseTrace;

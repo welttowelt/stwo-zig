@@ -619,7 +619,10 @@ fn runSample(
 
     var request_timer = try std.time.Timer.start();
     var input_timer = try std.time.Timer.start();
-    const prepared = try Spec.prepareInput(allocator, request);
+    const prepared = if (comptime @hasDecl(Spec, "prepareInputWithEngine"))
+        try Spec.prepareInputWithEngine(Engine, allocator, request)
+    else
+        try Spec.prepareInput(allocator, request);
     const input_seconds = nsToSeconds(input_timer.read());
     var prepared_owned = true;
     errdefer if (prepared_owned) {

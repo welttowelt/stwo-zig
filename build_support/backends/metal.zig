@@ -8,9 +8,36 @@ pub const runtime_source = "src/backends/metal/runtime.m";
 pub const shader_manifest_source = "src/backends/metal/shader_manifest.zig";
 pub const runtime_modes = "source-jit";
 
+const runtime_source_units = [_][]const u8{
+    runtime_source,
+    "src/backends/metal/runtime_profile.m",
+    "src/backends/metal/runtime/compile_options.h",
+    "src/backends/metal/runtime/abi.h",
+    "src/backends/metal/runtime/initialization.m",
+    "src/backends/metal/runtime/runtime_queries.m",
+    "src/backends/metal/runtime/fri_fold_commit.m",
+    "src/backends/metal/runtime/fri_plans.m",
+    "src/backends/metal/runtime/transcript_decommitment.m",
+    "src/backends/metal/runtime/witness_primitives.m",
+    "src/backends/metal/runtime/resource_plans.m",
+    "src/backends/metal/runtime/circle_plans.m",
+    "src/backends/metal/runtime/merkle_epochs.m",
+    "src/backends/metal/runtime/auxiliary_plans.m",
+    "src/backends/metal/runtime/cache_identity.m",
+    "src/backends/metal/runtime/archive_store.m",
+    "src/backends/metal/runtime/dynamic_evaluation.m",
+    "src/backends/metal/runtime/composition.m",
+    "src/backends/metal/runtime/prepared_auxiliary.m",
+    "src/backends/metal/runtime/circle_legacy.m",
+    "src/backends/metal/runtime/circle_commit_epoch.m",
+    "src/backends/metal/runtime/polynomial_evaluation.m",
+    "src/backends/metal/runtime/quotients.m",
+    "src/backends/metal/runtime/lifecycle_and_tree.m",
+};
+
 pub fn sourceJitIdentity(b: *std.Build) graph_identity.RuntimeHooks {
     const shader_digest = nativeShaderDigest(b);
-    const runtime_digest = fileDigest(b, runtime_source);
+    const runtime_digest = runtimeSourceDigest(b);
     const profile = "sdk=macosx;language=metal3.1;math=safe;warnings-as-errors=true";
     var profile_digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(profile, &profile_digest, .{});
@@ -34,14 +61,19 @@ pub fn sourceJitIdentity(b: *std.Build) graph_identity.RuntimeHooks {
     };
 }
 
-fn fileDigest(b: *std.Build, path: []const u8) []const u8 {
-    const bytes = b.build_root.handle.readFileAlloc(b.allocator, path, 16 * 1024 * 1024) catch
-        std.debug.panic("cannot hash Metal runtime source: {s}", .{path});
-    return digestBytesAlloc(b, bytes);
-}
-
-fn digestBytesAlloc(b: *std.Build, bytes: []const u8) []const u8 {
-    const digest = digestBytes(bytes);
+fn runtimeSourceDigest(b: *std.Build) []const u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    for (runtime_source_units) |path| {
+        hasher.update(path);
+        hasher.update(&.{0});
+        const bytes = b.build_root.handle.readFileAlloc(
+            b.allocator,
+            path,
+            16 * 1024 * 1024,
+        ) catch std.debug.panic("cannot hash Metal runtime source: {s}", .{path});
+        hasher.update(bytes);
+    }
+    const digest = std.fmt.bytesToHex(hasher.finalResult(), .lower);
     return b.dupe(&digest);
 }
 

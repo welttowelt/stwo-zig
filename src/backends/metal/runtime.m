@@ -22,6 +22,7 @@
 @interface StwoZigMetalRuntime : NSObject
 @property(nonatomic, strong) id<MTLDevice> device;
 @property(nonatomic, strong) id<MTLCommandQueue> queue;
+@property(nonatomic, strong) id<MTLComputePipelineState> quadraticRecurrenceTrace;
 @property(nonatomic, strong) id<MTLComputePipelineState> leaves;
 @property(nonatomic, strong) id<MTLComputePipelineState> parents;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotients;
@@ -129,6 +130,7 @@
 @property(nonatomic, strong) id<MTLBuffer> compositionTraceBuffer;
 @property(nonatomic) uintptr_t compositionTraceHostBegin;
 @property(nonatomic) NSUInteger compositionTraceWordCount;
+@property(nonatomic, strong) NSHashTable *residentTraceTrees;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalLibraryKey *, id> *evalLibraries;
 @property(nonatomic, strong) NSMutableDictionary<StwoZigEvalPipelineKey *, id<MTLComputePipelineState>> *evalPipelines;
 @property(nonatomic) uint64_t evalLibraryCacheHits;
@@ -446,6 +448,9 @@
 @property(nonatomic, assign) uint32_t rootReadbackWordOffset;
 @property(nonatomic, assign) uint32_t logSize;
 @property(nonatomic, assign) double gpuMilliseconds;
+@property(nonatomic, strong) id<MTLBuffer> residentColumns;
+@property(nonatomic, assign) uintptr_t residentColumnsHostBegin;
+@property(nonatomic, assign) NSUInteger residentColumnsWordCount;
 @end
 @implementation StwoZigMetalTree
 @end
@@ -529,7 +534,10 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.device = device;
         runtime.queue = stwo_zig_metal_profile_queue([device newCommandQueue], device);
         runtime.evalLibraries = [NSMutableDictionary dictionary];
+        runtime.residentTraceTrees = [NSHashTable weakObjectsHashTable];
         runtime.evalPipelines = [NSMutableDictionary dictionary];
+        runtime.quadraticRecurrenceTrace = make_pipeline(device, library, @"stwo_zig_quadratic_recurrence_trace",
+                                                         error_message, error_message_len);
         runtime.leaves = make_pipeline(device, library, @"stwo_zig_blake2s_leaves",
                                        error_message, error_message_len);
         runtime.parents = make_pipeline(device, library, @"stwo_zig_blake2s_parents",
@@ -614,7 +622,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.compositionExpand = make_pipeline(device, library, @"stwo_zig_composition_expand_sparse", error_message, error_message_len);
         runtime.compositionRandomPowers = make_pipeline(device, library, @"stwo_zig_composition_random_powers", error_message, error_message_len);
         runtime.compositionExtParams = make_pipeline(device, library, @"stwo_zig_composition_ext_params", error_message, error_message_len);
-        if (runtime.queue == nil || runtime.leaves == nil || runtime.parents == nil ||
+        if (runtime.queue == nil || runtime.quadraticRecurrenceTrace == nil ||
+            runtime.leaves == nil || runtime.parents == nil ||
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
             runtime.circleRfftLayer == nil || runtime.circleRfftLast == nil || runtime.circleRescale == nil ||

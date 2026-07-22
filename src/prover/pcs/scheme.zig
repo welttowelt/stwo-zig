@@ -46,6 +46,36 @@ const CoefficientRetentionPolicy = column_storage.CoefficientRetentionPolicy;
 
 pub const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 
+fn detachBackedColumns(
+    allocator: std.mem.Allocator,
+    columns: []const ColumnEvaluation,
+) ![]ColumnEvaluation {
+    const detached = try allocator.alloc(ColumnEvaluation, columns.len);
+    var initialized: usize = 0;
+    errdefer {
+        for (detached[0..initialized]) |column| allocator.free(column.values);
+        allocator.free(detached);
+    }
+    for (columns, 0..) |column, index| {
+        detached[index] = .{
+            .log_size = column.log_size,
+            .values = try allocator.dupe(M31, column.values),
+        };
+        initialized += 1;
+    }
+    return detached;
+}
+
+fn freeBackedColumns(
+    allocator: std.mem.Allocator,
+    columns: []ColumnEvaluation,
+    backing_buffers: [][]M31,
+) void {
+    allocator.free(columns);
+    for (backing_buffers) |buffer| allocator.free(buffer);
+    allocator.free(backing_buffers);
+}
+
 pub fn CommitmentTreeProver(comptime H: type) type {
     return commitment_tree.CommitmentTreeProver(H);
 }
@@ -165,12 +195,52 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
+            return self.commitOwnedWithRecorderAndBacking(
+                allocator,
+                owned_columns,
+                null,
+                recorder,
+                channel,
+            );
+        }
+
+        /// Ownership-preserving commit for columns that borrow one or more
+        /// shared allocations. Backends may adopt those allocations; generic
+        /// paths detach them into ordinary per-column ownership first.
+        pub fn commitOwnedWithRecorderAndBacking(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            input_columns: []ColumnEvaluation,
+            input_backing_buffers: ?[][]M31,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            var owned_columns = input_columns;
+            var backing_buffers = input_backing_buffers;
             if (column_preparation.columnEvaluationsAreConstant(owned_columns)) {
+                if (backing_buffers) |buffers| {
+                    const detached = detachBackedColumns(allocator, owned_columns) catch |err| {
+                        freeBackedColumns(allocator, owned_columns, buffers);
+                        return err;
+                    };
+                    freeBackedColumns(allocator, owned_columns, buffers);
+                    owned_columns = detached;
+                    backing_buffers = null;
+                }
                 return commit_dispatch.commitConstant(B, H, self, allocator, owned_columns, channel);
             }
             // Auto-dispatch to streaming for large column sets (bounds peak memory).
             const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
             if (owned_columns.len >= streaming_column_threshold and !backend_prefers_monolithic) {
+                if (backing_buffers) |buffers| {
+                    const detached = detachBackedColumns(allocator, owned_columns) catch |err| {
+                        freeBackedColumns(allocator, owned_columns, buffers);
+                        return err;
+                    };
+                    freeBackedColumns(allocator, owned_columns, buffers);
+                    owned_columns = detached;
+                    backing_buffers = null;
+                }
                 return self.commitOwnedStreamingWithRecorder(
                     allocator,
                     owned_columns,
@@ -187,10 +257,24 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 self.config.fri_config.log_blowup_factor,
                 self.coefficient_retention_policy,
                 &self.twiddle_source,
+                backing_buffers,
             )) |committed| {
                 var tree = committed;
                 errdefer tree.deinit(allocator);
                 return self.appendCommittedTree(allocator, tree, channel);
+            }
+
+            // A shared arena cannot flow into generic code that frees each
+            // slice independently. Detach only after every adopting backend
+            // has declined without mutation.
+            if (backing_buffers) |buffers| {
+                const detached = detachBackedColumns(allocator, owned_columns) catch |err| {
+                    freeBackedColumns(allocator, owned_columns, buffers);
+                    return err;
+                };
+                freeBackedColumns(allocator, owned_columns, buffers);
+                owned_columns = detached;
+                backing_buffers = null;
             }
 
             if (deferred_commit.canDeferFirstTree(self, owned_columns) and
