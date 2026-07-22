@@ -24,6 +24,7 @@ const pow_search = @import("proof_of_work.zig");
 const sampled_value_transcript = @import("sampled_value_transcript.zig");
 const sampled_value_evaluation = @import("sampled_values.zig");
 const tree_builders = @import("tree_builders.zig");
+const commit_dispatch = @import("commit_dispatch.zig");
 
 pub const quotient_ops = @import("quotient_ops.zig");
 
@@ -165,21 +166,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             channel: anytype,
         ) !void {
             if (column_preparation.columnEvaluationsAreConstant(owned_columns)) {
-                errdefer column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
-                var prepared = try column_preparation.prepareConstantColumnsForCommitOwned(
-                    allocator,
-                    owned_columns,
-                    self.config.fri_config.log_blowup_factor,
-                    self.coefficient_retention_policy,
-                );
-                errdefer prepared.deinit(allocator);
-                var tree = try BackendCommitmentTree.initOwnedWithCoefficients(
-                    allocator,
-                    prepared.columns,
-                    prepared.coefficients,
-                );
-                errdefer tree.deinit(allocator);
-                return self.appendCommittedTree(allocator, tree, channel);
+                return commit_dispatch.commitConstant(B, H, self, allocator, owned_columns, channel);
             }
             // Auto-dispatch to streaming for large column sets (bounds peak memory).
             const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
@@ -191,6 +178,19 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     recorder,
                     channel,
                 );
+            }
+            if (try commit_dispatch.tryPrecommitted(
+                B,
+                H,
+                allocator,
+                owned_columns,
+                self.config.fri_config.log_blowup_factor,
+                self.coefficient_retention_policy,
+                &self.twiddle_source,
+            )) |committed| {
+                var tree = committed;
+                errdefer tree.deinit(allocator);
+                return self.appendCommittedTree(allocator, tree, channel);
             }
 
             if (deferred_commit.canDeferFirstTree(self, owned_columns) and
@@ -799,7 +799,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             };
         }
 
-        fn appendCommittedTree(
+        pub fn appendCommittedTree(
             self: *Self,
             allocator: std.mem.Allocator,
             tree: BackendCommitmentTree,

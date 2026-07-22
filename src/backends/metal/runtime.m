@@ -748,6 +748,7 @@ static void encode_fri_inverse_domain(
 #import "runtime/composition.m"
 #import "runtime/prepared_auxiliary.m"
 #import "runtime/circle_legacy.m"
+#import "runtime/circle_commit_epoch.m"
 #import "runtime/polynomial_evaluation.m"
 #import "runtime/quotients.m"
 #import "runtime/lifecycle_and_tree.m"
