@@ -9,6 +9,70 @@ everything below is contract.
 This file is written to be handed to a coding agent verbatim, together with the
 Participate block on [autoresearch.fun](https://autoresearch.fun/p/stwo-zig-metal).
 
+## PR6 Supremacy Gate (active research objective)
+
+> **PR6 Supremacy: not achieved.**
+
+The dedicated `pr6_supremacy` manifest board is intentionally disabled and is
+not promotion eligible. It may be enabled only after one clean immutable Zig
+commit passes every mandatory cell below on the locked Apple M5 Max judge. A
+partial matrix, a claimed/advisory result, an objective-only promotion, or a
+fast diagnostic `prove_ms` is not supremacy evidence.
+
+The performance peer is `ClementWalter/stwo` commit
+`07ea1ccca13351028da94e66babf79e7ce91437f`, built with
+`nightly-2025-07-14`. The final correctness authority remains the repository
+pin of `starkware-libs/stwo` at
+`a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2`. Peer and candidate must be
+prebuilt optimized binaries with default parallel proving, measured on the
+same host, with binary, shader, source-tree, and toolchain digests retained.
+
+The exact workload registry contains 18 mandatory statements:
+
+- width-100 wide Fibonacci at logs 14, 16, 18, 20, and 22, with PR6 CPU and
+  Metal peers and Zig CPU and Metal candidates;
+- the full PR6 Blake scheduler/round/XOR-table AIR at logs 10, 12, 14, and 16;
+- the PR6 Plonk AIR at logs 12, 14, and 16, using LogUp, blowup 4,
+  last-layer degree bound 5, and 64 queries;
+- fixed width-100 wide Fibonacci at every log from 4 through 8; and
+- the PR6 state-machine statement at log 8.
+
+Blake, Plonk, fixed-wide-Fibonacci, and state-machine peer comparisons are CPU
+only because PR6 exposes no comparable Metal lane for those cells. Zig Metal
+must still prove the exact same statements, produce canonical bytes identical
+to Zig CPU, and report zero CPU fallbacks. Poseidon is excluded because PR6 has
+no matching implementation. The repository's pre-existing `blake`, `plonk`,
+and `state_machine` examples are not substitutes for these exact PR6 AIRs.
+
+Each directly comparable cell has two independent gates: a verified-request
+boundary beginning before input/trace/statement construction and ending only
+after independent verification, and a cold-process boundary beginning before
+process creation and ending after successful process exit. Source-JIT cost is
+included in cold-process time. `prove_ms` is diagnostic only. At least seven
+paired ABBA rounds follow ten warmups; every cell and boundary requires median
+candidate/peer ratio <= 0.80, 95% CI upper bound <= 0.90, and wins in both ABBA
+halves. The all-cell geometric-mean ratio must be <= 0.70, but cannot hide a
+losing cell. Failed, timed-out, skipped, discarded, missing, or incomparable
+samples fail closed.
+
+The opt-in `extreme` profile exists solely to admit log22 x width100: exactly
+419,430,400 committed cells and 6,710,886,400 accounted bytes under the
+16-byte model. Arithmetic is checked, admission fails closed, and the
+`standard` and `large` limits remain unchanged. Every sample retains admission
+and allocation status, peak RSS, available energy/instruction/cycle counters,
+proof bytes, both throughput units, Metal dispatch/synchronization/fallback
+counters, protocol/statement/transcript digests, and canonical proof identity.
+
+Before activation, every proof must verify in Zig and with the pinned Rust
+oracle, repeat deterministically, pass CPU/Metal canonical-byte equality where
+required, pass transcript/challenge parity fixtures, and reject controlled
+statement, commitment, and proof mutations. Structural accelerated-path tests
+must cover non-target shapes, including a test that forces the combined Metal
+LDE/Merkle path and byte-compares it with the generic path. The ordinary Native,
+Metal, and RISC-V portfolios remain guarded at their existing CI, RSS, energy,
+fallback, and proof-size budgets. Only an authenticated `kind: judged` verdict
+from the locked M5 workflow can activate the board.
+
 ## Optimization domain: Stwo at scale
 
 This is not a single-kernel or single-benchmark micro-optimization task. Treat

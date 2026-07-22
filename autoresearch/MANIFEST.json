@@ -247,6 +247,20 @@
           "min_rounds": 3,
           "max_rounds": 5
         }
+      },
+      "extreme": {
+        "scored": false,
+        "resource": {
+          "profile": "extreme",
+          "command_timeout_seconds": 7200,
+          "wall_clock_cap_seconds": 7200
+        },
+        "sampling": {
+          "warmups": 10,
+          "samples_per_round": 1,
+          "min_rounds": 7,
+          "max_rounds": 15
+        }
       }
     },
     "groups": {
@@ -513,6 +527,164 @@
             "class": "huge",
             "args": "--example wide_fibonacci --log-n-rows 20 --sequence-len 100 --resource-profile large --warmups {warmups} --samples {samples} --protocol functional",
             "native_unit": "trace rows"
+          }
+        }
+      },
+      "pr6_supremacy": {
+        "enabled": false,
+        "promotion_eligible": false,
+        "disabled_reason": "PR6 Supremacy remains disabled until every exact workload port, log22 oracle vector, both timing boundaries, locked-M5 statistical gate, and authenticated judged verdict are complete.",
+        "board": "pr6_supremacy",
+        "build_step": "zig build benchmark-native-cpu native-proof-bench-metal -Doptimize=ReleaseFast",
+        "binary": "autoresearch/reference/measure_peer_series.py",
+        "report_schema": "pr6_supremacy_v1",
+        "correctness_oracle": {
+          "authority": "pinned-rust-stwo",
+          "repository": "https://github.com/starkware-libs/stwo",
+          "commit": "a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2",
+          "performance_peer_repository": "https://github.com/ClementWalter/stwo",
+          "performance_peer_commit": "07ea1ccca13351028da94e66babf79e7ce91437f",
+          "rust_toolchain": "nightly-2025-07-14",
+          "final_validator": true
+        },
+        "gates_policy": {
+          "warmups": 10,
+          "samples_per_round": 1,
+          "min_rounds": 7,
+          "max_rounds": 15,
+          "wall_clock_cap_seconds": {
+            "small": 7200,
+            "wide": 7200,
+            "deep": 7200,
+            "xlarge": 7200,
+            "huge": 7200,
+            "extreme": 7200
+          }
+        },
+        "mechanism_telemetry": {
+          "fail_closed": true,
+          "required_fields": [
+            "prove_ms",
+            "verified_request_ms",
+            "cold_process_ms",
+            "trace_row_mhz",
+            "committed_cell_mhz",
+            "proof_bytes",
+            "canonical_proof_sha256",
+            "protocol_sha256",
+            "statement_sha256",
+            "transcript_state_blake2s",
+            "metal_dispatches",
+            "metal_synchronization_points",
+            "metal_cpu_fallbacks"
+          ]
+        },
+        "resource_telemetry": {
+          "fail_closed": true,
+          "scope": "each_verified_sample",
+          "required_fields": [
+            "peak_rss_bytes",
+            "admission_profile",
+            "admitted_committed_cells",
+            "admitted_accounted_bytes",
+            "allocation_failure"
+          ],
+          "best_effort_fields": [
+            "energy_nj",
+            "instructions",
+            "cycles"
+          ]
+        },
+        "workloads": {
+          "pr6_wide_fibonacci_log14": {
+            "class": "wide",
+            "args": "--workload wide-fibonacci --log-size 14 --width 100 --peer-backends cpu,metal --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_wide_fibonacci_log16": {
+            "class": "wide",
+            "args": "--workload wide-fibonacci --log-size 16 --width 100 --peer-backends cpu,metal --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_wide_fibonacci_log18": {
+            "class": "xlarge",
+            "args": "--workload wide-fibonacci --log-size 18 --width 100 --peer-backends cpu,metal --candidate-backends cpu,metal --resource-profile large",
+            "native_unit": "committed cells"
+          },
+          "pr6_wide_fibonacci_log20": {
+            "class": "huge",
+            "args": "--workload wide-fibonacci --log-size 20 --width 100 --peer-backends cpu,metal --candidate-backends cpu,metal --resource-profile large",
+            "native_unit": "committed cells"
+          },
+          "pr6_wide_fibonacci_log22": {
+            "class": "extreme",
+            "args": "--workload wide-fibonacci --log-size 22 --width 100 --peer-backends cpu,metal --candidate-backends cpu,metal --resource-profile extreme",
+            "native_unit": "committed cells"
+          },
+          "pr6_blake_log10": {
+            "class": "deep",
+            "args": "--workload blake --log-size 10 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Blake scheduler rows"
+          },
+          "pr6_blake_log12": {
+            "class": "deep",
+            "args": "--workload blake --log-size 12 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Blake scheduler rows"
+          },
+          "pr6_blake_log14": {
+            "class": "deep",
+            "args": "--workload blake --log-size 14 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Blake scheduler rows"
+          },
+          "pr6_blake_log16": {
+            "class": "deep",
+            "args": "--workload blake --log-size 16 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Blake scheduler rows"
+          },
+          "pr6_plonk_log12": {
+            "class": "deep",
+            "args": "--workload plonk --log-size 12 --log-blowup 4 --last-layer-log-degree-bound 5 --n-queries 64 --lookup logup --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Plonk gates"
+          },
+          "pr6_plonk_log14": {
+            "class": "deep",
+            "args": "--workload plonk --log-size 14 --log-blowup 4 --last-layer-log-degree-bound 5 --n-queries 64 --lookup logup --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Plonk gates"
+          },
+          "pr6_plonk_log16": {
+            "class": "deep",
+            "args": "--workload plonk --log-size 16 --log-blowup 4 --last-layer-log-degree-bound 5 --n-queries 64 --lookup logup --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "Plonk gates"
+          },
+          "pr6_fixed_wide_fibonacci_log4": {
+            "class": "small",
+            "args": "--workload fixed-wide-fibonacci --log-size 4 --width 100 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_fixed_wide_fibonacci_log5": {
+            "class": "small",
+            "args": "--workload fixed-wide-fibonacci --log-size 5 --width 100 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_fixed_wide_fibonacci_log6": {
+            "class": "small",
+            "args": "--workload fixed-wide-fibonacci --log-size 6 --width 100 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_fixed_wide_fibonacci_log7": {
+            "class": "small",
+            "args": "--workload fixed-wide-fibonacci --log-size 7 --width 100 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_fixed_wide_fibonacci_log8": {
+            "class": "small",
+            "args": "--workload fixed-wide-fibonacci --log-size 8 --width 100 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "committed cells"
+          },
+          "pr6_state_machine_log8": {
+            "class": "small",
+            "args": "--workload state-machine --log-size 8 --peer-backends cpu --candidate-backends cpu,metal --resource-profile standard",
+            "native_unit": "state-machine rows"
           }
         }
       }

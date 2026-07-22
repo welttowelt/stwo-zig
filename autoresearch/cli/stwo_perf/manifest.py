@@ -11,6 +11,7 @@ RUNGS = ("s1", "s2", "s3", "s4", "s5")
 ACCEPTANCE_FLOOR = "s3"
 REPORT_SCHEMA_VERSIONS = {
     "native_proof_v7": 7,
+    "pr6_supremacy_v1": 1,
     "riscv_proof_v2": 2,
 }
 
@@ -28,7 +29,7 @@ SEARCH_HEALTH_POLICY_KEYS = frozenset({
 })
 MAX_GROUP_WALL_CLOCK_SECONDS = 7200
 MAX_COMMAND_TIMEOUT_SECONDS = 7200
-RESOURCE_PROFILES = frozenset(("standard", "large"))
+RESOURCE_PROFILES = frozenset(("standard", "large", "extreme"))
 METAL_CALIBRATION_SCHEMA = "stwo_perf_metal_calibration_freeze_v2"
 METAL_CALIBRATION_FIELDS = frozenset({
     "schema", "status", "board", "epoch", "artifact", "artifact_sha256",
@@ -63,6 +64,36 @@ RISCV_RESOURCE_TELEMETRY = {
         "instructions",
         "cycles",
     ],
+}
+PR6_MECHANISM_TELEMETRY = {
+    "fail_closed": True,
+    "required_fields": [
+        "prove_ms",
+        "verified_request_ms",
+        "cold_process_ms",
+        "trace_row_mhz",
+        "committed_cell_mhz",
+        "proof_bytes",
+        "canonical_proof_sha256",
+        "protocol_sha256",
+        "statement_sha256",
+        "transcript_state_blake2s",
+        "metal_dispatches",
+        "metal_synchronization_points",
+        "metal_cpu_fallbacks",
+    ],
+}
+PR6_RESOURCE_TELEMETRY = {
+    "fail_closed": True,
+    "scope": "each_verified_sample",
+    "required_fields": [
+        "peak_rss_bytes",
+        "admission_profile",
+        "admitted_committed_cells",
+        "admitted_accounted_bytes",
+        "allocation_failure",
+    ],
+    "best_effort_fields": ["energy_nj", "instructions", "cycles"],
 }
 
 
@@ -452,13 +483,15 @@ def _validate(raw: dict) -> None:
                     f"{w.get('class')!r}"
                 )
             class_spec = registry["classes"][w["class"]]
+            resource_profile = class_spec["resource"]["profile"]
             if (
-                class_spec["resource"]["profile"] == "large"
-                and "--resource-profile large" not in str(w.get("args", ""))
+                resource_profile != "standard"
+                and f"--resource-profile {resource_profile}" not in str(w.get("args", ""))
             ):
                 raise ManifestError(
-                    f"workload {gid}/{wid} belongs to large resource class "
-                    f"{w['class']} but does not request --resource-profile large"
+                    f"workload {gid}/{wid} belongs to {resource_profile} resource class "
+                    f"{w['class']} but does not request "
+                    f"--resource-profile {resource_profile}"
                 )
         _validate_group_holdout_generator(
             gid, spec.get("holdout_generator", {}), spec["workloads"]
@@ -503,6 +536,14 @@ def _validate_group_mechanism_telemetry(
 ) -> None:
     if not isinstance(telemetry, dict):
         raise ManifestError(f"workload group {gid}: mechanism_telemetry must be an object")
+    if report_schema == "pr6_supremacy_v1":
+        if telemetry != PR6_MECHANISM_TELEMETRY:
+            raise ManifestError(
+                f"workload group {gid}: PR6 mechanism_telemetry must exactly "
+                "require both timing boundaries, proof/protocol identities, and "
+                "Metal dispatch/synchronization/fallback counters"
+            )
+        return
     if report_schema != "riscv_proof_v2":
         return
     if set(telemetry) != {"fail_closed", "required_fields"}:
@@ -593,6 +634,13 @@ def _validate_group_resource_telemetry(
 ) -> None:
     if not isinstance(telemetry, dict):
         raise ManifestError(f"workload group {gid}: resource_telemetry must be an object")
+    if report_schema == "pr6_supremacy_v1":
+        if telemetry != PR6_RESOURCE_TELEMETRY:
+            raise ManifestError(
+                f"workload group {gid}: PR6 resource_telemetry must exactly "
+                "require per-sample admission, allocation, and peak-RSS evidence"
+            )
+        return
     if report_schema != "riscv_proof_v2":
         if telemetry:
             raise ManifestError(
@@ -655,7 +703,10 @@ def _validate_metal_calibration(harness: object, classes: dict) -> None:
                 or any(char not in "0123456789abcdef" for char in value)
             ):
                 raise ManifestError(f"frozen Metal calibration has invalid {field}")
-    class_names = list(classes)
+    # Calibration anchors belong to the live scored Metal portfolio. Staged,
+    # non-scored resource classes (for example the opt-in PR6 extreme profile)
+    # must not silently widen or invalidate that frozen score universe.
+    class_names = [name for name, spec in classes.items() if spec["scored"]]
     for field in ("anchor_prove_ms", "anchor_request_ms", "anchor_resources"):
         anchors = harness.get(field, {}).get("core_metal")
         if not isinstance(anchors, dict) or list(anchors) != class_names:

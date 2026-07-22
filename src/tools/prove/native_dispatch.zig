@@ -71,6 +71,7 @@ fn nativeArgs(request: cli.Run, execution: Execution) runner.config.Args {
         .resource_profile = switch (request.resource_profile) {
             .standard => .standard,
             .large => .large,
+            .extreme => .extreme,
         },
         .metal_runtime = .{
             .mode = switch (request.metal_runtime.mode) {
@@ -129,6 +130,25 @@ test "native dispatch: CLI workload mapping preserves parameters" {
     try std.testing.expectEqual(@as(u32, 31), args.wide_fibonacci.sequence_len);
     try std.testing.expectEqual(runner.config.ResourceProfile.large, args.resource_profile);
     try std.testing.expectEqualStrings("proof.json", args.proof_artifact_report_path.?);
+}
+
+test "native dispatch: extreme resource profile reaches the native runner" {
+    const args = nativeArgs(.{
+        .backend = .cpu,
+        .protocol = .secure,
+        .workload = .{ .wide_fibonacci = .{ .log_n_rows = 22, .sequence_len = 100 } },
+        .blake2_backend = .auto,
+        .metal_runtime = .{},
+        .resource_profile = .extreme,
+    }, .{
+        .warmups = 0,
+        .samples = 1,
+        .profiled = false,
+        .proof_temporary = null,
+        .proof_report_path = null,
+    });
+
+    try std.testing.expectEqual(runner.config.ResourceProfile.extreme, args.resource_profile);
 }
 
 test "native dispatch: security profiles map by meaning, not enum ordinal" {

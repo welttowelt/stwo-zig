@@ -54,18 +54,21 @@ struct Report {
     trace_generation_backend: &'static str,
     prove_samples_ms: Vec<f64>,
     verify_samples_ms: Vec<f64>,
-    total_samples_ms: Vec<f64>,
+    verified_request_samples_ms: Vec<f64>,
     prove_median_ms: f64,
     verify_median_ms: f64,
-    total_median_ms: f64,
+    verified_request_median_ms: f64,
     row_mhz: f64,
     proof_size_bytes: usize,
     commitments: usize,
     security_bits: u32,
     fri_queries: usize,
     pow_bits: u32,
-    proof_debug_sha256: String,
-    proof_debug_bytes: usize,
+    log_blowup_factor: u32,
+    log_last_layer_degree_bound: u32,
+    fold_step: u32,
+    proof_canonical_sha256: String,
+    proof_canonical_bytes: usize,
     all_proofs_identical: bool,
     all_verified: bool,
 }
@@ -73,13 +76,17 @@ struct Report {
 struct Sample {
     prove_ms: f64,
     verify_ms: f64,
+    verified_request_ms: f64,
     proof_size_bytes: usize,
     commitments: usize,
     security_bits: u32,
     fri_queries: usize,
     pow_bits: u32,
-    proof_debug_sha256: String,
-    proof_debug_bytes: usize,
+    log_blowup_factor: u32,
+    log_last_layer_degree_bound: u32,
+    fold_step: u32,
+    proof_canonical_sha256: String,
+    proof_canonical_bytes: usize,
     trace_generated_on_metal: bool,
 }
 
@@ -151,7 +158,13 @@ fn generate_trace(
     (generate_trace_cpu_parallel::<N_COLUMNS>(inputs), false)
 }
 
-fn run_sample(inputs: &[FibInput], log_n_instances: u32) -> Sample {
+fn run_sample(log_n_instances: u32) -> Sample {
+    // The supremacy verified-request boundary starts before deterministic input
+    // construction. Backend/Metal initialization is intentionally performed by
+    // `require_backend` before warmups and is measured only by the outer cold
+    // process boundary.
+    let request_start = Instant::now();
+    let inputs = test_inputs(log_n_instances);
     let config = PcsConfig::default();
     let prove_start = Instant::now();
     let (twiddles, (trace, trace_generated_on_metal)) = rayon::join(
@@ -162,7 +175,7 @@ fn run_sample(inputs: &[FibInput], log_n_instances: u32) -> Sample {
                     .half_coset,
             )
         },
-        || generate_trace(inputs),
+        || generate_trace(&inputs),
     );
     let prover_channel = &mut Blake2sM31Channel::default();
     let mut commitment_scheme =
@@ -192,9 +205,9 @@ fn run_sample(inputs: &[FibInput], log_n_instances: u32) -> Sample {
     .expect("proof generation must succeed");
     let prove_ms = prove_start.elapsed().as_secs_f64() * 1000.0;
 
-    let proof_debug = format!("{proof:?}");
-    let proof_debug_sha256 = format!("{:x}", Sha256::digest(proof_debug.as_bytes()));
-    let proof_debug_bytes = proof_debug.len();
+    let canonical_proof = serde_json::to_vec(&proof).expect("proof encoding must succeed");
+    let proof_canonical_sha256 = format!("{:x}", Sha256::digest(&canonical_proof));
+    let proof_canonical_bytes = canonical_proof.len();
 
     let verify_start = Instant::now();
     let verifier_channel = &mut Blake2sM31Channel::default();
@@ -211,17 +224,22 @@ fn run_sample(inputs: &[FibInput], log_n_instances: u32) -> Sample {
     )
     .expect("proof verification must succeed");
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
+    let verified_request_ms = request_start.elapsed().as_secs_f64() * 1000.0;
 
     Sample {
         prove_ms,
         verify_ms,
-        proof_size_bytes: proof.size_estimate(),
+        verified_request_ms,
+        proof_size_bytes: proof_canonical_bytes,
         commitments: proof.commitments.len(),
         security_bits: proof.config.security_bits(),
         fri_queries: proof.config.fri_config.n_queries,
         pow_bits: proof.config.pow_bits,
-        proof_debug_sha256,
-        proof_debug_bytes,
+        log_blowup_factor: proof.config.fri_config.log_blowup_factor,
+        log_last_layer_degree_bound: proof.config.fri_config.log_last_layer_degree_bound,
+        fold_step: proof.config.fri_config.fold_step,
+        proof_canonical_sha256,
+        proof_canonical_bytes,
         trace_generated_on_metal,
     }
 }
@@ -262,32 +280,31 @@ fn main() {
     assert!(samples > 0);
 
     let metal_device_admitted = require_backend();
-    let inputs = test_inputs(log_n_instances);
     for _ in 0..warmups {
-        let _ = run_sample(&inputs, log_n_instances);
+        let _ = run_sample(log_n_instances);
     }
 
     let measured = (0..samples)
-        .map(|_| run_sample(&inputs, log_n_instances))
+        .map(|_| run_sample(log_n_instances))
         .collect_vec();
     let prove_samples_ms = measured.iter().map(|sample| sample.prove_ms).collect_vec();
     let verify_samples_ms = measured.iter().map(|sample| sample.verify_ms).collect_vec();
-    let total_samples_ms = measured
+    let verified_request_samples_ms = measured
         .iter()
-        .map(|sample| sample.prove_ms + sample.verify_ms)
+        .map(|sample| sample.verified_request_ms)
         .collect_vec();
     let prove_median_ms = median(&prove_samples_ms);
     let last = measured.last().expect("at least one sample");
     let all_proofs_identical = measured
         .iter()
-        .all(|sample| sample.proof_debug_sha256 == last.proof_debug_sha256);
+        .all(|sample| sample.proof_canonical_sha256 == last.proof_canonical_sha256);
     assert!(all_proofs_identical, "proofs changed between samples");
     assert!(measured
         .iter()
         .all(|sample| sample.trace_generated_on_metal == last.trace_generated_on_metal));
 
     let report = Report {
-        schema: "peer-stwo-wide-fibonacci-adapter-v1",
+        schema: "peer-stwo-wide-fibonacci-adapter-v2",
         peer_repository: PEER_REPOSITORY,
         peer_source_commit: PEER_COMMIT,
         backend: compiled_backend(),
@@ -302,9 +319,9 @@ fn main() {
         timing_scope: TimingScope {
             prove: "concurrent twiddle precompute and trace generation + commitments + prove",
             verify: "independent verifier over a cloned proof",
-            total: "prove + verify; primary peer verified-request metric",
+            total: "input construction + prove + proof hashing + independent verify; primary peer verified-request metric",
             exclusions:
-                "process startup, Metal pipeline warmup, input vector allocation, JSON report write",
+                "process startup, backend/Metal initialization, warmups, JSON report write",
         },
         metal_device_admitted,
         trace_generation_backend: if last.trace_generated_on_metal {
@@ -314,18 +331,21 @@ fn main() {
         },
         prove_samples_ms,
         verify_samples_ms: verify_samples_ms.clone(),
-        total_samples_ms: total_samples_ms.clone(),
+        verified_request_samples_ms: verified_request_samples_ms.clone(),
         prove_median_ms,
         verify_median_ms: median(&verify_samples_ms),
-        total_median_ms: median(&total_samples_ms),
+        verified_request_median_ms: median(&verified_request_samples_ms),
         row_mhz: (1u64 << log_n_instances) as f64 / prove_median_ms / 1000.0,
         proof_size_bytes: last.proof_size_bytes,
         commitments: last.commitments,
         security_bits: last.security_bits,
         fri_queries: last.fri_queries,
         pow_bits: last.pow_bits,
-        proof_debug_sha256: last.proof_debug_sha256.clone(),
-        proof_debug_bytes: last.proof_debug_bytes,
+        log_blowup_factor: last.log_blowup_factor,
+        log_last_layer_degree_bound: last.log_last_layer_degree_bound,
+        fold_step: last.fold_step,
+        proof_canonical_sha256: last.proof_canonical_sha256.clone(),
+        proof_canonical_bytes: last.proof_canonical_bytes,
         all_proofs_identical,
         all_verified: true,
     };

@@ -265,6 +265,7 @@ def _promotion_scope(manifest: Manifest) -> dict:
         groups[group.group_id] = {
             "board": group.board,
             "enabled": group.enabled,
+            "promotion_eligible": group.promotion_eligible,
             "disabled_reason": group.disabled_reason,
             "report_schema": group.report_schema,
             "workloads": {
@@ -272,7 +273,8 @@ def _promotion_scope(manifest: Manifest) -> dict:
                 for w in group.workloads
             },
         }
-    owned = sorted({g.board for g in manifest.groups()})
+    owned = sorted({g.board for g in manifest.groups() if g.promotion_eligible})
+    staged = sorted({g.board for g in manifest.groups() if not g.promotion_eligible})
     return {
         "class_registry": {
             cls.name: {
@@ -286,6 +288,7 @@ def _promotion_scope(manifest: Manifest) -> dict:
         },
         "groups": groups,
         "owned_boards": owned,
+        "staged_boards": staged,
         "future_boards": sorted(set(ledger.BOARDS) - set(owned)),
         "baselines": {
             "riscv": "vectors/reports/riscv_baselines/",
@@ -592,6 +595,24 @@ def _validate_reference(path: Path, document: dict) -> None:
             raise FeedError(f"reference file {path.name} peer series pin mismatch")
         if [size.get("log_n_rows") for size in document.get("sizes", [])] != [14, 16, 18, 20]:
             raise FeedError(f"reference file {path.name} peer series size vector mismatch")
+    elif document.get("schema") == "peer-relative-wide-fibonacci-series-point-v2":
+        peer = document.get("peer_source", {})
+        if (
+            peer.get("repository") != "https://github.com/ClementWalter/stwo"
+            or peer.get("commit") != "07ea1ccca13351028da94e66babf79e7ce91437f"
+        ):
+            raise FeedError(f"reference file {path.name} PR6 series pin mismatch")
+        if [size.get("log_n_rows") for size in document.get("sizes", [])] != [
+            14, 16, 18, 20, 22,
+        ]:
+            raise FeedError(f"reference file {path.name} PR6 series size vector mismatch")
+        contract = document.get("measurement_contract", {})
+        if (
+            contract.get("abba_rounds", 0) < 7
+            or contract.get("verified_warmups") != 10
+            or contract.get("timing_boundaries") != ["verified_request", "cold_process"]
+        ):
+            raise FeedError(f"reference file {path.name} PR6 timing contract mismatch")
 
 
 def _reference_input_files(repo: Path) -> list[Path]:
