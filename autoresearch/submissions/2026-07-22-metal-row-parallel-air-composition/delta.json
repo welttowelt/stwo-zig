@@ -12,7 +12,7 @@
     "src/backends/metal/runtime.zig": "sha256:d3fb30de09a475cad7f14d7060321795db6051067f7ed76f9af07aa31a9d5160",
     "src/backends/metal/runtime/bindings.zig": "sha256:43c084a2bfdc45b76801a240eb05aaae91dffddfc47f3d68b79d73d5c3e3fd00",
     "src/backends/metal/runtime/circle_legacy.m": "sha256:633670bc56909ead98043b0df28a31556f9addb89baed14f307efa791709b791",
-    "src/backends/metal/runtime/composition.m": "sha256:fd1e3e03e8de7f19aaf70b1168fcf8e3ad4b3cda1516e90697642c705e38cfe7",
+    "src/backends/metal/runtime/composition.m": "sha256:c41de65cfd01d5aabac036c675fda53d0626383210704e8f0bc72f98f5cd94ef",
     "src/backends/metal/runtime/polynomial_operations.zig": "sha256:8117203ee82eb1876a5b2296e29cfb85c44c197643f30ef9a11d13d795625f07",
     "src/backends/metal/runtime/secure_composition.zig": "sha256:30493f3fe102ce100fd9f0a06666e93f18876a85d0fea7c2dc8ed051f3fb1608",
     "src/backends/metal/shaders/core/circle_transform.metal": "sha256:cf5e4b81ae1c68b9c380e013040e239a4cef8c771aa320155930a76579716d99",
@@ -22,7 +22,7 @@
   },
   "transcripts": {
     "transcripts/session-01.md": {
-      "sha256": "4c2ec9c4c739f76cb3db24b6cec1215fd71b10abc32b82cd7d824f7896b45391",
+      "sha256": "0d7b85566eddfddfa79ffaf3d2af02dc3d10ddab4e8608a57cbc3bae8775dad9",
       "captured_by": "submitter"
     }
   },

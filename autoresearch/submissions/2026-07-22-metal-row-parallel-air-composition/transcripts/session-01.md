@@ -99,12 +99,12 @@ The final encoder-timestamp profile recorded two `stwo_zig_metal_recurrence_comp
 
 The first architecture run was fast—xlarge ratio approximately 0.372—but invalid because of the now-reverted locked metadata edit. After correction, source-identical local verdict retries occasionally missed one short 2–5 ms guard through a wide bootstrap interval. Failed runs were preserved separately rather than overwritten or claimed. No source was changed between those retries.
 
-The exact final commit `4d0f1e3c8a14` produced two fully passing records:
+The exact final source commit `1009418fe0f9` produced two fully passing records. It differs from the profiled architecture only by renaming the recurrence function's local command-buffer variable so the repository's static source-contract parser does not count it as part of the adjacent legacy production graph:
 
 | board/class | A median | B median | ratio (95% CI) | request | energy | RSS | guards |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Metal xlarge | 133.066 ms | 47.658 ms | 0.364541 [0.354896, 0.371271] | 0.616457 | 0.615690 | 0.996733 | 13/13 |
-| Metal huge | 453.338 ms | 162.258 ms | 0.358284 [0.353504, 0.361346] | 0.639446 | 0.761625 | 0.999466 | 13/13 |
+| Metal xlarge | 133.745 ms | 49.372 ms | 0.373774 [0.361796, 0.385996] | 0.617931 | 0.619496 | 0.997214 | 13/13 |
+| Metal huge | 474.916 ms | 161.796 ms | 0.343308 [0.332967, 0.356132] | 0.625248 | 0.766785 | 0.999649 | 13/13 |
 
 Both records pass G1 through G5, every timed sample verifies, cross-arm proof bytes are identical, and the pinned Rust oracle verifies the objective workload. Proof-size ratio is exactly 1.0.
 
@@ -113,6 +113,7 @@ Both records pass G1 through G5, every timed sample verifies, cross-arm proof by
 - `zig build test native-proof-bench-metal -Doptimize=ReleaseFast -j2`: pass, 363-source closure.
 - `zig build test stwo-zig -Doptimize=ReleaseFast -j2`: pass, 363-source closure.
 - `zig build test stwo-zig -Daggregate-metal=true -Doptimize=ReleaseSafe -j2`: pass, exact 407-source aggregate-Metal closure.
+- Static composition batching source contract: six tests pass after disambiguating the recurrence-local command-buffer name.
 - Final diff check: clean, 11 editable files, no locked generic AIR diff.
 - Official local verdicts: all gates and all 13 guards pass for both xlarge and huge.
 

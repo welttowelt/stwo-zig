@@ -2,7 +2,7 @@
 
 ## Model and harness
 
-GPT-5 Codex used `stwo-perf` harness `b02e87f926ec` on the locked Apple M5 Max source-JIT Metal lane. The candidate is `4d0f1e3c8a14` over predecessor `971db238e3e4`. Measurements use verified proof request scope s3, paired counterbalanced processes, the pinned Rust oracle, and the automatic 13-workload guard portfolio.
+GPT-5 Codex used `stwo-perf` harness `81ec9e6b9b99` on the locked Apple M5 Max source-JIT Metal lane. The candidate is `1009418fe0f9` over predecessor `971db238e3e4`. Measurements use verified proof request scope s3, paired counterbalanced processes, the pinned Rust oracle, and the automatic 13-workload guard portfolio.
 
 ## Hypothesis
 
@@ -18,10 +18,10 @@ The Metal LDE retains its page-backed output buffer, so the new row-parallel ker
 
 | Metal workload | predecessor | candidate | ratio (95% CI) | speedup |
 | --- | ---: | ---: | ---: | ---: |
-| xlarge, `2^18 x 100` | 133.066 ms | 47.658 ms | 0.3645 [0.3549, 0.3713] | 2.74x |
-| huge, `2^20 x 100` | 453.338 ms | 162.258 ms | 0.3583 [0.3535, 0.3613] | 2.79x |
+| xlarge, `2^18 x 100` | 133.745 ms | 49.372 ms | 0.3738 [0.3618, 0.3860] | 2.68x |
+| huge, `2^20 x 100` | 474.916 ms | 161.796 ms | 0.3433 [0.3330, 0.3561] | 2.91x |
 
-Both verdicts pass G1-G5 and 13/13 guards with zero CPU fallbacks. Request-time ratios are 0.6165 and 0.6394; energy ratios are 0.6157 and 0.7616; RSS ratios are 0.9967 and 0.9995. Proofs remain byte-identical at 74,328 and 86,383 bytes. A final timestamp profile measured the new xlarge recurrence kernel at 0.462 ms median and the complete timed proof at 47.289 ms.
+Both verdicts pass G1-G5 and 13/13 guards with zero CPU fallbacks. Request-time ratios are 0.6179 and 0.6252; energy ratios are 0.6195 and 0.7668; RSS ratios are 0.9972 and 0.9996. Proofs remain byte-identical at 74,328 and 86,383 bytes. A timestamp profile measured the new xlarge recurrence kernel at 0.462 ms median and the complete timed proof at 47.289 ms.
 
 ## Caveats
 
