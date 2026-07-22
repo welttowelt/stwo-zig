@@ -8,6 +8,8 @@ const qm31 = @import("stwo_core").fields.qm31;
 const quotients = @import("stwo_core").pcs.quotients;
 const row_executor = @import("quotient_row_executor.zig");
 const tile_sink = @import("quotient_tile_sink.zig");
+const compact_groups = @import("quotient_compact_groups.zig");
+const direct_plan = @import("quotient_direct_plan.zig");
 const constraints = @import("stwo_core").constraints;
 const domain_walk = @import("quotient_domain_walk.zig");
 const work_pool_mod = @import("../work_pool.zig");
@@ -25,59 +27,8 @@ pub inline fn shouldUseBoundedInput(lifting_log_size: u32) bool {
     return lifting_log_size >= 13;
 }
 
-pub const DirectContributionPlan = struct {
-    views: []row_executor.LiftingColumnView,
-    ranges: []row_executor.ColumnContributionRange,
-
-    pub fn deinit(self: *DirectContributionPlan, allocator: std.mem.Allocator) void {
-        allocator.free(self.views);
-        allocator.free(self.ranges);
-        self.* = undefined;
-    }
-};
-
-pub fn buildDirectContributionPlan(
-    allocator: std.mem.Allocator,
-    flat_columns: anytype,
-    active_column_indices: []const usize,
-    contribution_ranges: []const row_executor.ColumnContributionRange,
-    nonzero_columns: []const bool,
-    lifting_log_size: u32,
-) !DirectContributionPlan {
-    if (active_column_indices.len != contribution_ranges.len or
-        flat_columns.len != nonzero_columns.len)
-    {
-        return error.ShapeMismatch;
-    }
-
-    var nonzero_count: usize = 0;
-    for (active_column_indices) |column_index| {
-        if (column_index >= flat_columns.len) return error.ShapeMismatch;
-        if (nonzero_columns[column_index]) nonzero_count += 1;
-    }
-    const views = try allocator.alloc(row_executor.LiftingColumnView, nonzero_count);
-    errdefer allocator.free(views);
-    const ranges = try allocator.alloc(row_executor.ColumnContributionRange, nonzero_count);
-    errdefer allocator.free(ranges);
-
-    var write_index: usize = 0;
-    for (active_column_indices, contribution_ranges) |column_index, contribution_range| {
-        if (!nonzero_columns[column_index]) continue;
-        const column = flat_columns[column_index];
-        if (column.log_size > lifting_log_size) return error.InvalidColumnLogSize;
-        const log_shift = lifting_log_size - column.log_size;
-        if (log_shift >= @bitSizeOf(usize)) return error.InvalidColumnLogSize;
-        views[write_index] = .{
-            .values = column.values,
-            .shift_amt = @intCast(log_shift + 1),
-            .is_direct = column.log_size == lifting_log_size,
-        };
-        ranges[write_index] = contribution_range;
-        write_index += 1;
-    }
-    std.debug.assert(write_index == nonzero_count);
-    return .{ .views = views, .ranges = ranges };
-}
+pub const DirectContributionPlan = direct_plan.Plan;
+pub const buildDirectContributionPlan = direct_plan.build;
 
 pub const Scratch = struct {
     row_scratch: row_executor.Scratch,
@@ -202,6 +153,7 @@ pub const Work = struct {
     workspace: *quotients.RowQuotientWorkspace,
     scratch: ?*Scratch,
     domain: CircleDomain,
+    compact_groups: []const compact_groups.Group = &.{},
     column_views: []const row_executor.LiftingColumnView,
     contribution_ranges: []const row_executor.ColumnContributionRange,
     contributions: []const row_executor.ColumnContribution,
@@ -289,6 +241,16 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
 }
 
 fn accumulateTile(work: *const Work, scratch: *Scratch, start: usize, row_count: usize) void {
+    for (work.compact_groups) |group| {
+        compact_groups.accumulate(
+            scratch.numerators,
+            scratch.row_capacity,
+            scratch.batch_count,
+            group,
+            start,
+            row_count,
+        );
+    }
     for (work.column_views, work.contribution_ranges) |view, contribution_range| {
         const column_contributions = work.contributions[contribution_range.start..][0..contribution_range.len];
         for (column_contributions) |contribution| {
@@ -454,6 +416,12 @@ fn executeScalar(work: *Work) !void {
                         );
                 }
             }
+            for (work.compact_groups) |group| {
+                work.workspace.batch_numerators[group.batch_index] =
+                    work.workspace.batch_numerators[group.batch_index].add(
+                        compact_groups.scalarValueAt(group, position),
+                    );
+            }
             try writeRow(work, position, domain_point.y, work.workspace.denominator_inverses);
         }
         try emitTile(work, tile_start, tile_end);
@@ -566,12 +534,14 @@ pub const ParallelRequest = struct {
     use_batched_inversion: bool,
     allow_parallel_scalar: bool,
     domain: CircleDomain,
+    compact_groups: []const compact_groups.Group = &.{},
     column_views: []const row_executor.LiftingColumnView,
     contribution_ranges: []const row_executor.ColumnContributionRange,
     contributions: []const row_executor.ColumnContribution,
     quotient_constants: *const quotients.QuotientConstants,
     lifting_log_size: u32,
     factory: ?tile_sink.Factory,
+    combined_intermediate_bytes: usize = 0,
 };
 
 pub fn executeParallel(
@@ -639,6 +609,7 @@ pub fn executeParallel(
             .workspace = &workspaces[worker_index],
             .scratch = if (scratches) |values| &values[worker_index] else null,
             .domain = request.domain,
+            .compact_groups = request.compact_groups,
             .column_views = request.column_views,
             .contribution_ranges = request.contribution_ranges,
             .contributions = request.contributions,
@@ -681,7 +652,7 @@ pub fn executeParallel(
         .peak_scratch_bytes_per_worker = peak_scratch_bytes,
         .total_scratch_bytes = total_scratch_bytes,
         .bounded_numerator_tile_bytes_per_worker = peak_numerator_bytes,
-        .complete_column_combined_intermediate_bytes = 0,
+        .complete_column_combined_intermediate_bytes = request.combined_intermediate_bytes,
         .post_compute_leaf_pass_count = if (request.factory == null) 1 else 0,
     };
 }
