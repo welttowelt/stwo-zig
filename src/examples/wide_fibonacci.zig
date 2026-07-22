@@ -556,6 +556,25 @@ test "examples wide_fibonacci: generic CPU engine owns the proving transaction" 
             return CpuProverEngine.commit(scheme, allocator, columns, recorder, channel);
         }
 
+        pub fn commitWithBacking(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []prover_pcs.ColumnEvaluation,
+            backing_buffers: ?[][]M31,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
+            commit_calls += 1;
+            return CpuProverEngine.commitWithBacking(
+                scheme,
+                allocator,
+                columns,
+                backing_buffers,
+                recorder,
+                channel,
+            );
+        }
+
         pub fn prove(
             allocator: std.mem.Allocator,
             components: []const prover_component.ComponentProver,

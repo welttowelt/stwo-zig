@@ -42,7 +42,7 @@ pub fn generateForBackend(
     comptime Backend: type,
     allocator: std.mem.Allocator,
     statement: Statement,
-) anyerror![][]M31 {
+) ![][]M31 {
     if (statement.log_n_rows == 0 or statement.log_n_rows >= 31) return error.InvalidLogSize;
     if (statement.sequence_len < 2) return error.InvalidSequenceLength;
 
@@ -177,7 +177,7 @@ pub fn prepareForBackend(
     comptime Backend: type,
     allocator: std.mem.Allocator,
     statement: Statement,
-) anyerror!PreparedInput {
+) !PreparedInput {
     var main = if (try generateContiguousOwnedForBackend(Backend, allocator, statement)) |owned|
         owned
     else blk: {
@@ -215,7 +215,7 @@ fn generateContiguousOwnedForBackend(
     comptime Backend: type,
     allocator: std.mem.Allocator,
     statement: Statement,
-) anyerror!?prover_transaction.OwnedColumns {
+) !?prover_transaction.OwnedColumns {
     if (comptime !@hasDecl(Backend, "preferContiguousQuadraticRecurrenceTrace") or
         !@hasDecl(Backend, "admitsQuadraticRecurrenceTrace") or
         !@hasDecl(Backend, "fillQuadraticRecurrenceTrace")) return null;
