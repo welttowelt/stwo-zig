@@ -9,7 +9,7 @@
   "declared_scope": "s3",
   "files": {
     "src/backends/cpu_scalar/mod.zig": "sha256:9ef25fe4d85f6d101f2ee135f13d86f66f79e6764218c98526b0b8305f402ed2",
-    "src/backends/metal/commit_backend.zig": "sha256:1a8d67d61a4bc579d67cbaa1a81bd559c3f10383cb0def0d00f2ed1a705baa93",
+    "src/backends/metal/commit_backend.zig": "sha256:2fe256ca9224e80e72e2059851558a460af5d17684b0ba2c07200ff3596f1270",
     "src/backends/metal/core_aot.zig": "sha256:cb2c5b232bea64aed97079d32a147a1a34c4a17517121d7ee9c92ea1aad64254",
     "src/backends/metal/merkle_tree.zig": "sha256:c30b3edde36137fc957543cf5434b38f7a2a165e39f1905cf38d2afad05b1fdd",
     "src/backends/metal/runtime.m": "sha256:4fd93156e6cb9e85454f3e963ed15ee1f9e6abb30a503a9476a4118888bfbbc4",
