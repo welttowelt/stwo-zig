@@ -234,7 +234,11 @@ const Poly = prover.air.component_prover.Poly;
 /// is `var trace`, so the one @constCast to swap the slices is legal.
 const DeferredCtx = struct {
     allocator: std.mem.Allocator,
-    components: []const ComponentProver,
+    // Heap-owned clone of the admitted component (its ctx outlives the
+    // pipeline); freed on join. Replaces the borrowed components slice
+    // whose ctx the pipeline reuses/frees before the deferred join.
+    cloned_component: ComponentProver,
+    original_component: ComponentProver, // for destroyValidationClone dispatch
     random_coeff: QM31,
     stolen_values: [][]const M31, // freed by the referee on join
     trace_headers: [][]const Poly, // owned header arrays (point at stolen values)
@@ -264,6 +268,12 @@ fn spawnDeferredValidation(
     errdefer allocator.destroy(slot);
     const ctx = try allocator.create(DeferredCtx);
     errdefer allocator.destroy(ctx);
+
+    // Clone the admitted component so the referee owns a standalone instance
+    // (its ctx is not borrowed from the pipeline). Value-copy is sound per
+    // the admission contract (interior-pointer-free statement).
+    const cloned = try components[0].cloneForValidation(allocator);
+    errdefer components[0].vtable.destroyValidationClone(cloned.ctx, allocator);
 
     // Count total columns and steal every Poly value slice.
     var total_cols: usize = 0;
@@ -295,7 +305,8 @@ fn spawnDeferredValidation(
 
     ctx.* = .{
         .allocator = allocator,
-        .components = components,
+        .cloned_component = cloned,
+        .original_component = components[0],
         .random_coeff = random_coeff,
         .stolen_values = stolen,
         .trace_headers = headers,
@@ -311,24 +322,26 @@ fn spawnDeferredValidation(
 fn deferredValidationMain(ctx: *DeferredCtx) void {
     defer ctx.allocator.destroy(ctx);
     defer ctx.deinitStolen();
+    defer ctx.original_component.vtable.destroyValidationClone(ctx.cloned_component.ctx, ctx.allocator);
+    const cloned_slice = [_]ComponentProver{ctx.cloned_component};
     var expected = referenceComposition(
         ctx.allocator,
-        ctx.components,
+        &cloned_slice,
         ctx.random_coeff,
         &ctx.trace_value,
     ) catch {
         // Reference failed to run: refuse to trust; latch rejected.
-        setValidationStatus(ctx.components[0].vtable, validation_rejected);
+        setValidationStatus(ctx.original_component.vtable, validation_rejected);
         ctx.slot.verdict = .mismatch;
         return;
     };
     defer expected.deinit(ctx.allocator);
     const reference_digest = digestSecureColumn(expected);
     if (std.mem.eql(u8, &reference_digest, &ctx.fast_digest)) {
-        setValidationStatus(ctx.components[0].vtable, validation_accepted);
+        setValidationStatus(ctx.original_component.vtable, validation_accepted);
         ctx.slot.verdict = .accepted;
     } else {
-        setValidationStatus(ctx.components[0].vtable, validation_rejected);
+        setValidationStatus(ctx.original_component.vtable, validation_rejected);
         ctx.slot.verdict = .mismatch;
     }
 }

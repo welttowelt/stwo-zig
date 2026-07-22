@@ -47,8 +47,23 @@ pub fn ComponentAdapter(
                     .preprocessedColumnIndices = preprocessedColumnIndices,
                     .evaluateConstraintQuotientsAtPoint = evaluateConstraintQuotientsAtPoint,
                     .evaluateConstraintQuotientsOnDomain = evaluateConstraintQuotientsOnDomain,
+                    .cloneForValidation = cloneForValidation,
+                    .destroyValidationClone = destroyValidationClone,
                 },
             };
+        }
+
+        /// Heap value-copy of the concrete component (comptime-known Impl),
+        /// returned as a standalone ProverComponent. Sound because Impl is
+        /// value-copyable per the composition-hook admission contract.
+        fn cloneForValidation(ctx: *const anyopaque, allocator: std.mem.Allocator) anyerror!ProverComponentType {
+            const copy = try allocator.create(Impl);
+            copy.* = cast(ctx).*;
+            return asProverComponent(copy);
+        }
+
+        fn destroyValidationClone(ctx: *const anyopaque, allocator: std.mem.Allocator) void {
+            allocator.destroy(cast(ctx));
         }
 
         fn cast(ctx: *const anyopaque) *const Impl {

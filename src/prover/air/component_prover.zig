@@ -85,6 +85,14 @@ pub const ComponentProverVTable = struct {
         trace: *const Trace,
         evaluation_accumulator: *accumulation.DomainEvaluationAccumulator,
     ) anyerror!void,
+    /// Deferred-validation support (07-23): return a heap-owned deep-by-value
+    /// clone of this component as a standalone ComponentProver, so a deferred
+    /// referee can outlive the pipeline's component storage. CONTRACT: sound
+    /// only for value-copyable (interior-pointer-free) ctx types; every
+    /// composition-hook-admitted component qualifies (they carry a plain
+    /// {u32,u32} statement). Free with `destroyValidationClone`.
+    cloneForValidation: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator) anyerror!ComponentProver,
+    destroyValidationClone: *const fn (ctx: *const anyopaque, allocator: std.mem.Allocator) void,
 };
 
 pub const ComponentProver = struct {
@@ -141,6 +149,14 @@ pub const ComponentProver = struct {
             evaluation_accumulator,
             max_log_degree_bound,
         );
+    }
+
+    pub inline fn cloneForValidation(self: ComponentProver, allocator: std.mem.Allocator) anyerror!ComponentProver {
+        return self.vtable.cloneForValidation(self.ctx, allocator);
+    }
+
+    pub inline fn destroyValidationClone(self: ComponentProver, allocator: std.mem.Allocator) void {
+        self.vtable.destroyValidationClone(self.ctx, allocator);
     }
 
     pub inline fn evaluateConstraintQuotientsOnDomain(
