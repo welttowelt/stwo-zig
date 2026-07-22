@@ -2188,8 +2188,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2512,8 +2512,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2698,8 +2698,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2916,8 +2916,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3239,8 +3239,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5361,6 +5361,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.955546,
+     "ci_low": 0.905652,
+     "commit": "782399da80b32d51e2850d47ac77a7a2657155fc",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 6.847984,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:436e794732b8d4788b6990e704f76d5857f38d45dddbc0ff42e8a44d3ef4d935",
+     "gates": "G1..G5:pass",
+     "harness_commit": "e66cccc0c07c",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-22T10:40:25Z",
+     "judged_r": 0.93043,
+     "measurement_rounds": 5,
+     "measurement_seconds": 16.268912,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:07dd081a48c37cc64dc4d5697fed6b1d2ea071650d5e967ec9f68802ce6a5f4d",
+     "outcome": "promoted",
+     "peak_rss_mib": 1646.048843,
+     "predecessor": "505537924cd4",
+     "proof_bytes": 86383,
+     "prove_ms": 160.540584,
+     "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-metal-circle-commit-epoch",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "huge"
     }
    ],
    "frontier_by_class": {
@@ -5368,8 +5403,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5829,8 +5864,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5839,9 +5874,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.1711608424076035,
+      "effective_score": 0.16355205831921588,
       "evidence_share": {
-       "claimed": 4,
+       "claimed": 5,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -5859,12 +5894,13 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 4,
+       "count": 5,
        "observation_ids": [
         "sha256:67d763411718095bac970186186e3b555064d74f0e3dcee581a6e4af15b4a0a3",
         "sha256:90544e55241085642ee0f4773433952b8c09d9b2c02a25822ec3980b6c83261b",
         "sha256:7b3231127866302cd8a8255384e9261c432dea29a8c90c9ae6ef29886b847cbe",
-        "sha256:50761d5001fca8ef6896a582056c851f22720d7d898b6dd01ab4c7c7cfdfbb6f"
+        "sha256:50761d5001fca8ef6896a582056c851f22720d7d898b6dd01ab4c7c7cfdfbb6f",
+        "sha256:07dd081a48c37cc64dc4d5697fed6b1d2ea071650d5e967ec9f68802ce6a5f4d"
        ]
       }
      },
@@ -5938,38 +5974,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "huge"
+      },
+      {
+       "board": "core_metal",
+       "ci_high": 0.955546,
+       "ci_low": 0.905652,
+       "commit": "782399da80b32d51e2850d47ac77a7a2657155fc",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 6.847984,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:436e794732b8d4788b6990e704f76d5857f38d45dddbc0ff42e8a44d3ef4d935",
+       "gates": "G1..G5:pass",
+       "harness_commit": "e66cccc0c07c",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-22T10:40:25Z",
+       "judged_r": 0.93043,
+       "measurement_rounds": 5,
+       "measurement_seconds": 16.268912,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:07dd081a48c37cc64dc4d5697fed6b1d2ea071650d5e967ec9f68802ce6a5f4d",
+       "outcome": "promoted",
+       "peak_rss_mib": 1646.048843,
+       "predecessor": "505537924cd4",
+       "proof_bytes": 86383,
+       "prove_ms": 160.540584,
+       "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-22-metal-circle-commit-epoch",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "huge"
       }
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.36075,
-      "ci_low": 0.350949,
-      "commit": "e7adc4fbc16d4d5bad7064c8fc093ec832e5c178",
+      "ci_high": 0.955546,
+      "ci_low": 0.905652,
+      "commit": "782399da80b32d51e2850d47ac77a7a2657155fc",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 6.949532,
+      "energy_j": 6.847984,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:5484f21ab30baabb8ff048dbf06cbeef62ad0927f0001ba483a306ab9fea8384",
+      "evidence_sha256": "sha256:436e794732b8d4788b6990e704f76d5857f38d45dddbc0ff42e8a44d3ef4d935",
       "gates": "G1..G5:pass",
-      "harness_commit": "f951c0355534",
+      "harness_commit": "e66cccc0c07c",
       "holdout": "none",
-      "judged_at_utc": "2026-07-22T08:38:30Z",
-      "judged_r": 0.355611,
+      "judged_at_utc": "2026-07-22T10:40:25Z",
+      "judged_r": 0.93043,
       "measurement_rounds": 5,
-      "measurement_seconds": 16.777575,
+      "measurement_seconds": 16.268912,
       "native_mhz": 0.0,
-      "observation_id": "sha256:50761d5001fca8ef6896a582056c851f22720d7d898b6dd01ab4c7c7cfdfbb6f",
+      "observation_id": "sha256:07dd081a48c37cc64dc4d5697fed6b1d2ea071650d5e967ec9f68802ce6a5f4d",
       "outcome": "promoted",
-      "peak_rss_mib": 1646.080093,
-      "predecessor": "971db238e3e4",
+      "peak_rss_mib": 1646.048843,
+      "predecessor": "505537924cd4",
       "proof_bytes": 86383,
-      "prove_ms": 157.275125,
-      "row_id": "sha256:28adfe3f07b92580e83f2066f71152d6fbd566efb4cf5df306e32eca681d7b18",
+      "prove_ms": 160.540584,
+      "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-22-metal-row-parallel-air-composition",
+      "submission_id": "2026-07-22-metal-circle-commit-epoch",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -5980,8 +6051,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6266,8 +6337,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6727,8 +6798,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6886,7 +6957,7 @@
    "suite_score": {
     "active_credit_events": {
      "deep": 0,
-     "huge": 4,
+     "huge": 5,
      "small": 0,
      "wide": 0,
      "xlarge": 5
@@ -6901,7 +6972,7 @@
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
      "deep": 1.0,
-     "huge": 0.1711608424076035,
+     "huge": 0.16355205831921588,
      "small": 1.0,
      "wide": 1.0,
      "xlarge": 0.12265380593314489
@@ -6914,10 +6985,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 46.17608287102028,
+    "index": 45.75803947174353,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.4617608287102028,
-    "speedup": 2.165623279032167
+    "ratio_geomean": 0.4575803947174353,
+    "speedup": 2.18540831631897
    }
   },
   "heavy_cairo": {
@@ -6939,8 +7010,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6980,8 +7051,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7021,8 +7092,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 163,
-       "seconds": 61950
+       "commits": 171,
+       "seconds": 64378
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8180,7 +8251,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "fab8fac3705f203a07422a4326071aae0680d9845f7448a78f23d28f0818cf5b",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "9b14cb6dd9badfc7f4ce377327c3d592e10a86d9456ef752643c4f052b69020f",
+   "autoresearch/ledger/promotions.tsv": "0a76c98cfd381ec0a1fb097f0cbf75ea9d3fb1a0c8a0d7137fbe48c2c281b55d",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "97d97a92b01884a3a161f64802fd212051f8139e31619199dddfad5c4d68732f",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -8298,6 +8369,7 @@
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-core_metal-xlarge.json": "1c1e64f14f56865dee95b27bf06053bc8a98d4313a64ac46faa78062777599eb",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict-huge.json": "c703859123f8f0a23ff2f2fa2f40abc7876e9a9431fd81cfa0be4f734cfb6e23",
    "autoresearch/submissions/2026-07-22-large-column-page-rotation/verdict.json": "f9b4545f7e925f0f8401f381981f66b19178af00ec385cb25fe72b71be56a114",
+   "autoresearch/submissions/2026-07-22-metal-circle-commit-epoch/verdict.json": "b3e30b1a4b72e31d09496a1f5e71d68ebe3da3732e85ca74e0a29cf97c1a00e6",
    "autoresearch/submissions/2026-07-22-metal-row-parallel-air-composition/verdict-core_metal-huge.json": "0c12c9d7e9f16cb05eae4550b72932d9cc30e4c37bfc9a9e310e95cd72aa8c34",
    "autoresearch/submissions/2026-07-22-metal-row-parallel-air-composition/verdict.json": "45915415d4c1d5291f0fe4663d2dc0cc21489ed155fa40f376bb91c1d01b0a6b",
    "autoresearch/submissions/2026-07-22-metal-secure-composition-ifft/verdict-core_metal-huge.json": "6c6d40ddec9e7cc484538929c994ff32cef70feab6a4e0bd9f0a25530c140a32",
@@ -8306,8 +8378,8 @@
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "62fcf820226d",
-  "repo_commit_time": "2026-07-22T09:59:57Z"
+  "repo_commit": "bd368b926c8b",
+  "repo_commit_time": "2026-07-22T10:40:25Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -15852,7 +15924,7 @@
      },
      "huge": {
       "available": true,
-      "available_points": 4,
+      "available_points": 5,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
@@ -15877,6 +15949,12 @@
         "judged_at_utc": "2026-07-22T08:38:30Z",
         "points": 4,
         "row_id": "sha256:28adfe3f07b92580e83f2066f71152d6fbd566efb4cf5df306e32eca681d7b18"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 31.596298088026373,
+        "judged_at_utc": "2026-07-22T10:40:25Z",
+        "points": 5,
+        "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a"
        }
       ],
       "latest": {
@@ -15888,13 +15966,13 @@
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 1.0195700813281567,
-       "credited_ln_improvement_per_measurement_hour": 218.77132705393254,
-       "gradient_snr": 71.06126811852485,
-       "judged_at_utc": "2026-07-22T08:38:30Z",
-       "measurement_wall_hours": 0.0046604374305267504,
-       "row_id": "sha256:28adfe3f07b92580e83f2066f71152d6fbd566efb4cf5df306e32eca681d7b18",
-       "submission_id": "2026-07-22-metal-row-parallel-air-composition",
+       "credited_ln_improvement": 0.04547237412675766,
+       "credited_ln_improvement_per_measurement_hour": 10.06216945369844,
+       "gradient_snr": 1.7071734396876659,
+       "judged_at_utc": "2026-07-22T10:40:25Z",
+       "measurement_wall_hours": 0.004519142152793291,
+       "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a",
+       "submission_id": "2026-07-22-metal-circle-commit-epoch",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -15969,14 +16047,32 @@
         "row_id": "sha256:28adfe3f07b92580e83f2066f71152d6fbd566efb4cf5df306e32eca681d7b18",
         "submission_id": "2026-07-22-metal-row-parallel-air-composition",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "mwf_log20x100": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.04547237412675766,
+        "credited_ln_improvement_per_measurement_hour": 10.06216945369844,
+        "gradient_snr": 1.7071734396876659,
+        "judged_at_utc": "2026-07-22T10:40:25Z",
+        "measurement_wall_hours": 0.004519142152793291,
+        "row_id": "sha256:d30bcc232d6864855629f2918b3e0ffb4b2299e236b83dbfcb40bd082b94562a",
+        "submission_id": "2026-07-22-metal-circle-commit-epoch",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 1.7651515656905294,
-       "credited_ln_improvement_per_measurement_hour": 33.43989606211793,
-       "measurement_wall_hours": 0.052785797013590735,
-       "median_gradient_snr": 7.902670365181209,
-       "points": 4
+       "credited_ln_improvement": 1.8106239398172872,
+       "credited_ln_improvement_per_measurement_hour": 31.596298088026373,
+       "measurement_wall_hours": 0.057304939166384024,
+       "median_gradient_snr": 3.0156875303351263,
+       "points": 5
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -17047,6 +17143,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "xlarge"
+  },
+  {
+   "id": "2026-07-22-metal-circle-commit-epoch",
+   "judged_r": 0.93043,
+   "note": "# Single-submit Metal circle commitment epoch\n\n## Model and harness\n\nGPT-5 Codex used `stwo-perf` harness `e66cccc0c07c` on the locked Apple M5 Max. The clean ReleaseFast candidate is `09bfd9bd8b97` over promoted predecessor `505537924cd4`. The claimed objective is the `core_metal/huge` width-100, log20 complete verified proof transaction. Local source-JIT compilation occurs during excluded initialization; the same existing 78-entry-point shader ABI remains eligible for authenticated AOT CI.\n\n## Hypothesis\n\nThe pre-change log20 profile placed 96.627 ms in main-trace commitment. Circle LDE used roughly 47 ms of GPU time but 60-64 ms blocking wall, followed by a 7.2 ms GPU Merkle operation taking 21-33 ms blocking wall. The extended evaluations were already resident and had no intervening CPU consumer. Encoding LDE and Merkle into one dependency-ordered command buffer should remove one submission and one completion wait without changing arithmetic, hashes, or proof bytes.\n\n## Changes\n\nThe generic PCS driver now exposes an optional precommitted-tree hook. Metal admits it only for retained, blowup-one, uniform 64-256-column trees at base log >=16. The backend creates page-backed coefficient/evaluation arenas and encodes source upload, fused inverse FFT layers, remaining sparse transforms, expansion/forward FFT, Merkle leaves, and all parent levels in one command buffer with one final wait.\n\nThe returned tree owns both backing arenas and the resident Merkle allocation. Unsupported shapes and pre-submit failures leave inputs untouched for the generic path; error ownership and arena arithmetic are checked explicitly. No MSL function, protocol parameter, transcript order, hash seed, proof codec, or resource admission rule changes.\n\n## Results\n\nThe submission-grade S3 objective falls from 173.083 ms to 160.541 ms. Its paired ratio is **0.9304** with 95% CI **[0.9057, 0.9555]**; all five A-B-B-A rounds win. The complete-request ratio is 0.972172. Peak RSS ratio is 0.999981 and energy ratio is 0.987632 (upper CI 0.996240). Proof size remains exactly 86,383 bytes.\n\nEvery timed proof independently verified, every cross-arm digest was byte-identical (`e6609d...c7e86`), the pinned Rust Stwo oracle accepted the artifact, and Metal reported zero CPU fallbacks. A post-change stage profile measured main-trace commitment at 82.616 ms, 14.011 ms below the 96.627 ms predecessor profile. Direct ten-warmup/seven-sample medians were 47.210 ms at log18 and 160.329 ms at log20, clearing the requested concrete PR6-margin targets of 51.85 and 164.38 ms.\n\nFocused prover, native CPU/Metal lifecycle, downstream, AOT-manifest, and AOT-probe closures pass. The broad Metal test has one pre-existing resident-FRI failure: candidate and clean predecessor both produce 81/84 with the identical failing test and two skips.\n\nThe first remote aggregate lane exposed a missing product-closure registration for the new helper after all 70 tests passed. Because build policy is outside the researcher-editable set, the helper was moved under the already-authorized `src/backends/metal/runtime/**` prefix instead of changing policy. The exact ReleaseSafe aggregate command then passed all tests and its 411-source closure locally; the final verdict binds to that corrected tree.\n\n## Caveats\n\nThe claimed verdict intentionally contains objective-only local guards; the central judge still applies the impacted full matrix. Six additional full-portfolio local attempts are preserved beside the transcript. Each had one different high-variance small guard exceed its per-run upper-CI cap, but 72/78 individual decisions passed and every guard's six-run geometric ratio was neutral or favorable (0.9806-1.0056). This is disclosed rather than selecting or editing a guard result.\n\nThe formal xlarge run improved with ratio 0.9514 and CI [0.9222, 0.9861], but did not clear that class's stricter significance cutoff and is not claimed. This submission satisfies the current significant Metal-huge promotion gate; it does not claim completion of the broader all-point PR #6 supremacy objective, whose cold-process, log22, and exact Blake/Plonk parity cells remain future work.\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Single-submit Metal circle commitment epoch",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Session 01 \u2014 PR6 all-point CPU/Metal architecture\n\n## Objective and inherited result\n\nThe user asked for the largest architectural improvement, with special emphasis on explaining why Metal was not substantially faster than CPU, submitting as soon as a significant solution exists, and then pursuing all-point supremacy over ClementWalter/stwo PR #6. The immediately preceding iteration delivered PR #74: width-100 AIR composition now runs on Metal, reducing log18 and log20 proof medians by 2.71x and 2.81x with byte-identical oracle-valid proofs and zero fallbacks. PR #74 merged green and was promoted into the benchmark ledger.\n\nThis session starts from promoted main `a77e59d43ec1` on an isola",
+     "label": "session-01.md",
+     "sha256": "c425ac4a130be62586e0347a9a9eed3909e9d2c455f35054f6e35051a87ed825"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "huge"
   },
   {
    "id": "2026-07-22-metal-row-parallel-air-composition",
