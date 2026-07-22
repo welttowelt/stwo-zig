@@ -91,14 +91,14 @@ pub fn friFoldCommitUsesResidentMerkle(value_count: usize, fold_count: u32) bool
     return std.math.log2_int(usize, value_count) >= activeLogThreshold();
 }
 
-test "commit policy: strict default admits every non-empty commitment" {
+test "metal: commit policy strict default admits every non-empty commitment" {
     overrideRoutingForTest(false);
     try std.testing.expect(usesResidentMerkle(1));
     try std.testing.expect(quotientUsesResidentMerkle(1));
     try std.testing.expect(friFoldCommitUsesResidentMerkle(2, 1));
 }
 
-test "commit policy: hybrid mode routes sub-threshold work to host" {
+test "metal: commit policy hybrid mode routes sub-threshold work to host" {
     overrideRoutingForTest(true);
     defer overrideRoutingForTest(false);
     try std.testing.expect(!usesResidentMerkle((1 << 15) - 1));

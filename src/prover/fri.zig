@@ -387,9 +387,11 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 circle.Coset.halfOdds(circle_fold_log_size),
             );
 
-            var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
-                (try B.allocateLineEvaluation(circle_fold_domain)) orelse
+            var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluationOrDecline"))
+                (try B.allocateLineEvaluationOrDecline(circle_fold_domain)) orelse
                     try prover_line.LineEvaluation.newZero(allocator, circle_fold_domain)
+            else if (comptime @hasDecl(B, "allocateLineEvaluation"))
+                try B.allocateLineEvaluation(circle_fold_domain)
             else
                 try prover_line.LineEvaluation.newZero(allocator, circle_fold_domain);
             errdefer layer_evaluation.deinit(allocator);

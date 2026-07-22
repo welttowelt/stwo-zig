@@ -149,12 +149,15 @@ pub const MetalCommitBackend = struct {
 
     pub fn allocateLineEvaluation(
         domain: @import("stwo_core").poly.line.LineDomain,
+    ) !@import("stwo_prover_impl").line.LineEvaluation {
+        return hybrid_host.residentLineEvaluation(domain);
+    }
+
+    /// Declines sub-threshold domains so the caller keeps allocator identity.
+    pub fn allocateLineEvaluationOrDecline(
+        domain: @import("stwo_core").poly.line.LineDomain,
     ) !?@import("stwo_prover_impl").line.LineEvaluation {
-        // Sub-threshold: decline so the caller allocates (and later frees)
-        // on its own heap — allocator identity stays with the owner.
-        if (!commit_policy.friFoldCommitUsesResidentMerkle(domain.size(), 1)) {
-            return null;
-        }
+        if (!commit_policy.friFoldCommitUsesResidentMerkle(domain.size(), 1)) return null;
         return try hybrid_host.residentLineEvaluation(domain);
     }
 
