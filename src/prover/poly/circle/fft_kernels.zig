@@ -166,35 +166,153 @@ inline fn fusedBottomBlockForward(base: [*]M31, t2_scalar: M31, x: M31, y: M31) 
     const va = m31.loadVec4(base);
     const vb = m31.loadVec4(base + 4);
 
+    const result = fusedBottomThreeForwardVectors(va, vb, t2_scalar, x, y);
+    m31.storeVec4(base, result.lo);
+    m31.storeVec4(base + 4, result.hi);
+}
+
+const VecPair = struct {
+    lo: m31.Vec4u32,
+    hi: m31.Vec4u32,
+};
+
+inline fn forwardVecButterfly(
+    lhs: m31.Vec4u32,
+    rhs: m31.Vec4u32,
+    twiddle: m31.Vec4u32,
+) VecPair {
+    const product = m31.mulVec4(rhs, twiddle);
+    return .{
+        .lo = m31.addVec4(lhs, product),
+        .hi = m31.subVec4(lhs, product),
+    };
+}
+
+inline fn inverseVecButterfly(
+    lhs: m31.Vec4u32,
+    rhs: m31.Vec4u32,
+    twiddle: m31.Vec4u32,
+) VecPair {
+    return .{
+        .lo = m31.addVec4(lhs, rhs),
+        .hi = m31.mulVec4(m31.subVec4(lhs, rhs), twiddle),
+    };
+}
+
+inline fn fusedBottomThreeForwardVectors(
+    va: m31.Vec4u32,
+    vb: m31.Vec4u32,
+    t2_scalar: M31,
+    x: M31,
+    y: M31,
+) VecPair {
     // Layer with half-block 4: one twiddle per block.
     const t2: m31.Vec4u32 = @splat(t2_scalar.v);
-    const m2 = m31.mulVec4(vb, t2);
-    const a2 = m31.addVec4(va, m2);
-    const b2 = m31.subVec4(va, m2);
+    const stage2 = forwardVecButterfly(va, vb, t2);
 
     // Layer with half-block 2: lhs lanes [a2_0 a2_1 b2_0 b2_1],
     // rhs lanes [a2_2 a2_3 b2_2 b2_3]; twiddles x then y.
-    const lo = @shuffle(u32, a2, b2, @Vector(4, i32){ 0, 1, -1, -2 });
-    const hi = @shuffle(u32, a2, b2, @Vector(4, i32){ 2, 3, -3, -4 });
+    const lo = @shuffle(u32, stage2.lo, stage2.hi, @Vector(4, i32){ 0, 1, -1, -2 });
+    const hi = @shuffle(u32, stage2.lo, stage2.hi, @Vector(4, i32){ 2, 3, -3, -4 });
     const tw1 = m31.Vec4u32{ x.v, x.v, y.v, y.v };
-    const m1 = m31.mulVec4(hi, tw1);
-    const lo1 = m31.addVec4(lo, m1);
-    const hi1 = m31.subVec4(lo, m1);
+    const stage1 = forwardVecButterfly(lo, hi, tw1);
 
     // Pair layer: evens/odds with twiddle pattern [y, -y, -x, x].
-    const e = @shuffle(u32, lo1, hi1, @Vector(4, i32){ 0, -1, 2, -3 });
-    const o = @shuffle(u32, lo1, hi1, @Vector(4, i32){ 1, -2, 3, -4 });
+    const e = @shuffle(u32, stage1.lo, stage1.hi, @Vector(4, i32){ 0, -1, 2, -3 });
+    const o = @shuffle(u32, stage1.lo, stage1.hi, @Vector(4, i32){ 1, -2, 3, -4 });
     const y_neg = y.neg();
     const x_neg = x.neg();
     const tw0 = m31.Vec4u32{ y.v, y_neg.v, x_neg.v, x.v };
-    const m0 = m31.mulVec4(o, tw0);
-    const e0 = m31.addVec4(e, m0);
-    const o0 = m31.subVec4(e, m0);
+    const stage0 = forwardVecButterfly(e, o, tw0);
 
-    const out_a = @shuffle(u32, e0, o0, @Vector(4, i32){ 0, -1, 1, -2 });
-    const out_b = @shuffle(u32, e0, o0, @Vector(4, i32){ 2, -3, 3, -4 });
-    m31.storeVec4(base, out_a);
-    m31.storeVec4(base + 4, out_b);
+    return .{
+        .lo = @shuffle(u32, stage0.lo, stage0.hi, @Vector(4, i32){ 0, -1, 1, -2 }),
+        .hi = @shuffle(u32, stage0.lo, stage0.hi, @Vector(4, i32){ 2, -3, 3, -4 }),
+    };
+}
+
+/// Four-layer contiguous tail sharing one load/store per 16-value block.
+pub fn fftBottomFourLayersForwardM31(
+    values: []M31,
+    t3s: []const M31,
+    t2s: []const M31,
+    t01s: []const M31,
+) void {
+    std.debug.assert(values.len % 16 == 0);
+    const n_blocks = values.len / 16;
+    std.debug.assert(t3s.len >= n_blocks);
+    std.debug.assert(t2s.len >= n_blocks * 2);
+    std.debug.assert(t01s.len >= n_blocks * 4);
+
+    for (0..n_blocks) |block| {
+        const base = values.ptr + block * 16;
+        const t3: m31.Vec4u32 = @splat(t3s[block].v);
+        const stage3a = forwardVecButterfly(m31.loadVec4(base), m31.loadVec4(base + 8), t3);
+        const stage3b = forwardVecButterfly(m31.loadVec4(base + 4), m31.loadVec4(base + 12), t3);
+        const left = fusedBottomThreeForwardVectors(
+            stage3a.lo,
+            stage3b.lo,
+            t2s[block * 2],
+            t01s[block * 4],
+            t01s[block * 4 + 1],
+        );
+        const right = fusedBottomThreeForwardVectors(
+            stage3a.hi,
+            stage3b.hi,
+            t2s[block * 2 + 1],
+            t01s[block * 4 + 2],
+            t01s[block * 4 + 3],
+        );
+        m31.storeVec4(base, left.lo);
+        m31.storeVec4(base + 4, left.hi);
+        m31.storeVec4(base + 8, right.lo);
+        m31.storeVec4(base + 12, right.hi);
+    }
+}
+
+/// Five-layer contiguous tail. This is the largest tail that keeps all 32
+/// values in eight architectural SIMD registers on AArch64. It replaces the
+/// two separate whole-column passes otherwise left by radix-8 grouping.
+pub fn fftBottomFiveLayersForwardM31(
+    values: []M31,
+    t4s: []const M31,
+    t3s: []const M31,
+    t2s: []const M31,
+    t01s: []const M31,
+) void {
+    std.debug.assert(values.len % 32 == 0);
+    const n_blocks = values.len / 32;
+    std.debug.assert(t4s.len >= n_blocks);
+    std.debug.assert(t3s.len >= n_blocks * 2);
+    std.debug.assert(t2s.len >= n_blocks * 4);
+    std.debug.assert(t01s.len >= n_blocks * 8);
+
+    for (0..n_blocks) |block| {
+        const base = values.ptr + block * 32;
+        const t4: m31.Vec4u32 = @splat(t4s[block].v);
+        const s4a = forwardVecButterfly(m31.loadVec4(base), m31.loadVec4(base + 16), t4);
+        const s4b = forwardVecButterfly(m31.loadVec4(base + 4), m31.loadVec4(base + 20), t4);
+        const s4c = forwardVecButterfly(m31.loadVec4(base + 8), m31.loadVec4(base + 24), t4);
+        const s4d = forwardVecButterfly(m31.loadVec4(base + 12), m31.loadVec4(base + 28), t4);
+
+        const t3_left: m31.Vec4u32 = @splat(t3s[block * 2].v);
+        const t3_right: m31.Vec4u32 = @splat(t3s[block * 2 + 1].v);
+        const s3a = forwardVecButterfly(s4a.lo, s4c.lo, t3_left);
+        const s3b = forwardVecButterfly(s4b.lo, s4d.lo, t3_left);
+        const s3c = forwardVecButterfly(s4a.hi, s4c.hi, t3_right);
+        const s3d = forwardVecButterfly(s4b.hi, s4d.hi, t3_right);
+
+        const groups = [_]VecPair{
+            fusedBottomThreeForwardVectors(s3a.lo, s3b.lo, t2s[block * 4], t01s[block * 8], t01s[block * 8 + 1]),
+            fusedBottomThreeForwardVectors(s3a.hi, s3b.hi, t2s[block * 4 + 1], t01s[block * 8 + 2], t01s[block * 8 + 3]),
+            fusedBottomThreeForwardVectors(s3c.lo, s3d.lo, t2s[block * 4 + 2], t01s[block * 8 + 4], t01s[block * 8 + 5]),
+            fusedBottomThreeForwardVectors(s3c.hi, s3d.hi, t2s[block * 4 + 3], t01s[block * 8 + 6], t01s[block * 8 + 7]),
+        };
+        inline for (groups, 0..) |group, index| {
+            m31.storeVec4(base + index * 8, group.lo);
+            m31.storeVec4(base + index * 8 + 4, group.hi);
+        }
+    }
 }
 
 /// Applies one adjacent forward butterfly.
@@ -341,35 +459,125 @@ pub fn fftBottomThreeLayersInverseM31(
         const base = values.ptr + b * 8;
         const x = it01s[2 * b];
         const y = it01s[2 * b + 1];
-        const va = m31.loadVec4(base);
-        const vb = m31.loadVec4(base + 4);
+        const result = fusedBottomThreeInverseVectors(
+            m31.loadVec4(base),
+            m31.loadVec4(base + 4),
+            it2s[b],
+            x,
+            y,
+        );
+        m31.storeVec4(base, result.lo);
+        m31.storeVec4(base + 4, result.hi);
+    }
+}
 
-        // Pair layer: evens/odds, itwiddle pattern [y, -y, -x, x].
-        const e = @shuffle(u32, va, vb, @Vector(4, i32){ 0, 2, -1, -3 });
-        const o = @shuffle(u32, va, vb, @Vector(4, i32){ 1, 3, -2, -4 });
-        const y_neg = y.neg();
-        const x_neg = x.neg();
-        const tw0 = m31.Vec4u32{ y.v, y_neg.v, x_neg.v, x.v };
-        const sum0 = m31.addVec4(e, o);
-        const prod0 = m31.mulVec4(m31.subVec4(e, o), tw0);
+inline fn fusedBottomThreeInverseVectors(
+    va: m31.Vec4u32,
+    vb: m31.Vec4u32,
+    it2_scalar: M31,
+    x: M31,
+    y: M31,
+) VecPair {
+    // Pair layer: evens/odds, itwiddle pattern [y, -y, -x, x].
+    const e = @shuffle(u32, va, vb, @Vector(4, i32){ 0, 2, -1, -3 });
+    const o = @shuffle(u32, va, vb, @Vector(4, i32){ 1, 3, -2, -4 });
+    const y_neg = y.neg();
+    const x_neg = x.neg();
+    const tw0 = m31.Vec4u32{ y.v, y_neg.v, x_neg.v, x.v };
+    const stage0 = inverseVecButterfly(e, o, tw0);
 
-        // Half-block-2 layer: lhs [x0 x1 x4 x5], rhs [x2 x3 x6 x7],
-        // itwiddles x then y.
-        const lo = @shuffle(u32, sum0, prod0, @Vector(4, i32){ 0, -1, 2, -3 });
-        const hi = @shuffle(u32, sum0, prod0, @Vector(4, i32){ 1, -2, 3, -4 });
-        const tw1 = m31.Vec4u32{ x.v, x.v, y.v, y.v };
-        const sum1 = m31.addVec4(lo, hi);
-        const prod1 = m31.mulVec4(m31.subVec4(lo, hi), tw1);
+    // Half-block-2 layer: lhs [x0 x1 x4 x5], rhs [x2 x3 x6 x7],
+    // itwiddles x then y.
+    const lo = @shuffle(u32, stage0.lo, stage0.hi, @Vector(4, i32){ 0, -1, 2, -3 });
+    const hi = @shuffle(u32, stage0.lo, stage0.hi, @Vector(4, i32){ 1, -2, 3, -4 });
+    const tw1 = m31.Vec4u32{ x.v, x.v, y.v, y.v };
+    const stage1 = inverseVecButterfly(lo, hi, tw1);
 
-        // Half-block-4 layer: lhs [x0 x1 x2 x3], rhs [x4 x5 x6 x7].
-        const lhs2 = @shuffle(u32, sum1, prod1, @Vector(4, i32){ 0, 1, -1, -2 });
-        const rhs2 = @shuffle(u32, sum1, prod1, @Vector(4, i32){ 2, 3, -3, -4 });
-        const it2: m31.Vec4u32 = @splat(it2s[b].v);
-        const out_lo = m31.addVec4(lhs2, rhs2);
-        const out_hi = m31.mulVec4(m31.subVec4(lhs2, rhs2), it2);
+    // Half-block-4 layer: lhs [x0 x1 x2 x3], rhs [x4 x5 x6 x7].
+    const lhs2 = @shuffle(u32, stage1.lo, stage1.hi, @Vector(4, i32){ 0, 1, -1, -2 });
+    const rhs2 = @shuffle(u32, stage1.lo, stage1.hi, @Vector(4, i32){ 2, 3, -3, -4 });
+    const it2: m31.Vec4u32 = @splat(it2_scalar.v);
+    return inverseVecButterfly(lhs2, rhs2, it2);
+}
 
-        m31.storeVec4(base, out_lo);
-        m31.storeVec4(base + 4, out_hi);
+pub fn fftBottomFourLayersInverseM31(
+    values: []M31,
+    it3s: []const M31,
+    it2s: []const M31,
+    it01s: []const M31,
+) void {
+    std.debug.assert(values.len % 16 == 0);
+    const n_blocks = values.len / 16;
+    std.debug.assert(it3s.len >= n_blocks);
+    std.debug.assert(it2s.len >= n_blocks * 2);
+    std.debug.assert(it01s.len >= n_blocks * 4);
+
+    for (0..n_blocks) |block| {
+        const base = values.ptr + block * 16;
+        const left = fusedBottomThreeInverseVectors(
+            m31.loadVec4(base),
+            m31.loadVec4(base + 4),
+            it2s[block * 2],
+            it01s[block * 4],
+            it01s[block * 4 + 1],
+        );
+        const right = fusedBottomThreeInverseVectors(
+            m31.loadVec4(base + 8),
+            m31.loadVec4(base + 12),
+            it2s[block * 2 + 1],
+            it01s[block * 4 + 2],
+            it01s[block * 4 + 3],
+        );
+        const it3: m31.Vec4u32 = @splat(it3s[block].v);
+        const stage3a = inverseVecButterfly(left.lo, right.lo, it3);
+        const stage3b = inverseVecButterfly(left.hi, right.hi, it3);
+        m31.storeVec4(base, stage3a.lo);
+        m31.storeVec4(base + 4, stage3b.lo);
+        m31.storeVec4(base + 8, stage3a.hi);
+        m31.storeVec4(base + 12, stage3b.hi);
+    }
+}
+
+pub fn fftBottomFiveLayersInverseM31(
+    values: []M31,
+    it4s: []const M31,
+    it3s: []const M31,
+    it2s: []const M31,
+    it01s: []const M31,
+) void {
+    std.debug.assert(values.len % 32 == 0);
+    const n_blocks = values.len / 32;
+    std.debug.assert(it4s.len >= n_blocks);
+    std.debug.assert(it3s.len >= n_blocks * 2);
+    std.debug.assert(it2s.len >= n_blocks * 4);
+    std.debug.assert(it01s.len >= n_blocks * 8);
+
+    for (0..n_blocks) |block| {
+        const base = values.ptr + block * 32;
+        const g0 = fusedBottomThreeInverseVectors(m31.loadVec4(base), m31.loadVec4(base + 4), it2s[block * 4], it01s[block * 8], it01s[block * 8 + 1]);
+        const g1 = fusedBottomThreeInverseVectors(m31.loadVec4(base + 8), m31.loadVec4(base + 12), it2s[block * 4 + 1], it01s[block * 8 + 2], it01s[block * 8 + 3]);
+        const g2 = fusedBottomThreeInverseVectors(m31.loadVec4(base + 16), m31.loadVec4(base + 20), it2s[block * 4 + 2], it01s[block * 8 + 4], it01s[block * 8 + 5]);
+        const g3 = fusedBottomThreeInverseVectors(m31.loadVec4(base + 24), m31.loadVec4(base + 28), it2s[block * 4 + 3], it01s[block * 8 + 6], it01s[block * 8 + 7]);
+
+        const it3_left: m31.Vec4u32 = @splat(it3s[block * 2].v);
+        const it3_right: m31.Vec4u32 = @splat(it3s[block * 2 + 1].v);
+        const s3a = inverseVecButterfly(g0.lo, g1.lo, it3_left);
+        const s3b = inverseVecButterfly(g0.hi, g1.hi, it3_left);
+        const s3c = inverseVecButterfly(g2.lo, g3.lo, it3_right);
+        const s3d = inverseVecButterfly(g2.hi, g3.hi, it3_right);
+        const it4: m31.Vec4u32 = @splat(it4s[block].v);
+        const s4a = inverseVecButterfly(s3a.lo, s3c.lo, it4);
+        const s4b = inverseVecButterfly(s3b.lo, s3d.lo, it4);
+        const s4c = inverseVecButterfly(s3a.hi, s3c.hi, it4);
+        const s4d = inverseVecButterfly(s3b.hi, s3d.hi, it4);
+        m31.storeVec4(base, s4a.lo);
+        m31.storeVec4(base + 4, s4b.lo);
+        m31.storeVec4(base + 8, s4c.lo);
+        m31.storeVec4(base + 12, s4d.lo);
+        m31.storeVec4(base + 16, s4a.hi);
+        m31.storeVec4(base + 20, s4b.hi);
+        m31.storeVec4(base + 24, s4c.hi);
+        m31.storeVec4(base + 28, s4d.hi);
     }
 }
 
