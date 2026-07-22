@@ -30,6 +30,8 @@ const CombinedContributionView = row_executor.CombinedContributionView;
 const QuotientOpsError = column_geometry.QuotientOpsError;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 const MIN_POSITIONS_PER_WORKER = execution.min_positions_per_worker;
+const COMPACT_GROUP_MIN_SHIFT: std.math.Log2Int(usize) = 2;
+const MAX_COMPACT_GROUP_BYTES: usize = 1024 * 1024;
 
 /// Number of rows processed per chunk in lazy quotient evaluation.
 /// Chosen to amortize function-call overhead while keeping chunk memory bounded.
@@ -56,6 +58,7 @@ pub const LazyQuotientProvider = struct {
     prepared: planning.PreparedContext,
     input_mode: InputMode,
     combined_views: []CombinedContributionView,
+    compact_plan: planning.CompactContributionPlan,
     direct_plan: tile_executor.DirectContributionPlan,
     raw_columns: []ColumnEvaluation,
     workspace: quotients.RowQuotientWorkspace,
@@ -186,7 +189,14 @@ pub const LazyQuotientProvider = struct {
         const backend_raw = comptime B != void and @hasDecl(B, "rawQuotientInputs") and B.rawQuotientInputs;
         if ((input_mode == .raw_backend) != backend_raw) return error.InvalidQuotientInputMode;
         var combined_views: []CombinedContributionView = &.{};
+        var compact_plan = planning.CompactContributionPlan{ .groups = &.{}, .members = &.{} };
         var direct_plan = tile_executor.DirectContributionPlan{ .views = &.{}, .ranges = &.{} };
+        errdefer {
+            var combined_plan = planning.CombinedContributionPlan{ .views = combined_views };
+            combined_plan.deinit(allocator);
+            compact_plan.deinit(allocator);
+            direct_plan.deinit(allocator);
+        }
         switch (input_mode) {
             .combined_compatibility => {
                 const combined_plan = try planning.buildCombinedContributionPlan(
@@ -200,20 +210,31 @@ pub const LazyQuotientProvider = struct {
                 );
                 combined_views = combined_plan.views;
             },
-            .bounded_cpu => direct_plan = try tile_executor.buildDirectContributionPlan(
-                allocator,
-                flat_columns,
-                prepared.contribution_plan.active_column_indices,
-                prepared.contribution_plan.ranges,
-                nonzero_columns,
-                lifting_log_size,
-            ),
+            .bounded_cpu => {
+                const optional_compact_plan = try planning.buildCompactContributionPlan(
+                    allocator,
+                    flat_columns,
+                    prepared.contribution_plan.active_column_indices,
+                    prepared.contribution_plan.ranges,
+                    prepared.contribution_plan.contributions,
+                    nonzero_columns,
+                    lifting_log_size,
+                    COMPACT_GROUP_MIN_SHIFT,
+                    MAX_COMPACT_GROUP_BYTES,
+                );
+                const compact_admitted = optional_compact_plan != null;
+                if (optional_compact_plan) |plan| compact_plan = plan;
+                direct_plan = try tile_executor.buildDirectContributionPlan(
+                    allocator,
+                    flat_columns,
+                    prepared.contribution_plan.active_column_indices,
+                    prepared.contribution_plan.ranges,
+                    nonzero_columns,
+                    lifting_log_size,
+                    if (compact_admitted) COMPACT_GROUP_MIN_SHIFT else null,
+                );
+            },
             .raw_backend => {},
-        }
-        errdefer {
-            var combined_plan = planning.CombinedContributionPlan{ .views = combined_views };
-            combined_plan.deinit(allocator);
-            direct_plan.deinit(allocator);
         }
 
         var workspace = try quotients.RowQuotientWorkspace.init(allocator, prepared.sample_batches);
@@ -245,6 +266,7 @@ pub const LazyQuotientProvider = struct {
             .prepared = prepared,
             .input_mode = input_mode,
             .combined_views = combined_views,
+            .compact_plan = compact_plan,
             .direct_plan = direct_plan,
             .raw_columns = if (input_mode == .raw_backend) flat_columns else blk: {
                 allocator.free(flat_columns);
@@ -266,6 +288,7 @@ pub const LazyQuotientProvider = struct {
         self.workspace.deinit(allocator);
         var combined_plan = planning.CombinedContributionPlan{ .views = self.combined_views };
         combined_plan.deinit(allocator);
+        self.compact_plan.deinit(allocator);
         self.direct_plan.deinit(allocator);
         if (self.raw_columns.len != 0) allocator.free(self.raw_columns);
         self.prepared.deinit(allocator);
@@ -299,6 +322,7 @@ pub const LazyQuotientProvider = struct {
                     .workspace = &self.workspace,
                     .scratch = if (self.direct_chunk_scratch) |*scratch| scratch else null,
                     .domain = self.domain,
+                    .compact_groups = self.compact_plan.groups,
                     .column_views = self.direct_plan.views,
                     .contribution_ranges = self.direct_plan.ranges,
                     .contributions = self.prepared.contribution_plan.contributions,
@@ -376,6 +400,7 @@ pub const LazyQuotientProvider = struct {
                     .workspace = &self.workspace,
                     .scratch = if (self.direct_chunk_scratch) |*scratch| scratch else null,
                     .domain = self.domain,
+                    .compact_groups = self.compact_plan.groups,
                     .column_views = self.direct_plan.views,
                     .contribution_ranges = self.direct_plan.ranges,
                     .contributions = self.prepared.contribution_plan.contributions,
@@ -427,7 +452,7 @@ pub const LazyQuotientProvider = struct {
     }
 
     pub fn combinedIntermediateBytes(self: *const LazyQuotientProvider) !usize {
-        var bytes: usize = 0;
+        var bytes = self.compact_plan.retainedBytes();
         for (self.combined_views) |view| {
             for (view.coordinates) |coordinate| {
                 const coordinate_bytes = std.math.mul(usize, coordinate.len, @sizeOf(M31)) catch
@@ -564,12 +589,14 @@ pub const LazyQuotientProvider = struct {
             .use_batched_inversion = self.direct_chunk_scratch != null,
             .allow_parallel_scalar = self.allow_parallel_scalar,
             .domain = self.domain,
+            .compact_groups = self.compact_plan.groups,
             .column_views = self.direct_plan.views,
             .contribution_ranges = self.direct_plan.ranges,
             .contributions = self.prepared.contribution_plan.contributions,
             .quotient_constants = &self.prepared.quotient_constants,
             .lifting_log_size = self.lifting_log_size,
             .factory = factory,
+            .combined_intermediate_bytes = try self.combinedIntermediateBytes(),
         });
     }
 };

@@ -39,6 +39,33 @@ pub const CombinedContributionPlan = struct {
     }
 };
 
+pub const CompactContributionMember = struct {
+    values: []const M31,
+    coefficients: [qm31.SECURE_EXTENSION_DEGREE]M31,
+};
+
+pub const CompactContributionGroup = struct {
+    members: []const CompactContributionMember,
+    batch_index: usize,
+    shift_amt: std.math.Log2Int(usize),
+};
+
+pub const CompactContributionPlan = struct {
+    groups: []CompactContributionGroup,
+    members: []CompactContributionMember,
+
+    pub fn deinit(self: *CompactContributionPlan, allocator: std.mem.Allocator) void {
+        allocator.free(self.groups);
+        allocator.free(self.members);
+        self.* = undefined;
+    }
+
+    pub fn retainedBytes(self: CompactContributionPlan) usize {
+        return self.groups.len * @sizeOf(CompactContributionGroup) +
+            self.members.len * @sizeOf(CompactContributionMember);
+    }
+};
+
 pub const ColumnContributionPlan = struct {
     active_column_indices: []usize,
     ranges: []ColumnContributionRange,
@@ -307,6 +334,7 @@ pub fn buildCombinedContributionPlan(
         if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
         const log_shift = lifting_log_size - column.log_size;
         if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
+        const shift_amt: std.math.Log2Int(usize) = @intCast(log_shift + 1);
 
         const column_contributions = contributions[contribution_range.start .. contribution_range.start + contribution_range.len];
         for (column_contributions) |contribution| {
@@ -332,7 +360,7 @@ pub fn buildCombinedContributionPlan(
                 try views.append(allocator, .{
                     .coordinates = coordinates,
                     .batch_index = contribution.batch_index,
-                    .shift_amt = @intCast(log_shift + 1),
+                    .shift_amt = shift_amt,
                     .is_direct = column.log_size == lifting_log_size,
                 });
                 view_index = views.items.len - 1;
@@ -351,6 +379,183 @@ pub fn buildCombinedContributionPlan(
     }
 
     return .{ .views = try views.toOwnedSlice(allocator) };
+}
+
+/// Builds a lightweight grouping plan without materializing coefficient-weighted
+/// columns. Workers reduce each group's borrowed compact members in parallel.
+/// Optional-plan allocation or byte-budget failure selects the direct fallback;
+/// malformed quotient geometry still fails closed.
+pub fn buildCompactContributionPlan(
+    allocator: std.mem.Allocator,
+    flat_columns: []const ColumnEvaluation,
+    active_column_indices: []const usize,
+    contribution_ranges: []const ColumnContributionRange,
+    contributions: []const ColumnContribution,
+    nonzero_columns: []const bool,
+    lifting_log_size: u32,
+    min_shift_amt: std.math.Log2Int(usize),
+    max_bytes: usize,
+) !?CompactContributionPlan {
+    return buildCompactContributionPlanInner(
+        allocator,
+        flat_columns,
+        active_column_indices,
+        contribution_ranges,
+        contributions,
+        nonzero_columns,
+        lifting_log_size,
+        min_shift_amt,
+        max_bytes,
+    ) catch |err| switch (err) {
+        error.CompactContributionBudgetExceeded, error.OutOfMemory => null,
+        else => return err,
+    };
+}
+
+const CompactGroupSpec = struct {
+    batch_index: usize,
+    value_count: usize,
+    shift_amt: std.math.Log2Int(usize),
+    member_count: usize,
+};
+
+fn compactGroupIndex(
+    specs: []const CompactGroupSpec,
+    batch_index: usize,
+    value_count: usize,
+    shift_amt: std.math.Log2Int(usize),
+) ?usize {
+    for (specs, 0..) |spec, index| {
+        if (spec.batch_index == batch_index and
+            spec.value_count == value_count and
+            spec.shift_amt == shift_amt)
+        {
+            return index;
+        }
+    }
+    return null;
+}
+
+fn buildCompactContributionPlanInner(
+    allocator: std.mem.Allocator,
+    flat_columns: []const ColumnEvaluation,
+    active_column_indices: []const usize,
+    contribution_ranges: []const ColumnContributionRange,
+    contributions: []const ColumnContribution,
+    nonzero_columns: []const bool,
+    lifting_log_size: u32,
+    min_shift_amt: std.math.Log2Int(usize),
+    max_bytes: usize,
+) !CompactContributionPlan {
+    if (active_column_indices.len != contribution_ranges.len or
+        flat_columns.len != nonzero_columns.len)
+    {
+        return QuotientOpsError.ShapeMismatch;
+    }
+
+    var specs = std.ArrayList(CompactGroupSpec).empty;
+    defer specs.deinit(allocator);
+    var total_members: usize = 0;
+    for (active_column_indices, contribution_ranges) |column_idx, contribution_range| {
+        if (column_idx >= flat_columns.len or column_idx >= nonzero_columns.len) {
+            return QuotientOpsError.ShapeMismatch;
+        }
+        if (!nonzero_columns[column_idx]) continue;
+        const column = flat_columns[column_idx];
+        if (column.log_size > lifting_log_size) return QuotientOpsError.InvalidColumnLogSize;
+        const log_shift = lifting_log_size - column.log_size;
+        if (log_shift >= @bitSizeOf(usize)) return QuotientOpsError.InvalidColumnLogSize;
+        const shift_amt: std.math.Log2Int(usize) = @intCast(log_shift + 1);
+        if (shift_amt < min_shift_amt) continue;
+        const contribution_end = std.math.add(
+            usize,
+            contribution_range.start,
+            contribution_range.len,
+        ) catch return QuotientOpsError.ShapeMismatch;
+        if (contribution_end > contributions.len) return QuotientOpsError.ShapeMismatch;
+        for (contributions[contribution_range.start..contribution_end]) |contribution| {
+            if (compactGroupIndex(
+                specs.items,
+                contribution.batch_index,
+                column.values.len,
+                shift_amt,
+            )) |index| {
+                specs.items[index].member_count = std.math.add(
+                    usize,
+                    specs.items[index].member_count,
+                    1,
+                ) catch return error.CompactContributionBudgetExceeded;
+            } else {
+                try specs.append(allocator, .{
+                    .batch_index = contribution.batch_index,
+                    .value_count = column.values.len,
+                    .shift_amt = shift_amt,
+                    .member_count = 1,
+                });
+            }
+            total_members = std.math.add(usize, total_members, 1) catch
+                return error.CompactContributionBudgetExceeded;
+        }
+    }
+
+    const group_bytes = std.math.mul(
+        usize,
+        specs.items.len,
+        @sizeOf(CompactContributionGroup),
+    ) catch return error.CompactContributionBudgetExceeded;
+    const member_bytes = std.math.mul(
+        usize,
+        total_members,
+        @sizeOf(CompactContributionMember),
+    ) catch return error.CompactContributionBudgetExceeded;
+    const retained_bytes = std.math.add(usize, group_bytes, member_bytes) catch
+        return error.CompactContributionBudgetExceeded;
+    if (retained_bytes > max_bytes) return error.CompactContributionBudgetExceeded;
+
+    const groups = try allocator.alloc(CompactContributionGroup, specs.items.len);
+    errdefer allocator.free(groups);
+    const members = try allocator.alloc(CompactContributionMember, total_members);
+    errdefer allocator.free(members);
+    const next_offsets = try allocator.alloc(usize, specs.items.len);
+    defer allocator.free(next_offsets);
+
+    var member_offset: usize = 0;
+    for (specs.items, 0..) |spec, index| {
+        const member_end = member_offset + spec.member_count;
+        groups[index] = .{
+            .members = members[member_offset..member_end],
+            .batch_index = spec.batch_index,
+            .shift_amt = spec.shift_amt,
+        };
+        next_offsets[index] = member_offset;
+        member_offset = member_end;
+    }
+    std.debug.assert(member_offset == total_members);
+
+    for (active_column_indices, contribution_ranges) |column_idx, contribution_range| {
+        if (!nonzero_columns[column_idx]) continue;
+        const column = flat_columns[column_idx];
+        const log_shift = lifting_log_size - column.log_size;
+        const shift_amt: std.math.Log2Int(usize) = @intCast(log_shift + 1);
+        if (shift_amt < min_shift_amt) continue;
+        const contribution_end = contribution_range.start + contribution_range.len;
+        for (contributions[contribution_range.start..contribution_end]) |contribution| {
+            const group_index = compactGroupIndex(
+                specs.items,
+                contribution.batch_index,
+                column.values.len,
+                shift_amt,
+            ) orelse unreachable;
+            const write_index = next_offsets[group_index];
+            members[write_index] = .{
+                .values = column.values,
+                .coefficients = contribution.value_coeff.toM31Array(),
+            };
+            next_offsets[group_index] = write_index + 1;
+        }
+    }
+
+    return .{ .groups = groups, .members = members };
 }
 
 pub fn materializeActiveLiftedColumns(
@@ -404,4 +609,63 @@ fn validateSampleBatchColumnIndices(
             if (sample_data.column_index >= queried_values_cols) return error.ColumnIndexOutOfBounds;
         }
     }
+}
+
+test "compact contribution plan groups lifted geometry and fails back on budget" {
+    const values_a = [_]M31{
+        M31.fromCanonical(1), M31.fromCanonical(2),
+        M31.fromCanonical(3), M31.fromCanonical(4),
+    };
+    const values_b = [_]M31{
+        M31.fromCanonical(5), M31.fromCanonical(6),
+        M31.fromCanonical(7), M31.fromCanonical(8),
+    };
+    const direct_values = [_]M31{M31.one()} ** 16;
+    const columns = [_]ColumnEvaluation{
+        .{ .log_size = 2, .values = &values_a },
+        .{ .log_size = 2, .values = &values_b },
+        .{ .log_size = 4, .values = &direct_values },
+    };
+    const active_indices = [_]usize{ 0, 1, 2 };
+    const ranges = [_]ColumnContributionRange{
+        .{ .start = 0, .len = 1 },
+        .{ .start = 1, .len = 1 },
+        .{ .start = 2, .len = 1 },
+    };
+    const contributions = [_]ColumnContribution{
+        .{ .batch_index = 0, .value_coeff = QM31.fromU32Unchecked(1, 2, 3, 4) },
+        .{ .batch_index = 0, .value_coeff = QM31.fromU32Unchecked(5, 6, 7, 8) },
+        .{ .batch_index = 1, .value_coeff = QM31.one() },
+    };
+    const nonzero = [_]bool{ true, true, true };
+
+    var admitted = (try buildCompactContributionPlan(
+        std.testing.allocator,
+        &columns,
+        &active_indices,
+        &ranges,
+        &contributions,
+        &nonzero,
+        4,
+        2,
+        1024,
+    )).?;
+    defer admitted.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), admitted.groups.len);
+    try std.testing.expectEqual(@as(usize, 2), admitted.groups[0].members.len);
+    try std.testing.expectEqual(@as(usize, 0), admitted.groups[0].batch_index);
+    try std.testing.expectEqual(@as(std.math.Log2Int(usize), 3), admitted.groups[0].shift_amt);
+    try std.testing.expect(admitted.retainedBytes() <= 1024);
+
+    try std.testing.expect((try buildCompactContributionPlan(
+        std.testing.allocator,
+        &columns,
+        &active_indices,
+        &ranges,
+        &contributions,
+        &nonzero,
+        4,
+        2,
+        0,
+    )) == null);
 }
