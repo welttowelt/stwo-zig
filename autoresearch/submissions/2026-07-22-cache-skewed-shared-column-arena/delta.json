@@ -24,7 +24,8 @@
     "src/backends/metal/shaders/core/circle_transform.metal": "sha256:24c1e76fe28d817c72bca8061878b40c564e08d554167b0fe15e354895f0e7e8",
     "src/backends/metal/shaders/manifest.zig": "sha256:5d9f89c474e2ef5374ad3147a35e1e481511b83ef14ee0f42efe748bc8ef0b2c",
     "src/prover/pcs/columns/preparation.zig": "sha256:25eaa84c400917ef32b94c6befec090e546214208c984231d1a711e706e1c695",
-    "src/prover/pcs/commitment_tree.zig": "sha256:6fa6860c1699aadce2f29b42cc5106db8f9adace1e28d076bdad3e6949d2e3b9"
+    "src/prover/pcs/commitment_tree.zig": "sha256:6fa6860c1699aadce2f29b42cc5106db8f9adace1e28d076bdad3e6949d2e3b9",
+    "src/tests/metal/backend/transform_pipeline_test.zig": "sha256:b0614861e51153149e6f94fe42e818b72fa6aa5ba26c46301f71421076e24c41"
   },
   "transcripts": {
     "transcripts/session-01.md": {

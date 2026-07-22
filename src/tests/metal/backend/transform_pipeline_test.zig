@@ -65,15 +65,16 @@ test "metal: fused circle LDE matches CPU" {
     var cpu_extended: [3][]M31 = undefined;
     var gpu_base: [3][]M31 = undefined;
     var gpu_extended: [3][]M31 = undefined;
+    const gpu_transform = try allocator.alloc(M31, gpu_extended.len * extended_domain.size());
     defer for (&cpu_base) |column| allocator.free(column);
     defer for (&cpu_extended) |column| allocator.free(column);
     defer for (&gpu_base) |column| allocator.free(column);
-    defer for (&gpu_extended) |column| allocator.free(column);
+    defer allocator.free(gpu_transform);
     for (0..cpu_base.len) |column_index| {
         cpu_base[column_index] = try allocator.alloc(M31, base_domain.size());
         cpu_extended[column_index] = try allocator.alloc(M31, extended_domain.size());
         gpu_base[column_index] = try allocator.alloc(M31, base_domain.size());
-        gpu_extended[column_index] = try allocator.alloc(M31, extended_domain.size());
+        gpu_extended[column_index] = gpu_transform[column_index * extended_domain.size() .. (column_index + 1) * extended_domain.size()];
         for (cpu_base[column_index], 0..) |*value, row| {
             value.* = M31.fromCanonical(@intCast((column_index * 65537 + row * 8191 + 31) % m31.Modulus));
         }
@@ -94,6 +95,9 @@ test "metal: fused circle LDE matches CPU" {
         &gpu_base,
         &gpu_base,
         &gpu_extended,
+        gpu_transform,
+        0,
+        extended_domain.size(),
         base_tree.itwiddles,
         extended_tree.twiddles,
         base_log_size,
