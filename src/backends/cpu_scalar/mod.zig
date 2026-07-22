@@ -21,6 +21,7 @@ const fields_mod = @import("stwo_core").fields;
 const core_fri = @import("stwo_core").fri;
 const circle = @import("stwo_core").circle;
 const lifted_merkle = @import("stwo_prover_impl").vcs_lifted.prover;
+const secure_composition = @import("secure_composition.zig");
 
 const M31 = m31_mod.M31;
 const CM31 = cm31_mod.CM31;
@@ -34,6 +35,12 @@ pub const CpuBackend = struct {
     pub const combined_commit_min_columns: usize = 65;
     pub const combined_commit_max_columns: usize = 256;
     pub const combined_base_in_place = true;
+
+    /// Installs CPU-only semantic accelerators before excluded benchmark
+    /// warmups. Unsupported AIRs retain the generic evaluator.
+    pub fn warmup() !void {
+        secure_composition.install();
+    }
 
     // ---------------------------------------------------------------
     // ColumnOps
