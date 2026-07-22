@@ -36,7 +36,22 @@ pub fn FirstLayerLeafSink(comptime H: type) type {
                 }
 
                 var row: usize = 0;
-                if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
+                if (comptime @hasDecl(H, "leafSeed") and
+                    @hasDecl(H, "hashDirectM31LeavesWithSeed4"))
+                {
+                    const DirectColumn = struct { values: []const M31 };
+                    var columns: [qm31.SECURE_EXTENSION_DEGREE]DirectColumn = undefined;
+                    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                        columns[coordinate] = .{ .values = tile.coordinates[coordinate] };
+                    }
+                    const seed = H.leafSeed();
+                    while (row + 4 <= tile_len) : (row += 4) {
+                        const hashes = H.hashDirectM31LeavesWithSeed4(seed, &columns, row);
+                        inline for (0..4) |lane| {
+                            self.leaves[tile.start - self.absolute_start + row + lane] = hashes[lane];
+                        }
+                    }
+                } else if (comptime @hasDecl(H, "leafSeed") and @hasDecl(H, "hashPackedLeavesWithSeed4")) {
                     const seed = H.leafSeed();
                     while (row + 4 <= tile_len) : (row += 4) {
                         var values: [4][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;

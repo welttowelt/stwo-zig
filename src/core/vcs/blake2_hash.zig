@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const m31 = @import("../fields/m31.zig");
 const blake2_backend = @import("../crypto/blake2s_backend.zig");
 
@@ -203,6 +204,40 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
             return out;
         }
 
+        pub fn hashM31ColumnsFromSeed4WithMode(
+            mode: BackendMode,
+            seed: Fixed64Seed,
+            columns: anytype,
+            position: usize,
+        ) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashM31ColumnsFromSeed4WithMode(
+                mode,
+                seed,
+                columns,
+                position,
+            );
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
+        pub fn hashM31Columns4WithMode(
+            mode: BackendMode,
+            columns: anytype,
+            position: usize,
+        ) [4]Blake2sHash {
+            var out = blake2_backend.Blake2sHasher.hashM31Columns4WithMode(
+                mode,
+                columns,
+                position,
+            );
+            if (is_m31_output) {
+                for (&out) |*digest| digest.* = reduceToM31(digest.*);
+            }
+            return out;
+        }
+
         pub fn concatAndHash(v1: Blake2sHash, v2: Blake2sHash) Blake2sHash {
             var payload: [64]u8 = undefined;
             @memcpy(payload[0..32], v1[0..]);
@@ -221,6 +256,20 @@ pub fn Blake2sHasherGeneric(comptime is_m31_output: bool) type {
 
 /// Reduces each little-endian u32 limb modulo M31.
 pub fn reduceToM31(value: Blake2sHash) Blake2sHash {
+    if (comptime builtin.cpu.arch.endian() == .little) {
+        const V4 = @Vector(4, u32);
+        const p: V4 = @splat(m31.Modulus);
+        var words: [8]u32 = @bitCast(value);
+        inline for (0..2) |group| {
+            const start = group * 4;
+            const input: V4 = words[start..][0..4].*;
+            const folded = (input & p) +% (input >> @as(V4, @splat(31)));
+            const reduced = @select(u32, folded >= p, folded -% p, folded);
+            words[start..][0..4].* = reduced;
+        }
+        return @bitCast(words);
+    }
+
     var out: Blake2sHash = undefined;
     var i: usize = 0;
     while (i < 8) : (i += 1) {

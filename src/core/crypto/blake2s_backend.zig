@@ -365,6 +365,101 @@ pub const Blake2sHasher = struct {
         return parallelStatesToDigests(&states);
     }
 
+    /// Hashes four equal-length M31 leaf messages directly from column-major
+    /// storage. Each column contributes one canonical little-endian u32 word
+    /// to every lane. On little-endian SIMD hosts the four adjacent rows are
+    /// already exactly the vector layout consumed by `compressParallel4`, so
+    /// no row-major message packing or block retransposition is required.
+    pub fn hashM31ColumnsFromSeed4WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        return hashM31Columns4FromStateWithMode(
+            mode,
+            seed,
+            64,
+            columns,
+            position,
+        );
+    }
+
+    pub fn hashM31Columns4WithMode(
+        mode: BackendMode,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        const initial = Self.initWithMode(mode);
+        return hashM31Columns4FromStateWithMode(
+            mode,
+            initial.h,
+            0,
+            columns,
+            position,
+        );
+    }
+
+    fn hashM31Columns4FromStateWithMode(
+        mode: BackendMode,
+        initial_state: [8]u32,
+        initial_counter: u32,
+        columns: anytype,
+        position: usize,
+    ) [4]Blake2sHash {
+        std.debug.assert(columns.len != 0);
+        for (columns) |column| {
+            std.debug.assert(position + 4 <= column.values.len);
+        }
+
+        if (selectBackend(mode).effective == .scalar or
+            comptime builtin.cpu.arch.endian() != .little)
+        {
+            var out: [4]Blake2sHash = undefined;
+            for (&out, 0..) |*digest, lane| {
+                var hasher = Self.initWithMode(mode);
+                hasher.h = initial_state;
+                hasher.t0 = initial_counter;
+                for (columns) |column| {
+                    var encoded: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &encoded, column.values[position + lane].v, .little);
+                    hasher.update(&encoded);
+                }
+                digest.* = hasher.finalize();
+            }
+            return out;
+        }
+
+        var states: [8]V4 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(initial_state[word_index]);
+
+        var column_at: usize = 0;
+        var counter = initial_counter;
+        while (column_at + 16 < columns.len) : (column_at += 16) {
+            var messages: [16]V4 = undefined;
+            inline for (0..16) |word| {
+                const values: *const [4]u32 = @ptrCast(
+                    columns[column_at + word].values.ptr + position,
+                );
+                messages[word] = values.*;
+            }
+            counter +%= 64;
+            compressParallel4(&states, &messages, counter, 0, 0);
+        }
+
+        var final_messages: [16]V4 = @splat(@splat(0));
+        const remaining = columns.len - column_at;
+        for (0..remaining) |word| {
+            const values: *const [4]u32 = @ptrCast(
+                columns[column_at + word].values.ptr + position,
+            );
+            final_messages[word] = values.*;
+        }
+        counter +%= @intCast(remaining * @sizeOf(u32));
+        compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
+        return parallelStatesToDigests(&states);
+    }
+
     fn addCounter(self: *Self, inc: u32) void {
         const sum: u64 = @as(u64, self.t0) + @as(u64, inc);
         self.t0 = @truncate(sum);

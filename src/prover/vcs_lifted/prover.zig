@@ -208,7 +208,22 @@ pub fn MerkleProverLifted(comptime H: type) type {
         };
 
         fn hashLazyLeafRange(work: *const LazyLeafRange) void {
-            for (work.start..work.end) |position| {
+            var position = work.start;
+            if (comptime @hasDecl(H, "leafSeed") and
+                @hasDecl(H, "hashDirectM31LeavesWithSeed4"))
+            {
+                const DirectColumn = struct { values: []const M31 };
+                var columns: [qm31.SECURE_EXTENSION_DEGREE]DirectColumn = undefined;
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    columns[coordinate] = .{ .values = work.column.columns[coordinate] };
+                }
+                const seed = H.leafSeed();
+                while (position + 4 <= work.end) : (position += 4) {
+                    const hashes = H.hashDirectM31LeavesWithSeed4(seed, &columns, position);
+                    inline for (0..4) |lane| work.leaves[position + lane] = hashes[lane];
+                }
+            }
+            while (position < work.end) : (position += 1) {
                 var values: [qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
                 inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coord| {
                     values[coord] = work.column.columns[coord][position];

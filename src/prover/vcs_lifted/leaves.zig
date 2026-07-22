@@ -185,6 +185,19 @@ pub fn Operations(comptime H: type) type {
         }
 
         fn buildLeavesBatchedRange4(ctx: *const BatchedLeafRangeCtx) void {
+            if (comptime @hasDecl(H, "hashDirectM31LeavesWithSeed4")) {
+                var direct = true;
+                for (ctx.sorted_columns) |column| {
+                    if (column.log_size != ctx.max_log_size) {
+                        direct = false;
+                        break;
+                    }
+                }
+                if (direct) {
+                    buildLeavesDirectRange4(ctx);
+                    return;
+                }
+            }
             const scratch = ctx.scratch orelse {
                 buildLeavesBatchedRangeScalar(ctx);
                 return;
@@ -214,6 +227,26 @@ pub fn Operations(comptime H: type) type {
                     const shift_amt: std.math.Log2Int(usize) = @intCast(ctx.max_log_size - column.log_size + 1);
                     const source_index = ((position >> shift_amt) << 1) + (position & 1);
                     hasher.updateLeaf(column.values[source_index .. source_index + 1]);
+                }
+                ctx.out[position] = hasher.finalize();
+            }
+        }
+
+        fn buildLeavesDirectRange4(ctx: *const BatchedLeafRangeCtx) void {
+            const seed = H.leafSeed();
+            var position = ctx.start;
+            while (position + 4 <= ctx.end) : (position += 4) {
+                const hashes = H.hashDirectM31LeavesWithSeed4(
+                    seed,
+                    ctx.sorted_columns,
+                    position,
+                );
+                inline for (0..4) |lane| ctx.out[position + lane] = hashes[lane];
+            }
+            while (position < ctx.end) : (position += 1) {
+                var hasher = ctx.seed_hasher;
+                for (ctx.sorted_columns) |column| {
+                    hasher.updateLeaf(column.values[position .. position + 1]);
                 }
                 ctx.out[position] = hasher.finalize();
             }
