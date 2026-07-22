@@ -76,7 +76,13 @@ struct StwoBenchView: View {
             stwo_mobile_bench_free(out)
             DispatchQueue.main.async {
                 let end = deviceSnapshot()
-                report = wrapWithDeviceIdentity(reportJSON: json, start: start, end: end)
+                // ABI errors are plain strings, not JSON — never wrap them
+                // into a report or offer them via ShareLink as one.
+                if json.hasPrefix("error:") {
+                    report = "BENCH ERROR (not a report — do not submit):\n\(json)"
+                } else {
+                    report = wrapWithDeviceIdentity(reportJSON: json, start: start, end: end)
+                }
                 running = false
                 UIApplication.shared.isIdleTimerDisabled = false
             }

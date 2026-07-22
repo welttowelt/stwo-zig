@@ -1,8 +1,16 @@
 # mobile-proof-v1 report schema
 
-One wrapper object around the untouched native prover report — the prover
-report stays byte-compatible with `native_proof_v7`, so every existing
-parity/validation tool keeps working on the inner object.
+One wrapper object around the prover report. `prover_report` is a
+DISCRIMINATED UNION of two kinds:
+
+- **zig flavor**: an untouched `native_proof_v7` object (discriminator:
+  `schema_version: 7` present) — digests at `proof.samples[*].sha256`;
+- **rust flavor**: a `rust_bench_v1` object (discriminator: `report_kind:
+  "rust_bench_v1"`) — digests at the SAME path, `proof.samples[*].sha256`,
+  by construction.
+
+Validators read the digest path uniformly; every other field is
+kind-specific and must not be cross-assumed.
 
 ```json
 {
@@ -36,7 +44,7 @@ Validity rules (v1):
 - **Toolchain/flag pinning (per epoch):** rows record the exact build
   flags; epoch 1 pins zig `-OReleaseFast -mcpu baseline` and rust
   `--release` at the repo's pinned toolchains. Changing flags = new epoch.
-- `prover_report.proof.samples[*].sha256` must match the reference digests
+- `prover_report.proof.samples[*].sha256` (both kinds) must match the reference digests
   for the workload — the same oracle-parity gate as every other board.
 - Rows carry the device class from BOARD_SPEC.md; the class is claimed by
   the submitter and checkable from `machine`.

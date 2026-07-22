@@ -38,7 +38,8 @@ the soundness test.
 ## Protocol notes
 
 - Cooled protocol like heavy: fixed pre-run idle, screen awake, charger
-  connected, airplane mode; three-sample bounded batches; report thermal
+  connected, airplane mode; warmups=2/samples=5 batches (the board's
+  declared v7 relaxation — one contract everywhere); report thermal
   state so throttled runs are visible and rejectable (G5 environment gate).
 - Epochs per the maintainer's advice: metric OR build-flag/toolchain
   changes start a new epoch, never rewrite old rows (epoch 1 pins zig

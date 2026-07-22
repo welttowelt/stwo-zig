@@ -1,11 +1,19 @@
 //! C-ABI mobile bench around the reference Rust stwo prover.
 //!
 //! Same contract as the Zig shim (mobile/README.md):
-//!   stwo_mobile_bench("--workload plonk --log-n-rows 12 --samples 3 --warmups 1")
-//! returns NUL-terminated JSON (schema mobile-proof-rust-v1) or an
-//! `error: …` string; release it with stwo_mobile_bench_free. Proof bytes
-//! are the canonical wire JSON, so their sha256 digests are comparable to
-//! the parity oracle's.
+//!   stwo_mobile_bench("--example plonk --log-n-rows 12 --protocol functional --samples 5 --warmups 2")
+//! returns NUL-terminated JSON or an `error: …` string; release it with
+//! stwo_mobile_bench_free. Accepts the exact argument strings the Swift
+//! shell sends (integration-tested below, verbatim).
+//!
+//! Timing contract = the Zig bench's: prove_seconds covers the transcript
+//! machine only; twiddles are session-cached across warmups+samples; trace
+//! generation, wire encoding, and verification are untimed
+//! (see stwo-interop-rs/src/lib.rs docs).
+//!
+//! Report shape: digests live at `proof.samples[*].sha256` — the same path
+//! validators use on native_proof_v7 — with `report_kind:
+//! "rust_bench_v1"` as the discriminator (schema/mobile-proof-v1.md).
 
 use sha2::{Digest, Sha256};
 use std::ffi::{c_char, CStr, CString};
@@ -50,8 +58,8 @@ fn parse(line: &str) -> anyhow::Result<Args> {
         workload: String::new(),
         log_n_rows: 0,
         sequence_len: 8,
-        samples: 3,
-        warmups: 1,
+        samples: 5,
+        warmups: 2,
     };
     let toks: Vec<&str> = line.split_whitespace().collect();
     let mut i = 0;
@@ -66,6 +74,13 @@ fn parse(line: &str) -> anyhow::Result<Args> {
             "--sequence-len" => args.sequence_len = val.parse()?,
             "--samples" => args.samples = val.parse()?,
             "--warmups" => args.warmups = val.parse()?,
+            // The board runs one protocol; accept the flag the Swift shell
+            // sends and reject anything but the pinned profile.
+            "--protocol" => {
+                if *val != "functional" {
+                    anyhow::bail!("unsupported protocol {val} (functional only)");
+                }
+            }
             other => anyhow::bail!("unknown flag {other}"),
         }
         i += 2;
@@ -76,23 +91,15 @@ fn parse(line: &str) -> anyhow::Result<Args> {
     Ok(args)
 }
 
-fn prove_once(a: &Args) -> anyhow::Result<(Vec<u8>, f64)> {
+fn prove_once(
+    session: &stwo_interop_rs::BenchSession,
+    a: &Args,
+) -> anyhow::Result<(Vec<u8>, f64)> {
     match a.workload.as_str() {
-        "wide_fibonacci" => stwo_interop_rs::prove_wide_fibonacci(
-            a.log_n_rows,
-            a.sequence_len,
-            POW_BITS,
-            LOG_LAST_LAYER,
-            LOG_BLOWUP,
-            N_QUERIES,
-        ),
-        "plonk" => stwo_interop_rs::prove_plonk(
-            a.log_n_rows,
-            POW_BITS,
-            LOG_LAST_LAYER,
-            LOG_BLOWUP,
-            N_QUERIES,
-        ),
+        "wide_fibonacci" => {
+            stwo_interop_rs::bench_wide_fibonacci(session, a.log_n_rows, a.sequence_len)
+        }
+        "plonk" => stwo_interop_rs::bench_plonk(session, a.log_n_rows),
         other => anyhow::bail!("unsupported workload {other} (wide_fibonacci | plonk)"),
     }
 }
@@ -100,29 +107,38 @@ fn prove_once(a: &Args) -> anyhow::Result<(Vec<u8>, f64)> {
 fn bench(line: &str) -> anyhow::Result<String> {
     let a = parse(line)?;
     let n_samples = a.samples.max(1);
+    // Session twiddles built once, untimed, reused across warmups+samples.
+    let session = stwo_interop_rs::BenchSession::new(
+        a.log_n_rows,
+        POW_BITS,
+        LOG_LAST_LAYER,
+        LOG_BLOWUP,
+        N_QUERIES,
+    );
     for _ in 0..a.warmups {
-        prove_once(&a)?;
+        prove_once(&session, &a)?;
     }
     let mut secs: Vec<f64> = Vec::with_capacity(n_samples);
+    let mut sample_objs: Vec<serde_json::Value> = Vec::with_capacity(n_samples);
     let mut digests: Vec<String> = Vec::with_capacity(n_samples);
-    let mut proof_len = 0usize;
     for _ in 0..n_samples {
-        let (bytes, prove_seconds) = prove_once(&a)?;
+        let (bytes, prove_seconds) = prove_once(&session, &a)?;
         secs.push(prove_seconds);
-        proof_len = bytes.len();
-        digests.push(hex::encode(Sha256::digest(&bytes)));
+        let sha = hex::encode(Sha256::digest(&bytes));
+        sample_objs.push(serde_json::json!({ "bytes": bytes.len(), "sha256": sha }));
+        digests.push(sha);
     }
     let mut sorted = secs.clone();
     sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
-    let median = if sorted.len() % 2 == 1 {
-        sorted[sorted.len() / 2]
-    } else {
-        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
-    };
+    // v7 median semantics exactly (runner.py: sorted[len//2], i.e. the
+    // upper element for even counts) — the board contract pins v7, so the
+    // implementation matches it rather than the statistics textbook.
+    let median = sorted[sorted.len() / 2];
     let all_equal = digests.windows(2).all(|w| w[0] == w[1]);
 
     Ok(serde_json::json!({
         "schema": "mobile-proof-rust-v1",
+        "report_kind": "rust_bench_v1",
         "prover": "stwo-rust@a8fcf4bdde3778ae72f1e6cfe61a38e2911648d2",
         "backend": "simd",
         "workload": { "name": a.workload, "log_n_rows": a.log_n_rows, "sequence_len": a.sequence_len },
@@ -130,7 +146,7 @@ fn bench(line: &str) -> anyhow::Result<String> {
         "warmups": a.warmups,
         "samples": n_samples,
         "prove_seconds": { "samples": secs, "median": median },
-        "proof": { "wire_bytes": proof_len, "sha256": digests, "all_samples_byte_identical": all_equal },
+        "proof": { "samples": sample_objs, "all_samples_byte_identical": all_equal },
         "verified_samples": n_samples
     })
     .to_string())
@@ -141,16 +157,41 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    #[test]
-    fn c_abi_end_to_end() {
-        let line =
-            CString::new("--workload wide_fibonacci --log-n-rows 8 --sequence-len 8 --samples 2 --warmups 1")
-                .unwrap();
-        let out = stwo_mobile_bench(line.as_ptr());
+    /// The pinned cross-flavor reference digest (mobile/PARITY.md): both
+    /// flavors must emit exactly these proof bytes for this statement.
+    const PARITY_SHA: &str = "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700";
+
+    fn run(line: &str) -> String {
+        let c = CString::new(line).unwrap();
+        let out = stwo_mobile_bench(c.as_ptr());
         let s = unsafe { CStr::from_ptr(out) }.to_string_lossy().to_string();
         unsafe { stwo_mobile_bench_free(out) };
-        assert!(s.starts_with('{'), "got: {s}");
-        assert!(s.contains("mobile-proof-rust-v1"));
-        assert!(s.contains("all_samples_byte_identical\":true"));
+        s
+    }
+
+    /// The EXACT argument strings the Swift shell sends (StwoBenchView.swift)
+    /// — small at full contract, wide/deep at reduced size so the test stays
+    /// fast while exercising the identical flag surface.
+    #[test]
+    fn swift_shell_arg_strings_are_accepted() {
+        let small = run("--example wide_fibonacci --log-n-rows 10 --sequence-len 8 --protocol functional --warmups 2 --samples 5");
+        assert!(small.starts_with('{'), "small rejected: {small}");
+        let v: serde_json::Value = serde_json::from_str(&small).unwrap();
+        assert_eq!(v["proof"]["samples"][0]["sha256"], PARITY_SHA);
+        assert_eq!(v["proof"]["all_samples_byte_identical"], true);
+        assert_eq!(v["samples"], 5);
+
+        let wide = run("--example wide_fibonacci --log-n-rows 8 --sequence-len 32 --protocol functional --warmups 1 --samples 2");
+        assert!(wide.starts_with('{'), "wide-shape rejected: {wide}");
+        let deep = run("--example plonk --log-n-rows 8 --protocol functional --warmups 1 --samples 2");
+        assert!(deep.starts_with('{'), "deep-shape rejected: {deep}");
+    }
+
+    #[test]
+    fn error_results_are_prefixed_not_json() {
+        let e = run("--example nope --log-n-rows 8 --protocol functional");
+        assert!(e.starts_with("error: "), "got: {e}");
+        let e2 = run("--example plonk --log-n-rows 8 --protocol secure");
+        assert!(e2.starts_with("error: "), "got: {e2}");
     }
 }

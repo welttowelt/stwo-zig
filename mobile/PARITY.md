@@ -1,6 +1,6 @@
 # Cross-flavor parity artifact
 
-Date: 2026-07-22 · branch head at time of run: fd264e5
+Date: 2026-07-22 · tree state: e433832 (print_report.rs first committed there; digest re-checkable at any later head)
 Host: Apple M4 Pro, macOS (native run — parity is host-independent by
 construction; phone runs must reproduce these digests).
 
