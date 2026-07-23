@@ -9,8 +9,10 @@
 //! sequential path by construction.
 //!
 //! Deferral gates (see `canDeferFirstTree`): multi-threaded build, first
-//! tree only, non-empty non-constant columns, and a borrowed (pre-built,
-//! read-only) twiddle tower so the worker never mutates shared cache state.
+//! tree only, and non-empty non-constant columns. Both twiddle-source
+//! modes are deferral-safe: borrowed towers are immutable, and the owned
+//! cache serializes lookup/insert behind its own mutex, so the worker and
+//! the main thread may request trees concurrently.
 //! Spawn failure falls back to the sequential path; `discard` drains an
 //! unresolved build on abort.
 
@@ -25,8 +27,13 @@ const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 
 pub fn Pending(comptime Tree: type) type {
     return struct {
-        thread: std.Thread,
+        thread: ?std.Thread,
         slot: *Slot,
+        /// True once an observer (e.g. `roots`) joined the build and
+        /// appended the tree while its root mix is still owed to the
+        /// channel. First-tree-only deferral guarantees the owed tree is
+        /// `trees.items[0]`, so the root needs no separate storage.
+        appended_unmixed: bool = false,
 
         pub const Slot = struct {
             tree: ?Tree = null,
@@ -40,7 +47,6 @@ pub fn canDeferFirstTree(scheme: anytype, owned_columns: []const ColumnEvaluatio
     if (scheme.pending_commit != null) return false;
     if (scheme.trees.items.len != 0) return false;
     if (owned_columns.len == 0) return false;
-    if (!scheme.twiddle_source.isBorrowed()) return false;
     return true;
 }
 
@@ -105,6 +111,8 @@ pub fn trySpawn(
 /// Joins a deferred first-tree build (if any) and replays its root mix by
 /// re-entering the append choke point. Clears the pending slot first, so
 /// the recursion terminates and mix order matches the sequential path.
+/// A build already appended by `resolveObserved` only owes its root mix,
+/// which is replayed here — still ahead of any later tree's mix.
 pub fn resolve(
     comptime MC: type,
     scheme: anytype,
@@ -113,7 +121,12 @@ pub fn resolve(
 ) anyerror!void {
     const pending = scheme.pending_commit orelse return;
     scheme.pending_commit = null;
-    pending.thread.join();
+    if (pending.appended_unmixed) {
+        allocator.destroy(pending.slot);
+        MC.mixRoot(channel, scheme.trees.items[0].root());
+        return;
+    }
+    pending.thread.?.join();
     const slot = pending.slot;
     defer allocator.destroy(slot);
     if (slot.err) |err| return err;
@@ -122,11 +135,82 @@ pub fn resolve(
     try tree_builders.appendCommittedTree(MC, scheme, allocator, tree, channel);
 }
 
-/// Abort path: join and discard a deferred build without mixing.
+/// Channel-less resolution for observers (`roots`) that must see the
+/// committed tree before any later commit supplies a channel: joins the
+/// build and appends the tree, leaving the root mix owed. Single-commit
+/// schemes (e.g. standalone commitment validation) never replay the mix —
+/// their channel carries no further protocol traffic by construction.
+pub fn resolveObserved(scheme: anytype, allocator: std.mem.Allocator) anyerror!void {
+    var pending = scheme.pending_commit orelse return;
+    if (pending.appended_unmixed) return;
+    pending.thread.?.join();
+    pending.thread = null;
+    const slot = pending.slot;
+    if (slot.err) |err| {
+        scheme.pending_commit = null;
+        allocator.destroy(slot);
+        return err;
+    }
+    var tree = slot.tree.?;
+    slot.tree = null;
+    scheme.trees.append(allocator, tree) catch |err| {
+        // Leave the scheme self-consistent on the rare allocation failure:
+        // the worker is joined, so the pending slot must not survive for a
+        // later resolve/discard to re-join.
+        scheme.pending_commit = null;
+        tree.deinit(allocator);
+        allocator.destroy(slot);
+        return err;
+    };
+    pending.appended_unmixed = true;
+    scheme.pending_commit = pending;
+}
+
+test "resolveObserved: failed append clears pending and leaks nothing" {
+    const MockTree = struct {
+        freed: *bool,
+        fn root(self: *const @This()) u64 {
+            _ = self;
+            return 0;
+        }
+        fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            _ = allocator;
+            self.freed.* = true;
+        }
+    };
+    const MockScheme = struct {
+        pending_commit: ?Pending(MockTree) = null,
+        trees: std.ArrayListUnmanaged(MockTree) = .{},
+    };
+    var freed = false;
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    var scheme = MockScheme{};
+    const slot = try std.testing.allocator.create(Pending(MockTree).Slot);
+    slot.* = .{ .tree = .{ .freed = &freed } };
+    const Worker = struct {
+        fn run() void {}
+    };
+    scheme.pending_commit = .{
+        .thread = try std.Thread.spawn(.{}, Worker.run, .{}),
+        .slot = slot,
+    };
+    try std.testing.expectError(
+        error.OutOfMemory,
+        resolveObserved(&scheme, failing.allocator()),
+    );
+    try std.testing.expect(scheme.pending_commit == null);
+    try std.testing.expect(freed);
+    try std.testing.expectEqual(@as(usize, 0), scheme.trees.items.len);
+    scheme.trees.deinit(std.testing.allocator);
+}
+
+/// Abort path: join and discard a deferred build without mixing. A tree
+/// already appended by `resolveObserved` is owned by `scheme.trees` and is
+/// not freed here.
 pub fn discard(scheme: anytype, allocator: std.mem.Allocator) void {
     const pending = scheme.pending_commit orelse return;
     scheme.pending_commit = null;
-    pending.thread.join();
+    if (pending.thread) |thread| thread.join();
     if (pending.slot.tree) |*tree| tree.deinit(allocator);
     allocator.destroy(pending.slot);
 }
