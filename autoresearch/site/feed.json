@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5960,6 +5960,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.941376,
+     "ci_low": 0.890531,
+     "commit": "48d2137f9f8ace61ec4418a6a4c5d1f299911e06",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.309276,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:4bfcceb93172b1f1487cf722ae9d03544f96490d614d5dc46cd8e1fba0fae9c1",
+     "gates": "G1..G5:pass",
+     "harness_commit": "6895a1942700",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T13:07:49Z",
+     "judged_r": 0.91736,
+     "measurement_rounds": 15,
+     "measurement_seconds": 3.788195,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:f2c32fe5c4f6901e6a364f8118d0abde6358d0d5f7d91e6718189c8e36062fe2",
+     "outcome": "promoted",
+     "peak_rss_mib": 164.922951,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 41840,
+     "prove_ms": 4.272916,
+     "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-metal-resident-quotient-fri-transaction",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -5967,8 +6002,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6428,8 +6463,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6548,8 +6583,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6834,8 +6869,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6844,9 +6879,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.649457,
+      "effective_score": 0.6113832328319999,
       "evidence_share": {
-       "claimed": 2,
+       "claimed": 3,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -6864,10 +6899,11 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 2,
+       "count": 3,
        "observation_ids": [
         "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0",
-        "sha256:309466355f8b6c18acb13a275b94064c23519c6cef440794456f266a2cfb313e"
+        "sha256:309466355f8b6c18acb13a275b94064c23519c6cef440794456f266a2cfb313e",
+        "sha256:f2c32fe5c4f6901e6a364f8118d0abde6358d0d5f7d91e6718189c8e36062fe2"
        ]
       }
      },
@@ -7291,38 +7327,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "wide"
+      },
+      {
+       "board": "core_metal",
+       "ci_high": 0.941376,
+       "ci_low": 0.890531,
+       "commit": "48d2137f9f8ace61ec4418a6a4c5d1f299911e06",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 0.309276,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:4bfcceb93172b1f1487cf722ae9d03544f96490d614d5dc46cd8e1fba0fae9c1",
+       "gates": "G1..G5:pass",
+       "harness_commit": "6895a1942700",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T13:07:49Z",
+       "judged_r": 0.91736,
+       "measurement_rounds": 15,
+       "measurement_seconds": 3.788195,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:f2c32fe5c4f6901e6a364f8118d0abde6358d0d5f7d91e6718189c8e36062fe2",
+       "outcome": "promoted",
+       "peak_rss_mib": 164.922951,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 41840,
+       "prove_ms": 4.272916,
+       "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-metal-resident-quotient-fri-transaction",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
       }
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.649457,
-      "ci_low": 0.610409,
-      "commit": "c357bc103ffc538ffd4ead19a117c392d8aa3306",
+      "ci_high": 0.941376,
+      "ci_low": 0.890531,
+      "commit": "48d2137f9f8ace61ec4418a6a4c5d1f299911e06",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 0.383887,
+      "energy_j": 0.309276,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:5941a6d4820ef98d037790fe85fdb1cbceb9b13aa79eee7164e5b9131cd6e97d",
+      "evidence_sha256": "sha256:4bfcceb93172b1f1487cf722ae9d03544f96490d614d5dc46cd8e1fba0fae9c1",
       "gates": "G1..G5:pass",
-      "harness_commit": "2b0be386f6ea",
+      "harness_commit": "6895a1942700",
       "holdout": "none",
-      "judged_at_utc": "2026-07-22T11:09:31Z",
-      "judged_r": 0.637985,
+      "judged_at_utc": "2026-07-23T13:07:49Z",
+      "judged_r": 0.91736,
       "measurement_rounds": 15,
-      "measurement_seconds": 6.1242,
+      "measurement_seconds": 3.788195,
       "native_mhz": 0.0,
-      "observation_id": "sha256:6a0cc4358d16b8492451e70892e5bdc75ffc103708cfc723d612c2a9b95df4f0",
+      "observation_id": "sha256:f2c32fe5c4f6901e6a364f8118d0abde6358d0d5f7d91e6718189c8e36062fe2",
       "outcome": "promoted",
-      "peak_rss_mib": 161.65712,
-      "predecessor": "0d7f457364e7",
+      "peak_rss_mib": 164.922951,
+      "predecessor": "2beae9d03b33",
       "proof_bytes": 41840,
-      "prove_ms": 4.83025,
-      "row_id": "sha256:77975531d46c566dac2233415764e5d593be9f9469401fc8fb64827c1670209c",
+      "prove_ms": 4.272916,
+      "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-22-metal-mid-size-recurrence-crossover",
+      "submission_id": "2026-07-23-metal-resident-quotient-fri-transaction",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -7333,8 +7404,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7497,7 +7568,7 @@
      "deep": 0,
      "huge": 8,
      "small": 0,
-     "wide": 1,
+     "wide": 2,
      "xlarge": 8
     },
     "audited_class_ratios": {
@@ -7512,7 +7583,7 @@
      "deep": 1.0,
      "huge": 0.11701765685963746,
      "small": 1.0,
-     "wide": 0.649457,
+     "wide": 0.6113832328319999,
      "xlarge": 0.0853200732385623
     },
     "classes": [
@@ -7523,10 +7594,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 36.50653414276255,
+    "index": 36.06809693944199,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.3650653414276255,
-    "speedup": 2.7392356559770845
+    "ratio_geomean": 0.3606809693944199,
+    "speedup": 2.7725333046514513
    }
   },
   "heavy_cairo": {
@@ -7682,6 +7753,146 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.896908,
+     "ci_low": 0.881676,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 31.058463,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.889288,
+     "measurement_rounds": 30,
+     "measurement_seconds": 116.321267,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+     "outcome": "promoted",
+     "peak_rss_mib": 1178.714931,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 58407,
+     "prove_ms": 817.052341,
+     "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.808122,
+     "ci_low": 0.799976,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 47.226419,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.803918,
+     "measurement_rounds": 29,
+     "measurement_seconds": 211.636388,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+     "outcome": "promoted",
+     "peak_rss_mib": 1344.828467,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 67692,
+     "prove_ms": 1260.467011,
+     "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.771063,
+     "ci_low": 0.759632,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 37.762286,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.764489,
+     "measurement_rounds": 27,
+     "measurement_seconds": 139.142256,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+     "outcome": "promoted",
+     "peak_rss_mib": 1263.422529,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 67695,
+     "prove_ms": 884.847919,
+     "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.991605,
+     "ci_low": 0.987233,
+     "commit": "4d654780844fb2f77d508d6b2040acc6b73bb53b",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 46.866037,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:009c5decba3206df0325fc5447dafb3acc59ecc8c4ef7931e67ff79de07bb955",
+     "gates": "G1..G5:pass",
+     "harness_commit": "481487ba7153",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T16:58:46Z",
+     "judged_r": 0.98928,
+     "measurement_rounds": 25,
+     "measurement_seconds": 159.921241,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1",
+     "outcome": "neutral",
+     "peak_rss_mib": 1344.778924,
+     "predecessor": "c3a7e8b36460",
+     "proof_bytes": 67692,
+     "prove_ms": 1210.46201,
+     "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -7689,19 +7900,21 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": false,
-       "span_reasons": []
+       "span": true,
+       "span_reasons": [
+        "subfloor_effect"
+       ]
       },
-      "effective_score": 0.6423093357803766,
+      "effective_score": 0.5190643050495095,
       "evidence_share": {
-       "claimed": 4,
+       "claimed": 6,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -7714,17 +7927,19 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 0,
-       "pending": 0,
-       "share": null
+       "eligible": 1,
+       "pending": 1,
+       "share": 0.0
       },
       "unaudited_tail": {
-       "count": 4,
+       "count": 6,
        "observation_ids": [
         "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
         "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
         "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
-        "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538"
+        "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
+        "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+        "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1"
        ]
       }
      },
@@ -7798,38 +8013,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "deep"
+      },
+      {
+       "board": "riscv",
+       "ci_high": 0.808122,
+       "ci_low": 0.799976,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 47.226419,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.803918,
+       "measurement_rounds": 29,
+       "measurement_seconds": 211.636388,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+       "outcome": "promoted",
+       "peak_rss_mib": 1344.828467,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 67692,
+       "prove_ms": 1260.467011,
+       "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "deep"
       }
      ],
      "head": {
       "board": "riscv",
-      "ci_high": 0.984837,
-      "ci_low": 0.980101,
-      "commit": "dd4bd2a135fac6e3ebd4de71198adfd935522629",
+      "ci_high": 0.808122,
+      "ci_low": 0.799976,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 53.924727,
+      "energy_j": 47.226419,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:d4280bafea8be5ddeee1c4021b43a430625823b875a62cd753cf46c14c705a6d",
+      "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
       "gates": "G1..G5:pass",
-      "harness_commit": "20e097517010",
+      "harness_commit": "7efe3b1abd72",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T02:43:05Z",
-      "judged_r": 0.982416,
-      "measurement_rounds": 23,
-      "measurement_seconds": 171.575155,
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.803918,
+      "measurement_rounds": 29,
+      "measurement_seconds": 211.636388,
       "native_mhz": 0.0,
-      "observation_id": "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
+      "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
       "outcome": "promoted",
-      "peak_rss_mib": 1344.621868,
-      "predecessor": "0a04f85af1e2",
+      "peak_rss_mib": 1344.828467,
+      "predecessor": "2beae9d03b33",
       "proof_bytes": 67692,
-      "prove_ms": 1531.363827,
-      "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
+      "prove_ms": 1260.467011,
+      "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -7840,8 +8090,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7850,12 +8100,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.896908,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -7870,19 +8120,91 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "riscv",
+       "ci_high": 0.896908,
+       "ci_low": 0.881676,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 31.058463,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.889288,
+       "measurement_rounds": 30,
+       "measurement_seconds": 116.321267,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+       "outcome": "promoted",
+       "peak_rss_mib": 1178.714931,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 58407,
+       "prove_ms": 817.052341,
+       "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "small"
+      }
+     ],
+     "head": {
+      "board": "riscv",
+      "ci_high": 0.896908,
+      "ci_low": 0.881676,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 31.058463,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+      "gates": "G1..G5:pass",
+      "harness_commit": "7efe3b1abd72",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.889288,
+      "measurement_rounds": 30,
+      "measurement_seconds": 116.321267,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+      "outcome": "promoted",
+      "peak_rss_mib": 1178.714931,
+      "predecessor": "2beae9d03b33",
+      "proof_bytes": 58407,
+      "prove_ms": 817.052341,
+      "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "small"
+     }
     },
     "wide": {
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 295,
-       "seconds": 153385
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7891,12 +8213,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.771063,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -7911,12 +8233,84 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "riscv",
+       "ci_high": 0.771063,
+       "ci_low": 0.759632,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 37.762286,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.764489,
+       "measurement_rounds": 27,
+       "measurement_seconds": 139.142256,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+       "outcome": "promoted",
+       "peak_rss_mib": 1263.422529,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 67695,
+       "prove_ms": 884.847919,
+       "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
+      }
+     ],
+     "head": {
+      "board": "riscv",
+      "ci_high": 0.771063,
+      "ci_low": 0.759632,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 37.762286,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+      "gates": "G1..G5:pass",
+      "harness_commit": "7efe3b1abd72",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.764489,
+      "measurement_rounds": 27,
+      "measurement_seconds": 139.142256,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+      "outcome": "promoted",
+      "peak_rss_mib": 1263.422529,
+      "predecessor": "2beae9d03b33",
+      "proof_bytes": 67695,
+      "prove_ms": 884.847919,
+      "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "wide"
+     }
     }
    },
    "scored_classes": [
@@ -7926,9 +8320,9 @@
    ],
    "suite_score": {
     "active_credit_events": {
-     "deep": 4,
-     "small": 0,
-     "wide": 0
+     "deep": 5,
+     "small": 1,
+     "wide": 1
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -7937,9 +8331,9 @@
     },
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
-     "deep": 0.6423093357803766,
-     "small": 1.0,
-     "wide": 1.0
+     "deep": 0.5190643050495095,
+     "small": 0.896908,
+     "wide": 0.771063
     },
     "classes": [
      "small",
@@ -7947,10 +8341,10 @@
      "deep"
     ],
     "epoch": 2,
-    "index": 86.28091553629872,
+    "index": 71.06999888195409,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.8628091553629872,
-    "speedup": 1.1590048549951883
+    "ratio_geomean": 0.7106999888195409,
+    "speedup": 1.4070634806973628
    }
   },
   "stream": {
@@ -9212,7 +9606,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "007f042e8ac51af97f553103787dbb110afc172758df36da98d4de64818299b1",
+   "autoresearch/ledger/promotions.tsv": "8ba8998620700761b2733c440874053c289c9e72a83aa8a1d29f74ee4d31222c",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9350,14 +9744,19 @@
    "autoresearch/submissions/2026-07-23-2026-07-23-cpu-latency-recurrence-plan/verdict.json": "cd372f8aeb34cf89d036c5446671fa80f3820834b27ef0505be65a2c68d21d45",
    "autoresearch/submissions/2026-07-23-metal-cooperative-high-circle-layers/verdict.json": "9405e9b0b4662724db508454dcdb6d89e168206132d7395cb2bd668c3f87cd0d",
    "autoresearch/submissions/2026-07-23-metal-paired-expansion-high-transform/verdict.json": "ad61a5985508275aa84106ef957914a60a43266f783c233c18b91fa21ab939d0",
+   "autoresearch/submissions/2026-07-23-metal-resident-quotient-fri-transaction/verdict.json": "ceab4bf3d5114d8efb837298a8aa246dd07dfc4465d675292cfd5d168f828076",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
+   "autoresearch/submissions/2026-07-23-riscv-eight-way-terminal-blake2s/verdict.json": "f173c0add6bcdae30458ab1f8e00ce0bb77f8bb63a828715546c2c4e7942b049",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-deep.json": "30f4d95f8f839643b149971ecbfc10ca918ab6fd97c356e2e2fb636f84ea4b83",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-wide.json": "d9aeb81da5805585e9872f96dabce731fd65fbba72216470bbe480ba2b7d6b2c",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict.json": "370d873e346ae8ed851657a3a0cf9f923fc988296d303ffb1ba030026929b4ad",
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "48151fd17325",
-  "repo_commit_time": "2026-07-23T12:23:52+01:00"
+  "repo_commit": "56d67ff344fe",
+  "repo_commit_time": "2026-07-23T16:58:46Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -17392,7 +17791,7 @@
      },
      "wide": {
       "available": true,
-      "available_points": 2,
+      "available_points": 3,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 253.7191868736705,
@@ -17405,6 +17804,12 @@
         "judged_at_utc": "2026-07-23T09:30:38Z",
         "points": 2,
         "row_id": "sha256:75cf40720bd500769d31ad70013c708bb8cc53858754a7b6262c478b38eceafe"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 122.21623119951029,
+        "judged_at_utc": "2026-07-23T13:07:49Z",
+        "points": 3,
+        "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169"
        }
       ],
       "latest": {
@@ -17416,13 +17821,13 @@
        "auto_boost_target_rounds": 15,
        "available": true,
        "configured_rounds": 15,
-       "credited_ln_improvement": -0.0,
-       "credited_ln_improvement_per_measurement_hour": -0.0,
-       "gradient_snr": 0.0,
-       "judged_at_utc": "2026-07-23T09:30:38Z",
-       "measurement_wall_hours": 0.0012724646757770743,
-       "row_id": "sha256:75cf40720bd500769d31ad70013c708bb8cc53858754a7b6262c478b38eceafe",
-       "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+       "credited_ln_improvement": 0.06041264428525932,
+       "credited_ln_improvement_per_measurement_hour": 57.41137937818097,
+       "gradient_snr": 2.3377104389159666,
+       "judged_at_utc": "2026-07-23T13:07:49Z",
+       "measurement_wall_hours": 0.0010522764814150933,
+       "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169",
+       "submission_id": "2026-07-23-metal-resident-quotient-fri-transaction",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -17581,14 +17986,32 @@
         "row_id": "sha256:75cf40720bd500769d31ad70013c708bb8cc53858754a7b6262c478b38eceafe",
         "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 15,
+        "actual_rounds_per_workload": {
+         "mwf_log14x32": 15
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": 0.06041264428525932,
+        "credited_ln_improvement_per_measurement_hour": 57.41137937818097,
+        "gradient_snr": 2.3377104389159666,
+        "judged_at_utc": "2026-07-23T13:07:49Z",
+        "measurement_wall_hours": 0.0010522764814150933,
+        "row_id": "sha256:75fde673fd85777470aab967721012a7b3b587771d6d72ba11d8b29f309df169",
+        "submission_id": "2026-07-23-metal-resident-quotient-fri-transaction",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.43161864983601783,
-       "credited_ln_improvement_per_measurement_hour": 145.14867009693123,
-       "measurement_wall_hours": 0.002973631446624899,
-       "median_gradient_snr": 12.109250136984073,
-       "points": 2
+       "credited_ln_improvement": 0.49203129412127716,
+       "credited_ln_improvement_per_measurement_hour": 122.21623119951029,
+       "measurement_wall_hours": 0.0040259079280399925,
+       "median_gradient_snr": 2.3377104389159666,
+       "points": 3
       },
       "trailing_window": 8,
       "unavailable_points": 15
@@ -17950,7 +18373,7 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 4,
+      "available_points": 6,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
@@ -17975,30 +18398,42 @@
         "judged_at_utc": "2026-07-23T02:43:05Z",
         "points": 4,
         "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.1637381341551545,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 5,
+        "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 1.8871178772094017,
+        "judged_at_utc": "2026-07-23T16:58:46Z",
+        "points": 6,
+        "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd"
        }
       ],
       "latest": {
-       "actual_rounds": 23,
+       "actual_rounds": 25,
        "actual_rounds_per_workload": {
-        "riscv_fib_iter": 5,
+        "riscv_fib_iter": 3,
         "riscv_gcd_euclid": 3,
         "riscv_multi_shard_addi": 3,
         "riscv_sha2_1024b": 3,
-        "riscv_sha2_2048b": 3,
-        "riscv_sha2_512b": 3,
+        "riscv_sha2_2048b": 5,
+        "riscv_sha2_512b": 5,
         "riscv_xorshift_prng": 3
        },
        "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.01527913373724628,
-       "credited_ln_improvement_per_measurement_hour": 0.3205876833830169,
-       "gradient_snr": 6.2077460776035815,
-       "judged_at_utc": "2026-07-23T02:43:05Z",
-       "measurement_wall_hours": 0.04765976526612778,
-       "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
-       "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-23T16:58:46Z",
+       "measurement_wall_hours": 0.04442256699083373,
+       "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+       "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18097,46 +18532,202 @@
         "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
         "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 29,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 5,
+         "riscv_sha2_1024b": 5,
+         "riscv_sha2_2048b": 5,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.21304224175988948,
+        "credited_ln_improvement_per_measurement_hour": 3.6239140016425817,
+        "gradient_snr": 40.84584167954905,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.05878788560195567,
+        "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 25,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 3,
+         "riscv_sha2_1024b": 3,
+         "riscv_sha2_2048b": 5,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T16:58:46Z",
+        "measurement_wall_hours": 0.04442256699083373,
+        "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+        "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.4426852599020585,
-       "credited_ln_improvement_per_measurement_hour": 1.812314130618972,
-       "measurement_wall_hours": 0.24426519245362013,
+       "credited_ln_improvement": 0.6557275016619479,
+       "credited_ln_improvement_per_measurement_hour": 1.8871178772094017,
+       "measurement_wall_hours": 0.34747564504640954,
        "median_gradient_snr": 15.250549201621673,
-       "points": 4
+       "points": 6
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "small": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 1,
+        "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 30,
+       "actual_rounds_per_workload": {
+        "riscv_alu_test": 5,
+        "riscv_branch_fib": 5,
+        "riscv_declared_region": 5,
+        "riscv_jal_jalr": 5,
+        "riscv_mem_ls": 5,
+        "riscv_shift_logic": 5
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.10880198628596223,
+       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+       "gradient_snr": 12.752000901415258,
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "measurement_wall_hours": 0.03231146306695235,
+       "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 30,
+        "actual_rounds_per_workload": {
+         "riscv_alu_test": 5,
+         "riscv_branch_fib": 5,
+         "riscv_declared_region": 5,
+         "riscv_jal_jalr": 5,
+         "riscv_mem_ls": 5,
+         "riscv_shift_logic": 5
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.10880198628596223,
+        "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+        "gradient_snr": 12.752000901415258,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.03231146306695235,
+        "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.10880198628596223,
+       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+       "measurement_wall_hours": 0.03231146306695235,
+       "median_gradient_snr": 12.752000901415258,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "wide": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 1,
+        "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 27,
+       "actual_rounds_per_workload": {
+        "riscv_bubble_sort": 5,
+        "riscv_collatz": 3,
+        "riscv_keccak_128b": 3,
+        "riscv_memcpy_loop": 5,
+        "riscv_sha2_128b": 5,
+        "riscv_sha2_256b": 3,
+        "riscv_sieve_primes": 3
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.2599851966947994,
+       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+       "gradient_snr": 30.363427873787227,
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "measurement_wall_hours": 0.03865062672473464,
+       "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 27,
+        "actual_rounds_per_workload": {
+         "riscv_bubble_sort": 5,
+         "riscv_collatz": 3,
+         "riscv_keccak_128b": 3,
+         "riscv_memcpy_loop": 5,
+         "riscv_sha2_128b": 5,
+         "riscv_sha2_256b": 3,
+         "riscv_sieve_primes": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.2599851966947994,
+        "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+        "gradient_snr": 30.363427873787227,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.03865062672473464,
+        "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.2599851966947994,
+       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+       "measurement_wall_hours": 0.03865062672473464,
+       "median_gradient_snr": 30.363427873787227,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -18963,6 +19554,24 @@
    "workload_class": "huge"
   },
   {
+   "id": "2026-07-23-metal-resident-quotient-fri-transaction",
+   "judged_r": 0.91736,
+   "note": "# Explicit resident quotient-to-FRI transaction\n\n## Model and harness\n\nModel: GPT-5 Codex. The final candidate is clean commit\n`63de90c16ca7`, rebased onto and paired against\ncurrent main `2beae9d03b33bc9c5b0b21bb445439799786f2fb`. The repository-resident\n`stwo-perf` harness identity is `6895a1942700`; builds use Zig 0.15.2\nReleaseFast on the designated arm64 macOS Apple M5 Max host. The claimed board\nis `core_metal/wide/time` at S3.\n\nThe final source delta touches only manifest-approved Metal backend paths,\n`src/prover/fri.zig`, and `src/prover/pcs/fri_lazy_commit.zig`. It does not\nchange an AIR, statement, trace, protocol, security parameter, transcript\norder, proof encoding, admission budget, or fallback policy.\n\n## Hypothesis\n\nThe resident Metal pipeline already retained committed trace trees and computed\nquotients on the GPU, but two proof-wide boundaries remained:\n\n1. quotient construction flattened resident host columns into a new shared\n   upload buffer below a 64 MiB raw-input threshold, even when explicit\n   proof-session tree handles already owned matching GPU buffers; and\n2. quotient commitment, transcript challenge generation, circle-to-line\n   folding, and the remaining FRI layers each crossed host synchronization\n   boundaries.\n\nAt width 100, log16, profiling attributed about 6.3--7.4 ms to quotient input\npreparation while the actual quotient GPU work was below 1 ms. The predicted\nwin was therefore not a faster field kernel. It was removal of a complete\nproof-domain copy plus one ordered quotient-to-FRI transaction.\n\n## Changes\n\nThe candidate adds an explicit backend hook for a lazy FRI transaction. The\nMetal implementation:\n\n- receives the quotient provider's explicit resident tree handles;\n- validates every handle against the current runtime and proof-session owner;\n- binds structurally matching resident source ranges directly;\n- commits the quotient tree, mixes its root, and draws the circle-fold\n  challenge into a GPU transcript buffer;\n- submits the circle fold and complete line-FRI Merkle cascade on the same\n  queue without an intervening host wait; and\n- performs one final synchronization before canonical host transcript state is\n  consumed.\n\nThe direct resident route is admitted from ownership and byte-range structure,\nnot workload names or benchmark sizes. It begins at 8 MiB only when at least\none explicit resident tree is present. Nonresident inputs retain the existing\nsafe upload path; raw inputs of at least 64 MiB retain the existing GPU\nnumerator route. A compatibility wrapper preserves the public line-only FRI\ncascade API.\n\nThere is no runtime-wide tree discovery or hidden address registry. Address\narithmetic is used only inside the call-local, explicitly supplied residency\nset. Runtime ownership, range, overflow, and buffer-size checks fail closed.\n\n## Profiles and rejected variants\n\nBefore the accepted change, log16 quotient preparation cost about 6.3--7.4 ms,\nthe quotient FFI boundary about 9--10 ms, GPU quotient work about 0.54--0.70\nms, and FRI GPU work about 1.1 ms. With direct resident sources, quotient\npreparation fell to roughly 19--30 microseconds and the warmed quotient FFI\nboundary to about 2.44--2.60 ms. Peak physical footprint at the same point fell\nfrom roughly 347--355 MB to about 250--252 MB.\n\nTwo plausible variants were rejected:\n\n- An Objective-C FRI scratch arena won one short half and lost the second.\n- A fold-plus-Merkle-subtree shader fusion preserved exact proofs but increased\n  FRI GPU time from roughly 0.6 ms to more than 1.3 ms and worsened the full\n  FFI boundary.\n\nBoth were completely removed. The first accepted checkpoint fused the circle\nfold with the line cascade. The second made quotient root/challenge production\nan explicit predecessor command buffer. The final change removed the resident\nhost flattening copy.\n\n## Results\n\nThe final manifest-owned `mwf_log14x32` objective ran 15 paired rounds:\n\n| metric | predecessor | candidate | ratio / 95% CI |\n| --- | ---: | ---: | ---: |\n| prove median | 4.690500 ms | 4.272916 ms | **0.917360 [0.890170, 0.941496]** |\n| verified request | \u2014 | \u2014 | 0.925558 |\n| energy | \u2014 | 0.309276 J | 1.004248 [0.991469, 1.020370] |\n| peak RSS | \u2014 | 164.923 MiB | 1.016173 [1.015834, 1.016466] |\n| proof bytes | 41,840 | 41,840 | 1.0 |\n\nThe objective-only claimed verdict passes G1--G5 and is statistically\nsignificant under the board's 0.038838 threshold. Every timed proof verified,\ncross-arm canonical digests matched in every round, and the pinned Rust Stwo\noracle accepted the workload.\n\nA separate full-impact run retained all 13 guards. Eleven passed; Blake\nlog12x16 and Poseidon log13 exceeded the 1.05 guard budget in that thermally\nlong run. The scored wide point still improved 8.3%, with CI\n`[0.8731, 0.9613]`, missing significance by approximately one basis point.\nThis failed full-guard diagnostic is published with the session and is not\nrepresented as a passing verdict. The remote judge must re-run the complete\nguard portfolio.\n\n## System-level series\n\nAt clean measured source commit `3bcf62a`, ten warmups and seven verified\nsamples per point produced the following Metal medians:\n\n| log rows | request ms | proof bytes | peak physical bytes |\n| ---: | ---: | ---: | ---: |\n| 14 | 9.314250 | 48,180 | 172,770,408 |\n| 16 | 11.705125 | 61,470 | 251,856,168 |\n| 18 | 26.133375 | 74,328 | 348,898,336 |\n| 20 | 96.701041 | 86,383 | 923,993,696 |\n| 22 | 358.135416 | 106,436 | 2,978,026,656 |\n\nAll 35 measured proofs verified, were byte-identical within each point, and\nreported zero Metal CPU fallbacks. The already-promoted structural CPU plan is\nstill the lower-latency log14 route at 7.436208 ms. Using that CPU log14 point\nand the exact-head Metal points for logs 16--22 gives ratios\n`0.683711, 0.570024, 0.373537, 0.359706, 0.312559` against the frozen\nfixed-protocol baseline. Their geometric mean is **0.439335**, or **2.2762x**\nportfolio-wide.\n\nThe transaction was subsequently split into focused modules to satisfy the\nrepository's 850-line manual-source ceiling. Final candidate `63de90c16ca7`\npasses source conformance, preserves the exact log16 proof digest, and records\n11.913167 ms in the post-split check. Its final manifest-owned paired verdict\nis the result reported above.\n\nThis clean screen satisfies the task's planning thresholds, but it is not a\nreplacement for seven complete same-host ABBA rounds at all five sizes and\nboth timing boundaries. A clean log16 A-B-B-A screen against then-current main\nmeasured 20.004 vs 11.986 ms and 21.767 vs 11.580 ms; both halves won.\n\n## Correctness and lifecycle validation\n\n- `zig build test-native-metal -Doptimize=ReleaseFast` passed product closure,\n  device-only proving, and independent artifact verification.\n- The full Metal unit suite passed 88 tests with two intentional skips on a\n  retained test-only commit.\n- A focused test forced the combined circle/line cascade and compared every\n  Merkle root, transcript challenge, terminal value, command-buffer count, and\n  wait count with the generic CPU path.\n- Existing simultaneous-proof, allocator-address-reuse, mixed\n  resident/nonresident, ownership-transfer failure, live-tree shutdown, and\n  stale-discovery tests remain applicable because the production API uses\n  explicit handles.\n- Canonical proof bytes and sizes are unchanged at all five fixed-protocol\n  sizes.\n\nThe focused test commit is deliberately not part of this performance\nsubmission because repository policy marks tests as a locked path. It is\nretained for a separate governance follow-up rather than weakening the\nsource-only promotion contract.\n\n## Caveats\n\nThis is a claimed advisory verdict; only the locked judge can authenticate a\npromotion. Cold-process ABBA, the complete all-size statistical experiment,\nand the remaining exact PR6 workload/oracle matrix are still incomplete.\nConsequently:\n\n> **PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Explicit resident quotient-to-FRI transaction",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# System-level 2x session transcript\n\n## Research request and operating contract\n\nThe requested objective was a fixed-protocol, system-level 2x acceleration\nagainst frozen commit `0cca924`, scored by geometric mean over width-100 logs\n14, 16, 18, 20, and 22. Promotion requires at least 1.5x, every point must\nimprove, no point may exceed ratio 0.80, and correctness, proof identity,\nsecurity parameters, trace work, and request boundaries must remain fixed.\nThe user explicitly requested profiling before implementation, structural\nrather than benchmark-specific work, broad guards, complete notes and\ntranscripts, and immediate submission once a significant result existed.\n\nI updated the canonical",
+     "label": "session.md",
+     "sha256": "fc2854443e849d4bb19066e7065d907b5395045cfd7238124e2426c3f60050cb"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
+  },
+  {
    "id": "2026-07-23-metal-resident-transform-fusion-final",
    "judged_r": 0.929704,
    "note": "# Fuse wide Metal trace, transforms, and coefficient commitment\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf` 0.1.0, Zig 0.15.2,\nReleaseFast on the same arm64 macOS M5 Max host. The claimed board is Native\nMetal `xlarge/time` and `huge/time` at S3. The behavior-neutral producer API\nfoundation merged in PR #88 at `7c9e2e227ffe`; scored candidate\n`05e9193d4067` is restricted to `src/backends/metal/**`. The harness identity\nis `f05c84e1750f`. Same-host paired measurements used the harness's ABBA\npolicy. Every timed proof verified, cross-arm proof bytes matched, and the\npinned Rust Stwo oracle accepted both scored workloads.\n\n## Hypothesis\n\nWide Fibonacci was paying several boundaries that should not exist on a GPU:\nthe host materialized a quadratic recurrence, Metal copied it, inverse FFT\nnormalization traversed it again, composition evaluation and interpolation\nused separate command buffers, and coefficient-form composition was copied\nback through the generic LDE path. A structural producer carried through the\nproof transaction lets one Metal epoch generate, interpolate, extend, and\ncommit columns while device data is resident. The same mechanism generalizes\nto any structurally described column producer and coefficient-form PCS input;\nit does not match workload names, sizes, or input digests.\n\n## Changes\n\n`ColumnSource` makes producer ownership explicit instead of discovering\nruntime state by host address. The wide trace advertises its recurrence recipe\nonly when the backend structurally admits the shape. Metal then generates the\nrecurrence directly into the commitment arena, performs a tile-12 specialized\nwide inverse transform with fused normalization, expands with pre-scaling,\nperforms the forward transform, and builds the resident Merkle tree in one\ncommand-buffer epoch.\n\nSecure composition now carries an explicit evaluations/coefficients state.\nThe large recurrence shader consumes cached trace residency, evaluates the\ncomposition, performs its inverse transform in the same command, and returns\nborrowed coefficient halves. A coefficient-form PCS hook uses GPU blits to\nreorder the eight split coordinate polynomials, evaluates their LDE, and\ncommits the tree without a host round trip. Power-of-two Mersenne rotations\nreplace general multiplication where the FFT schedule permits it. The core\nshader ABI is bumped fail-closed from 8 to 9 and anchors all 82 exports.\n\nPR #89's first static run found three files just over the repository's\n850-line ceiling. The final candidate extracts column-source materialization,\nthe recurrence-composition entry point, and wide transform kernels into\nfocused units. Direct diffs against the pre-extraction source confirm that\nthe Objective-C function and both MSL kernels are byte-for-byte unchanged;\ndispatch order, buffer ownership, and shader ABI are unchanged.\n\n## Results\n\nBoth claimed verdicts pass G1-G5 and all 13 impact-mapped regression guards.\n\n| Class | Prove ratio (95% CI) | A / B median | Request ratio | Energy ratio | RSS ratio |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| `xlarge` / `2^18 \u00d7 100` | **0.9441 [0.9179, 0.9583]** | 31.467 / 29.379 ms | 0.8481 | 0.8423 | 1.0056 |\n| `huge` / `2^20 \u00d7 100` | **0.9297 [0.9183, 0.9415]** | 119.684 / 110.789 ms | 0.8241 | 0.8439 | 1.0188 |\n\nXlarge used nine paired rounds and huge used five. Proof-byte ratios are exactly 1.0: 74,328\nbytes at xlarge and 86,383 bytes at huge. Resource upper confidence bounds\nremain inside policy. The verified-request boundary improves about 15% at\nlog18 and about 17.6% at log20 because it includes the eliminated host trace construction that\nthe prove-time ledger objective excludes.\n\nTwo earlier final-identity xlarge screens were retained as uncertainty\nevidence: both had significant objective CIs, but the high-dispersion\n`wf_10x8` guard's upper CI was above 1.05. The third identical screen passed\nall 13 guards, with that guard at 0.9291 [0.9139, 0.9499]. No sample or failed\nreceipt was discarded from the external evidence bundle.\n\nThe same candidate produced two significant wide objectives, 0.9358\n[0.9151, 0.9438] and confirmation 0.9351 [0.9161, 0.9423], but both are\nretained as unclaimed diagnostics because the sub-millisecond `wf_10\u00d78`\nguard's upper CI remained inconclusive (1.149 and 1.058 versus budget 1.05).\nDeep was favorable at 0.9777 [0.9644, 0.9871] but below its declared\nsignificance threshold. Neither verdict is packaged as passing.\n\n## Wider diagnostic results\n\nCanonical proofs and zero-fallback classification were unchanged at every\nsize. Against current-main diagnostic medians:\n\n| Shape | Main request | Candidate request | Improvement |\n| --- | ---: | ---: | ---: |\n| `2^16 \u00d7 100` | 22.826 ms | 22.859 ms | neutral (-0.14%) |\n| `2^18 \u00d7 100` | 38.080 ms | 29.328 ms | 22.98% |\n| `2^20 \u00d7 100` | 133.633 ms | 109.656 ms | 17.94% |\n| `2^22 \u00d7 100` | 531.578 ms | 431.382 ms | 18.85% |\n\nAn independently rebuilt scorer split measured 112.133 ms at log20, still\n16.09% faster than main, with 29 Metal dispatches, zero CPU fallbacks, and the\nsame 86,383-byte `e6609d...c7e86` proof. CPU log20 remained neutral at 275.335\nms versus 275.781 ms main. The earlier comparable resource screen reduced\nenergy about 20% and instructions about 19%; peak RSS rose about 3.1%, within\nthe 5% guard budget.\n\n## Validation\n\nThe 379-source closure, Native Metal lifecycle, source-JIT\ncompile, independent verification, Metal compile, AOT manifest/probe, and\nstatic source-conformance gates pass. The exact local static lane ran all 584\nchecks after the extraction, and the final log20 device check measured\n109.443 ms prove / 109.962 ms verified request with the unchanged\n`e6609d...c7e86` proof, 29 dispatches, and zero CPU fallbacks. An exploration-tree coefficient-form\ndifferential test passed and increased the Metal suite from main's 87/90 to\n88/91 while preserving its one inherited resident-FRI failure and two skips.\nThe scorer diff excludes that locked test path; it is retained for a regular\npost-promotion test PR. The test compares every generic/combined evaluation\nand Merkle root under a nontrivial split-coordinate permutation.\n\n## Caveats\n\nSource-JIT initialization is outside warmed request samples but remains part of\ncold-process evidence. An AOT bundle must be rebuilt for ABI 9 on a host with a\nfull Metal toolchain. Log22 diagnostic RSS remains operationally important for\nconcurrent sessions even though this candidate's measured log20 RSS is within\nthe autoresearch budget. The two significant wide receipts remain visible but\nunclaimed because their small-shape guard was statistically inconclusive.\n\nThe separate all-cell PR6 contract still lacks the complete exact workload\nmatrix, every cold-process comparison, and an authenticated locked-host\nverdict. **PR6 Supremacy: not achieved.**\n",
@@ -18981,6 +19590,24 @@
    "workload_class": "huge"
   },
   {
+   "id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+   "judged_r": 0.98928,
+   "note": "# Batch eight independent terminal BLAKE2s Merkle hashes\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf` 0.1.0 at\n`481487ba7153`, clean candidate `e199fbf569a8`, clean predecessor\n`c3a7e8b36460`, immutable system-2x task baseline\n`2beae9d03b33bc9c5b0b21bb445439799786f2fb`, Zig 0.15.2 ReleaseFast on\nthe 18-logical-CPU Apple M5 Max.\n\nThe submitted S3 RISC-V deep verdict used isolated paired same-host\nprocesses. Every timed proof independently verified, cross-arm proof digests\nwere byte-identical, and the pinned Stark-V oracle accepted all seven\nprograms. The complete profiles, hypotheses, rejected variants, source-policy\ncorrection, and final evidence are recorded in `transcripts/session-01.md`.\n\n## Hypothesis\n\nThe shared BLAKE2s Merkle implementation hashes four independent messages in\none AArch64 vector. At each BLAKE dependency level, however, the machine can\nissue work from a second independent four-message group. A logical\n`@Vector(8, u32)` terminal compression exposes those two native NEON halves\nto LLVM in one operation graph. This is useful specifically for the\nsingle-compression internal-node path, where it increases instruction-level\nparallelism without retaining multi-block stream state.\n\n## Changes\n\nThe shared crypto backend now provides an eight-message fixed-terminal\nBLAKE2s operation. It:\n\n- consumes eight independent 64-byte child payloads after one common\n  pre-hashed node-domain seed;\n- uses checked, fixed-size data flow and the existing exact ten-round BLAKE2s\n  permutation;\n- uses bit-cast halves for zero-cost native-vector splitting and joining;\n- preserves the scalar backend fallback for platforms without the SIMD path;\n- keeps four-way handling for the residual Merkle tail; and\n- is selected only from the generic lifted Merkle structure, never by\n  workload, input digest, row count, or proof size.\n\nThe production routing is confined to manifest-editable\n`src/core/crypto/**` and `src/prover/vcs_lifted/**`. A first packaging attempt\nplaced two convenience wrappers under non-editable shared-VCS directories;\nthe harness rejected it mechanically. Those wrappers were removed and the\nsame operation moved into the allowed prover adapter before this verdict.\n\nAn attempted eight-way multi-block leaf/continuation path was also removed.\nIt preserved proof bytes and reduced cycles, but its larger live vector state\ncaused spill pressure and did not win both wall-time halves. The promoted\npatch therefore applies eight-way batching only to the one-compression node\ncase.\n\n```text\nold:  4 parents -> terminal BLAKE2s V4\n      4 parents -> terminal BLAKE2s V4\n\nnew:  8 parents -> one terminal BLAKE2s V8 operation graph\n      residual 4 parents -> existing terminal BLAKE2s V4\n```\n\n## Results\n\nThe admissible RISC-V deep-class paired result is:\n\n| workload | candidate/predecessor | 95% CI |\n| --- | ---: | ---: |\n| xorshift PRNG | 0.9849 | [0.9834, 0.9870] |\n| iterative Fibonacci | 0.9917 | [0.9896, 0.9926] |\n| Euclidean GCD | 0.9919 | [0.9898, 0.9934] |\n| multi-shard ADDI | 0.9885 | [0.9863, 0.9906] |\n| SHA2-512 | 0.9839 | [0.9779, 0.9909] |\n| SHA2-1024 | 0.9963 | [0.9936, 1.0043] |\n| SHA2-2048 | 0.9878 | [0.9767, 1.0008] |\n\nThe incremental deep portfolio ratio is **0.9893**. All seven medians improve,\nbut the local harness correctly classifies the 1.07% aggregate change as\nconfirmed-neutral because the class significance floor is 1.29%. The\ncumulative candidate-to-frozen-task-anchor ratio reported by the same verdict\nis **0.4688**.\n\nA separate admissible wide run passed all correctness, mechanism, resource,\nand source-policy gates at ratio 0.9911. It is retained as guard evidence, not\nclaimed as a moved class: its Keccak row was noisy and the portfolio was\nconfirmed-neutral.\n\nShort exact-proof screens showed 1.6--4% fewer cycles in the affected request\npath. Peak physical footprint remained effectively unchanged. Core and prover\nReleaseFast tests, the full product build, exact SHA2-128/SHA2-2048 artifact\ncomparisons, and the seven-workload oracle gate pass.\n\n## Caveats\n\nThis is a local claimed/advisory checkpoint; only an authenticated judge can\npromote it. Its incremental effect is below the local significance threshold,\nso it must not be described as an independently significant speedup.\n\nThe broader system-level task is not fully complete: although the cumulative\ndeep result is below 0.50 versus the frozen baseline, the required per-cell\nCPU request/prove contract and genuine RISC-V Metal phase have not both been\ncompleted. **RISC-V system-level 2x: not achieved.**\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Batch eight independent terminal BLAKE2s Merkle hashes",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# RISC-V system-level 2x autoresearch \u2014 terminal BLAKE2s epoch\n\n## Objective and inherited state\n\nThis epoch continued the fixed-protocol RISC-V system-level 2x task. The\nimmutable authority is commit\n`2beae9d03b33bc9c5b0b21bb445439799786f2fb`; the epoch began from promoted\nmain `c3a7e8b364604e117d292a3f7793918498d1a64d`. The target host is an Apple\nM5 Max with 18 logical CPUs and 64 GiB RAM, using Zig 0.15.2 ReleaseFast.\n\nThe fixed contract requires exact RISC-V statement/AIR/protocol semantics,\nindependent verification, pinned Rust/Stark-V oracle acceptance, identical\nproof bytes, unchanged proof shape and security parameters, no input- or\nworkload-specific routing, resource telemetry, pai",
+     "label": "session-01.md",
+     "sha256": "b29a39654a129e882ca7bc64da9325d7b671d6a2638c51eead063995b8ab9cba"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
+  },
+  {
    "id": "2026-07-23-riscv-shared-prover-vectorization",
    "judged_r": 0.982416,
    "note": "# Vectorize shared quotient denominators across CPU and Metal\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf` at `20e097517010`,\ncandidate `8a3b16047112`, clean promoted predecessor `0a04f85af1e2`, Zig\n0.15.2, ReleaseFast on arm64 macOS. The claimed board is RISC-V `deep/time` at\nS3. Adaptive same-host paired measurements used the harness's ABBA policy.\nEvery timed proof verified, cross-arm proof bytes matched per round, and the\npinned Stark-V oracle accepted all seven workloads. A reasoning-first\nsanitized transcript is attached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nQuotient denominators repeat two full CM31 products for every domain row and\nsample point even though the sample terms are proof-session constants. They\nare then stored row-major and gathered across four rows by SIMD finalization.\nPrecomputing the constant determinant, evaluating adjacent rows in native M31\nvectors, and retaining inverses batch-major should remove arithmetic and\nstrided loads without changing the quotient identity. The same algebra should\nalso reduce Metal shader work rather than leaving divergent CPU/GPU formulas.\n\n## Changes\n\nThe workspace now precomputes `det = prx*piy - pry*pix` and evaluates each\ndenominator as `det - x*piy + y*pix`. The CPU tile path groups four adjacent\nrows per sample, deinterleaves domain x/y vectors, performs packed base-field\nproducts, stores batch-major CM31 values, batch-inverts them, and finalizes via\ncontiguous vector loads. Layout state fails closed if a row-major accessor is\nused after batch-major preparation. Scalar tails and generic row-major callers\nremain supported.\n\nMetal's runtime uploads the same determinant in its existing eight-word ABI.\nDirect, raw, and split-finalize quotient shaders use two CM31-by-M31 products\ninstead of two full CM31 products. The independent resident FRI point ABI is\nunchanged. The broader stack also includes packed CM31 inversion, exact dot4\ncompact quotient reduction, coordinate SIMD, fused FFT normalization and 2x\nLDE expansion, and four-chain BLAKE2 scheduling. No workload name, input\ndigest, benchmark size, statement, protocol, transcript, or proof format is\nspecial-cased.\n\n## Results\n\nThe focused SHA2-2048 screen removed 2.82 billion instructions (1.21%) and 653\nmillion cycles (0.95%); proving moved from 2.029 to 1.983 seconds. Canonical\nproof bytes were identical.\n\nThe final clean seven-workload verdict used 23 paired rounds. Portfolio proving\nratio is **0.982416**, 95% CI **[0.980101, 0.984837]**, clearing theta\n0.012888. Every row won: xorshift 0.9830, Fibonacci 0.9814, GCD 0.9855,\nmulti-shard 0.9920, SHA2-512 0.9734, SHA2-1024 0.9769, and SHA2-2048 0.9849.\nVerified-request ratios were also below 1.0 for all rows. Energy ratio is\n**0.952201**, peak-RSS ratio **0.998642** with upper-CI geomean 1.001208, and\nproof-byte ratio exactly **1.0**. G1-G5 pass.\n\nReleaseFast closures passed for the 377-source aggregate, 352-source RISC-V\nCPU product, 210-source Native CPU product, and 256-source Native Metal\nproduct. Source conformance passed. Metal source-JIT, device-only lifecycle,\nindependent verification, and zero-fallback policy passed.\n\n## Caveats\n\nThis is a local claimed verdict; only the authenticated judge's rerun can\npromote it. A first run on the final identity was favorable but narrowly\ninconclusive at 0.984744 [0.981673, 0.987511]; it and the successful declared\nconfirmation are both retained. The harness-wide guard route has a known\nmanifest classification bug for `guard_blake_10x10`, so explicit Native CPU,\nRISC-V CPU, and Native Metal product gates were run and recorded. No separate\nMetal timing verdict is claimed from the cross-backend arithmetic change.\n\nThe separate PR6 all-cell contract is incomplete: exact full workload parity,\nlog22 oracle vectors, both timing boundaries, and a locked-M5 judged verdict\nremain outstanding. **PR6 Supremacy: not achieved.**\n",
@@ -18997,6 +19624,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-23-riscv-sparse-qm31-base",
+   "judged_r": 0.764489,
+   "note": "# Preserve sparse base-field structure in QM31 evaluation\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: refreshed repo-resident `stwo-perf` at\n`7efe3b1abd72`, clean candidate `963f30da163a`, immutable task baseline\n`2beae9d03b33`, Zig 0.15.2 ReleaseFast on the 18-logical-CPU Apple M5 Max.\nThe submission carries RISC-V small, wide, and deep S3 time verdicts. Paired\nsame-host processes used adaptive counterbalanced rounds. Every timed proof\nverified, cross-arm proof digests were byte-identical, and the pinned Stark-V\noracle accepted all 20 programs. The complete research and rejection history\nis attached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nRISC-V AIR evaluators promote committed M31 columns into QM31 values so one\nconstraint interface can also evaluate full-extension out-of-domain samples.\nThose promoted values remain structurally sparse\u2014three of four coordinates are\nzero\u2014but generic QM31 multiplication immediately paid a full nine-base-product\nKaratsuba operation. Preserving the actual base-field shape should remove most\nextension arithmetic in interaction and composition evaluation without\nchanging the AIR, statement, transcript, protocol, trace, or proof.\n\n## Changes\n\n`QM31` now exposes an algebraic `isBase` predicate. At runtime, multiplication\nby a structurally base operand uses the existing exact full-by-M31 operation,\nand a structurally base square remains in M31. Two full-extension operands keep\nthe original Karatsuba path. Randomized schoolbook-reference tests cover both\noperand orders and sparse squaring.\n\nThe final diff is 32 lines in one shared field file. Selection depends only on\nfield coordinates, never workload name, input digest, benchmark size, or\ncolumn count. An initially favorable packed batch-inverse layer was removed:\nit supplied only 0--2%, enlarged specialized text, and twice made a Native\nPlonk peak-RSS confidence bound miss its budget. The narrowed candidate passes\nthat guard.\n\n```text\nold: lifted M31 -> generic QM31 x QM31 -> 9 base products\nnew: lifted M31 -> structural base test -> QM31 x M31 -> 4 base products\n```\n\n## Results\n\nAll three exact-SHA RISC-V verdicts are significant:\n\n| class | programs | proving geometric mean |\n| --- | ---: | ---: |\n| small | 6 | 0.8893 |\n| wide | 7 | 0.7645 |\n| deep | 7 | 0.8039 |\n\nHeadline results:\n\n| workload | proving ratio | 95% CI | request ratio | energy ratio |\n| --- | ---: | ---: | ---: | ---: |\n| SHA2-128 | 0.6203 | [0.6056, 0.6486] | 0.7432 | 0.8332 |\n| SHA2-256 | 0.6283 | [0.6256, 0.6299] | 0.7367 | 0.8343 |\n| SHA2-512 | 0.6806 | [0.6686, 0.6934] | 0.7503 | 0.8297 |\n| SHA2-1024 | 0.7029 | [0.6933, 0.7226] | 0.7658 | 0.8278 |\n| SHA2-2048 | 0.7116 | [0.7037, 0.7241] | 0.7865 | 0.8312 |\n| Keccak-128 | 0.6571 | [0.6517, 0.6666] | 0.7210 | 0.8329 |\n\nThe six-row headline proving geometric mean is **0.6659** (1.502x faster);\nverified-request geometric mean is **0.7503** (1.333x). Across all 20 RISC-V\nprograms, proving/request geometric means are 0.8142/0.8514. Every individual\nrow improves. Proof bytes are exactly unchanged, all peak-RSS vectors pass,\nand energy improves in every RISC-V row.\n\nThe sparse path cut diagnostic SHA2-128 composition evaluation from 718 to 276\nms and interaction generation/commit from 473 to 352 ms. Instructions in the\ninitial verified SHA2-128 screen fell from 407.2 to 298.0 billion. The 380-\nsource ReleaseFast closure, RISC-V prove/verify suite, and source conformance\npass. Explicit Native CPU small/wide/deep guards pass at proving ratios\n0.9984, 0.9920, and 0.9821 with resource vectors in budget.\n\n## Caveats\n\nThese are local claimed verdicts; only the authenticated judge can promote\nthem. The harness's automatic cross-board guard expansion currently parses\nNative guard commands as RISC-V commands, so objective verdicts used\n`--guards none` and Native CPU guards were run explicitly on their correct\nboard.\n\nThis checkpoint does not satisfy the task's full 2x contract: headline request\nratio is 0.7503, complete-board ratios are 0.8142/0.8514, and no headline\nproving row is yet at most 0.50. **System-level 2x: not achieved.** The genuine\nRISC-V Metal backend phase is also still outstanding.\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Preserve sparse base-field structure in QM31 evaluation",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# RISC-V system-level 2x autoresearch transcript\n\n## Objective and invariants\n\nThe task is to reduce verified RISC-V proof latency by at least 2x across the\ncomplete headline hash portfolio, not merely one selected input. The immutable\nstarting point is `2beae9d03b33bc9c5b0b21bb445439799786f2fb`; the development\nbranch starts from current main `799efe87a9eccd6ae9a2e19c815e82bfbf1d4198`.\nThe target host is the 18-logical-CPU Apple M5 Max with Zig 0.15.2 ReleaseFast.\n\nCPU completion requires every SHA-256 128/256/512/1024/2048-byte point and the\nKeccak-128 proof point to reach ratio at most 0.50 against the pinned baseline,\n95% CI upper bound at most 0.55, both experiment halves winning, and a",
+     "label": "session-01.md",
+     "sha256": "b0bf15a5809c7c356880de63fbcd069ffbf17fd0be2afb248315a5088197f6b1"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   }
  ]
 }

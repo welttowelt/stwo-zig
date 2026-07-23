@@ -5,6 +5,7 @@ const runtime = @import("../runtime.zig");
 const ArenaCopyRange = runtime.ArenaCopyRange;
 const PipelineCacheStats = runtime.PipelineCacheStats;
 const ArchiveStoreStatsV1 = runtime.ArchiveStoreStatsV1;
+const CommandEpochStats = runtime.CommandEpochStats;
 const PreparedStateRange = runtime.PreparedStateRange;
 const WitnessLayout = runtime.WitnessLayout;
 
@@ -557,6 +558,15 @@ pub extern fn stwo_zig_metal_compute_quotients(
     leaf_seed: ?*const [8]u32,
     node_seed: ?*const [8]u32,
     domain_prefix_bytes: u32,
+    fri_line_output: ?*anyopaque,
+    fri_coordinates: ?[*]const *anyopaque,
+    fri_final_destination: ?*anyopaque,
+    fri_layer_count: u32,
+    fri_domain_initial_index: u32,
+    fri_domain_step_size: u32,
+    fri_channel_state: ?*[10]u32,
+    fri_trees: ?[*]?*anyopaque,
+    fri_stats: ?*CommandEpochStats,
     tree: *?*anyopaque,
     gpu_milliseconds: *f64,
     error_message: [*]u8,

@@ -9,6 +9,7 @@ const line = @import("stwo_core").poly.line;
 const circle_domain = @import("stwo_core").poly.circle.domain;
 const queries_mod = @import("stwo_core").queries;
 const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
+const fri_lazy_commit = @import("pcs/fri_lazy_commit.zig");
 const prover_line = @import("line.zig");
 const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
@@ -75,19 +76,19 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
         const Self = @This();
         const lazy_inverse_workspace = if (@hasDecl(B, "lazyFriFoldInverseWorkspace")) B.lazyFriFoldInverseWorkspace else false;
 
-        const FirstLayerProver = struct {
+        pub const FirstLayerProver = struct {
             domain: circle_domain.CircleDomain,
             column: secure_column.SecureColumnByCoords,
             merkle_tree: B.MerkleTree(H),
 
-            fn deinit(self: *FirstLayerProver, allocator: std.mem.Allocator) void {
+            pub fn deinit(self: *FirstLayerProver, allocator: std.mem.Allocator) void {
                 self.column.deinit(allocator);
                 self.merkle_tree.deinit(allocator);
                 self.* = undefined;
             }
         };
 
-        const InnerLayerProver = struct {
+        pub const InnerLayerProver = struct {
             domain: line.LineDomain,
             column: secure_column.SecureColumnByCoords,
             merkle_tree: B.MerkleTree(H),
@@ -95,7 +96,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             /// be smaller for the last inner layer).
             fold_step: u32 = core_fri.FOLD_STEP,
 
-            fn deinit(self: *InnerLayerProver, allocator: std.mem.Allocator) void {
+            pub fn deinit(self: *InnerLayerProver, allocator: std.mem.Allocator) void {
                 self.column.deinit(allocator);
                 self.merkle_tree.deinit(allocator);
                 self.* = undefined;
@@ -167,37 +168,16 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             column_domain: circle_domain.CircleDomain,
             provider: *quotient_ops.LazyQuotientProvider,
         ) !Self {
-            if (!column_domain.isCanonic()) {
-                return FriProverError.NotCanonicDomain;
-            }
-            if (provider.domain_size != column_domain.size()) {
-                return FriProverError.ShapeMismatch;
-            }
-
-            var first_layer = try commitFirstLayerLazy(allocator, channel, column_domain, provider);
-            errdefer first_layer.deinit(allocator);
-
-            var inner_commit = try commitInnerLayers(allocator, channel, config, first_layer);
-            defer inner_commit.last_layer_evaluation.deinit(allocator);
-            errdefer {
-                for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
-                allocator.free(inner_commit.inner_layers);
-            }
-
-            var last_layer_poly = try commitLastLayer(
+            return fri_lazy_commit.commitLazy(
+                Self,
+                B,
+                H,
                 allocator,
                 channel,
                 config,
-                &inner_commit.last_layer_evaluation,
+                column_domain,
+                provider,
             );
-            errdefer last_layer_poly.deinit(allocator);
-
-            return .{
-                .config = config,
-                .first_layer = first_layer,
-                .inner_layers = inner_commit.inner_layers,
-                .last_layer_poly = last_layer_poly,
-            };
         }
 
         pub fn decommit(
@@ -332,7 +312,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             };
         }
 
-        fn commitFirstLayerLazy(
+        pub fn commitFirstLayerLazy(
             allocator: std.mem.Allocator,
             channel: anytype,
             domain: circle_domain.CircleDomain,
@@ -369,12 +349,17 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             };
         }
 
-        const InnerCommitResult = struct {
+        pub const InnerCommitResult = struct {
             inner_layers: []InnerLayerProver,
             last_layer_evaluation: prover_line.LineEvaluation,
         };
 
-        fn commitInnerLayers(
+        pub const LazyFriCommitResult = struct {
+            first_layer: FirstLayerProver,
+            inner_commit: InnerCommitResult,
+        };
+
+        pub fn commitInnerLayers(
             allocator: std.mem.Allocator,
             channel: anytype,
             config: core_fri.FriConfig,
@@ -386,6 +371,19 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             const circle_fold_domain = try line.LineDomain.init(
                 circle.Coset.halfOdds(circle_fold_log_size),
             );
+            if (comptime @hasDecl(B, "commitFriCircleLayers")) {
+                if (try B.commitFriCircleLayers(
+                    H,
+                    InnerLayerProver,
+                    InnerCommitResult,
+                    allocator,
+                    first_layer.column,
+                    first_layer.domain,
+                    circle_fold_domain,
+                    channel,
+                    config,
+                )) |result| return result;
+            }
 
             var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
                 try B.allocateLineEvaluation(circle_fold_domain)
@@ -591,7 +589,7 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             };
         }
 
-        fn commitLastLayer(
+        pub fn commitLastLayer(
             allocator: std.mem.Allocator,
             channel: anytype,
             config: core_fri.FriConfig,

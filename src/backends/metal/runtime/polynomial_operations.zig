@@ -46,7 +46,9 @@ const FriRoundPlan = runtime.FriRoundPlan;
 const FriTreePlan = runtime.FriTreePlan;
 const FriFinalPlan = runtime.FriFinalPlan;
 const QuotientCommitResult = runtime.QuotientCommitResult;
+const QuotientFriCommitResult = runtime.QuotientFriCommitResult;
 const FriFoldCommitResult = runtime.FriFoldCommitResult;
+const FriLineCascadeResult = runtime.FriLineCascadeResult;
 const ResidentBuffer = runtime.ResidentBuffer;
 const Tree = runtime.Tree;
 const validDomainPrefixBytes = protocol_mode.validDomainPrefixBytes;
@@ -57,11 +59,22 @@ const QuotientCommitConfig = struct {
     leaf_seed: [8]u32,
     node_seed: [8]u32,
     domain_prefix_bytes: u32,
+    fri: ?QuotientFriConfig = null,
+};
+
+const QuotientFriConfig = struct {
+    line_output: *anyopaque,
+    coordinates: []const *anyopaque,
+    final_destination: *anyopaque,
+    domain_initial_index: u32,
+    domain_step_size: u32,
+    channel_state: *[10]u32,
 };
 
 const QuotientComputeResult = struct {
     gpu_ms: f64,
     tree: ?Tree,
+    fri: ?FriLineCascadeResult = null,
 };
 
 // Below this log size, indexed reconstruction is too small a fraction of a
@@ -111,6 +124,51 @@ pub fn computeQuotientsAndCommit(
     return .{
         .gpu_ms = result.gpu_ms,
         .tree = result.tree orelse return MetalError.CommitmentFailed,
+    };
+}
+
+pub fn computeQuotientsAndCommitFri(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    provider: anytype,
+    out: anytype,
+    line_output: *anyopaque,
+    coordinates: []const *anyopaque,
+    final_destination: *anyopaque,
+    fri_domain_initial_index: u32,
+    fri_domain_step_size: u32,
+    channel_state: *[10]u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+) (MetalError || std.mem.Allocator.Error)!QuotientFriCommitResult {
+    if (!validDomainPrefixBytes(domain_prefix_bytes) or coordinates.len == 0)
+        return MetalError.QuotientFailed;
+    const storage = out.resident_storage orelse return MetalError.QuotientFailed;
+    const result = try computeQuotientsConfigured(
+        self,
+        allocator,
+        provider,
+        out,
+        .{
+            .resident_output = storage.handle,
+            .leaf_seed = leaf_seed,
+            .node_seed = node_seed,
+            .domain_prefix_bytes = domain_prefix_bytes,
+            .fri = .{
+                .line_output = line_output,
+                .coordinates = coordinates,
+                .final_destination = final_destination,
+                .domain_initial_index = fri_domain_initial_index,
+                .domain_step_size = fri_domain_step_size,
+                .channel_state = channel_state,
+            },
+        },
+    );
+    return .{
+        .gpu_ms = result.gpu_ms,
+        .tree = result.tree orelse return MetalError.CommitmentFailed,
+        .fri = result.fri orelse return MetalError.CommitmentFailed,
     };
 }
 
@@ -250,6 +308,14 @@ fn computeQuotientsConfigured(
     const leaf_seed = if (commitment) |*config| &config.leaf_seed else null;
     const node_seed = if (commitment) |*config| &config.node_seed else null;
     const domain_prefix_bytes = if (commitment) |config| config.domain_prefix_bytes else 0;
+    const fri_config = if (commitment) |config| config.fri else null;
+    const fri_tree_handles = if (fri_config) |config|
+        try allocator.alloc(?*anyopaque, config.coordinates.len)
+    else
+        null;
+    defer if (fri_tree_handles) |handles| allocator.free(handles);
+    if (fri_tree_handles) |handles| @memset(handles, null);
+    var fri_stats: CommandEpochStats = undefined;
     if (!ffi.stwo_zig_metal_compute_quotients(
         self.handle,
         flat.ptr,
@@ -277,6 +343,15 @@ fn computeQuotientsConfigured(
         leaf_seed,
         node_seed,
         domain_prefix_bytes,
+        if (fri_config) |config| config.line_output else null,
+        if (fri_config) |config| config.coordinates.ptr else null,
+        if (fri_config) |config| config.final_destination else null,
+        if (fri_config) |config| @intCast(config.coordinates.len) else 0,
+        if (fri_config) |config| config.domain_initial_index else 0,
+        if (fri_config) |config| config.domain_step_size else 0,
+        if (fri_config) |config| config.channel_state else null,
+        if (fri_tree_handles) |handles| handles.ptr else null,
+        if (fri_config != null) &fri_stats else null,
         &tree_handle,
         &gpu_ms,
         &message,
@@ -284,6 +359,27 @@ fn computeQuotientsConfigured(
     )) {
         std.log.err("Metal quotient failed: {s}", .{std.mem.sliceTo(&message, 0)});
         return MetalError.QuotientFailed;
+    }
+    var fri_result: ?FriLineCascadeResult = null;
+    if (fri_config) |config| {
+        const trees = try allocator.alloc(Tree, config.coordinates.len);
+        var initialized_trees: usize = 0;
+        errdefer {
+            for (trees[0..initialized_trees]) |*tree| tree.deinit();
+            allocator.free(trees);
+        }
+        for (trees, fri_tree_handles.?, 0..) |*tree, handle, stage| {
+            tree.* = .{
+                .handle = handle orelse return MetalError.CommitmentFailed,
+                .runtime_handle = self.handle,
+                .log_size = std.math.log2_int(
+                    u32,
+                    @as(u32, @intCast(row_count >> @intCast(stage + 1))),
+                ),
+            };
+            initialized_trees += 1;
+        }
+        fri_result = .{ .stats = fri_stats, .trees = trees };
     }
     const dispatch_and_copy_ns = total_timer.lap();
     std.log.debug(
@@ -301,6 +397,7 @@ fn computeQuotientsConfigured(
             .runtime_handle = self.handle,
             .log_size = provider.lifting_log_size,
         } else null,
+        .fri = fri_result,
     };
 }
 

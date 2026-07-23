@@ -9,9 +9,9 @@ const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const ownership_testing = @import("runtime/ownership_testing.zig");
 const quadratic_trace = @import("runtime/quadratic_trace_backend.zig");
+const resident_fri_transaction = @import("runtime/resident_fri_transaction.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
-const fri_inverse_cache_min_values: usize = 1 << 13;
 
 pub fn warmup() !void {
     return MetalCommitBackend.warmup();
@@ -51,6 +51,9 @@ pub const MetalCommitBackend = struct {
     pub const admitsQuadraticRecurrenceTrace = quadratic_trace.admits;
     pub const fillQuadraticRecurrenceTrace = quadratic_trace.fill;
     pub const materializeColumnSource = column_source_materialization.materialize;
+    const ResidentFriOps = resident_fri_transaction.Ops(@This());
+    pub const commitLazyFriTransaction = ResidentFriOps.commitLazyFriTransaction;
+    pub const commitFriCircleLayers = ResidentFriOps.commitFriCircleLayers;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();
@@ -79,7 +82,6 @@ pub const MetalCommitBackend = struct {
         );
     }
 
-    /// Reports process-wide runtime ownership without creating a Metal device.
     pub fn runtimeLifecycleSnapshot() RuntimeLifecycleSnapshot {
         return shared_runtime.lifecycleSnapshot();
     }
@@ -253,9 +255,6 @@ pub const MetalCommitBackend = struct {
         return MerkleTree(H).fromHost(tree);
     }
 
-    /// Exposes residency only through an explicit proof-session capability.
-    /// The returned handle is borrowed from `tree` and is never registered on
-    /// the process-wide Metal runtime.
     pub fn quotientResidencyHandle(
         comptime H: type,
         tree: MerkleTree(H),
@@ -448,7 +447,7 @@ pub const MetalCommitBackend = struct {
         alpha: @import("stwo_core").fields.qm31.QM31,
         workspace: *@import("stwo_core").fri.FoldCircleWorkspace,
     ) !void {
-        const use_resident_inverse = dst.len >= fri_inverse_cache_min_values;
+        const use_resident_inverse = dst.len >= 1 << 13;
         var inverse_words: ?[]const u32 = null;
         if (!use_resident_inverse) {
             try workspace.ensureCapacity(allocator, dst.len);
@@ -641,6 +640,8 @@ pub const MetalCommitBackend = struct {
         workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         last_layer_size: usize,
         fold_step: u32,
+        circle_source: ?*anyopaque,
+        circle_alpha: ?[4]u32,
     ) !?FriLineCascadeResult(H) {
         const channel_blake2s = @import("stwo_core").channel.blake2s;
         const M31 = @import("stwo_core").fields.m31.M31;
@@ -655,7 +656,7 @@ pub const MetalCommitBackend = struct {
         const layer_count: usize = std.math.log2_int(usize, evaluation.len() / last_layer_size);
         if (layer_count == 0 or layer_count >= 31) return null;
         const inverse_count = evaluation.len() - last_layer_size;
-        const use_resident_inverse = evaluation.len() >= fri_inverse_cache_min_values;
+        const use_resident_inverse = evaluation.len() >= 1 << 13;
         var inverse_values: ?[]M31 = null;
         if (!use_resident_inverse) inverse_values = try allocator.alloc(M31, inverse_count);
         defer if (inverse_values) |values| allocator.free(values);
@@ -715,10 +716,12 @@ pub const MetalCommitBackend = struct {
 
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
-        var runtime_result = try lease.runtime.foldFriLineCascade(
+        var runtime_result = try lease.runtime.foldFriCircleLineCascade(
             allocator,
             source_storage.handle,
             @intCast(evaluation.len()),
+            circle_source,
+            circle_alpha,
             inverse_words,
             @intCast(initial_coset.initial_index.v),
             @intCast(initial_coset.step_size.v),
@@ -788,6 +791,8 @@ pub const MetalCommitBackend = struct {
             workspace,
             config.lastLayerDomainSize(),
             config.fold_step,
+            null,
+            null,
         )) orelse return null;
         std.debug.assert(cascade.columns.len == cascade.trees.len);
         const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
@@ -814,6 +819,7 @@ pub const MetalCommitBackend = struct {
             .last_layer_evaluation = terminal_evaluation,
         };
     }
+
     pub const foldLine = cpu.foldLine;
     pub const foldLineN = cpu.foldLineN;
     pub const accumulateQuotients = cpu.accumulateQuotients;

@@ -80,6 +80,12 @@ pub const QuotientCommitResult = struct {
     tree: Tree,
 };
 
+pub const QuotientFriCommitResult = struct {
+    gpu_ms: f64,
+    tree: Tree,
+    fri: FriLineCascadeResult,
+};
+
 pub const FriFoldCommitResult = struct {
     stats: CommandEpochStats,
     tree: Tree,
@@ -103,6 +109,7 @@ pub const TraceGenerationStats = struct {
 const session_ops = @import("runtime/session.zig");
 const prepared_ops = @import("runtime/prepared_execution.zig");
 const composition_ops = @import("runtime/composition_operations.zig");
+const fri_cascade_ops = @import("runtime/fri_cascade_operations.zig");
 const opening_ops = @import("runtime/opening_operations.zig");
 const resident_ops = @import("runtime/resident_operations.zig");
 const polynomial_ops = @import("runtime/polynomial_operations.zig");
@@ -173,7 +180,8 @@ pub const Runtime = struct {
     pub const foldFriCircle = opening_ops.foldFriCircle;
     pub const foldFriLine = opening_ops.foldFriLine;
     pub const foldFriLineAndCommit = opening_ops.foldFriLineAndCommit;
-    pub const foldFriLineCascade = opening_ops.foldFriLineCascade;
+    pub const foldFriCircleLineCascade = fri_cascade_ops.foldFriCircleLineCascade;
+    pub const foldFriLineCascade = fri_cascade_ops.foldFriLineCascade;
     pub const prepareFriFold = opening_ops.prepareFriFold;
     pub const friFoldPrepared = opening_ops.friFoldPrepared;
     pub const prepareQuotientCombine = opening_ops.prepareQuotientCombine;
@@ -218,6 +226,7 @@ pub const Runtime = struct {
     pub const commitColumnsWithBacking = resident_ops.commitColumnsWithBacking;
     pub const computeQuotients = polynomial_ops.computeQuotients;
     pub const computeQuotientsAndCommit = polynomial_ops.computeQuotientsAndCommit;
+    pub const computeQuotientsAndCommitFri = polynomial_ops.computeQuotientsAndCommitFri;
     pub const evaluateCoefficientPlans = polynomial_ops.evaluateCoefficientPlans;
     pub const evaluateCoefficientTreePlans = polynomial_ops.evaluateCoefficientTreePlans;
     pub const transformCircle = polynomial_ops.transformCircle;
