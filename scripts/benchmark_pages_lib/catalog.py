@@ -16,6 +16,7 @@ CATALOG_SCHEMA = "stwo_benchmark_catalog_v1"
 INDEX_SCHEMA_VERSION = 2
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+PUBLICATION_STATUSES = {"active", "invalidated", "superseded"}
 LANES = ("cpu", "metal")
 METRICS = (
     "native_mhz",
@@ -264,6 +265,42 @@ def _formal_blockers(report: dict[str, Any]) -> list[str]:
     except CatalogError as error:
         blockers.append(str(error))
     return blockers
+
+
+def _publication_state(
+    run_id: str,
+    entry: dict[str, Any],
+    run_entries: dict[str, Any],
+) -> dict[str, str | None]:
+    status = entry.get("status", "active")
+    if not isinstance(status, str) or status not in PUBLICATION_STATUSES:
+        raise CatalogError(
+            f"run {run_id}.status must be active, invalidated, or superseded"
+        )
+
+    reason = entry.get("status_reason")
+    superseded_by = entry.get("superseded_by")
+    if status == "active":
+        if "status_reason" in entry:
+            raise CatalogError(f"run {run_id}.status_reason is forbidden when active")
+        if "superseded_by" in entry:
+            raise CatalogError(f"run {run_id}.superseded_by is forbidden when active")
+        return {"status": status, "reason": None, "superseded_by": None}
+
+    reason = _text(reason, f"run {run_id}.status_reason")
+    if status == "invalidated":
+        if "superseded_by" in entry:
+            raise CatalogError(
+                f"run {run_id}.superseded_by is forbidden when invalidated"
+            )
+        return {"status": status, "reason": reason, "superseded_by": None}
+
+    superseded_by = _text(superseded_by, f"run {run_id}.superseded_by")
+    if superseded_by == run_id:
+        raise CatalogError(f"run {run_id}.superseded_by must name a different run")
+    if superseded_by not in run_entries:
+        raise CatalogError(f"run {run_id}.superseded_by names an unknown run")
+    return {"status": status, "reason": reason, "superseded_by": superseded_by}
 
 
 def _metric(lane: dict[str, Any], name: str, label: str) -> dict[str, float]:
@@ -576,6 +613,7 @@ def build_catalog(history_dir: Path) -> dict[str, Any]:
     excluded: list[dict[str, Any]] = []
     for run_id, raw_entry in run_entries.items():
         entry = _object(raw_entry, f"run {run_id}")
+        publication = _publication_state(run_id, entry, run_entries)
         report_identity = _object(entry.get("report"), f"run {run_id}.report")
         report_path = _safe_path(history_dir, report_identity.get("path"), f"run {run_id}.path")
         report, report_raw = _load_json(report_path, f"run {run_id} report")
@@ -586,6 +624,11 @@ def build_catalog(history_dir: Path) -> dict[str, Any]:
         if len(report_raw) != report_identity.get("bytes"):
             raise CatalogError(f"run {run_id} report byte count mismatch")
         blockers = _formal_blockers(report)
+        if publication["status"] != "active":
+            blockers.insert(
+                0,
+                f"publication status is {publication['status']}: {publication['reason']}",
+            )
         if blockers:
             excluded.append(
                 {
@@ -595,6 +638,8 @@ def build_catalog(history_dir: Path) -> dict[str, Any]:
                         report.get("configuration", {}), f"run {run_id}.configuration"
                     ).get("provenance", {}).get("git_commit"),
                     "source_sha256": actual_digest,
+                    "status": publication["status"],
+                    "superseded_by": publication["superseded_by"],
                     "reasons": blockers,
                 }
             )
@@ -617,6 +662,7 @@ def build_catalog(history_dir: Path) -> dict[str, Any]:
             "formal_rows_require_cpu_metal_proof_parity": True,
             "formal_rows_require_pinned_rust_oracle": True,
             "legacy_runs_are_excluded_not_deleted": True,
+            "invalidated_and_superseded_runs_are_excluded_not_deleted": True,
         },
         "latest_run_id": runs[0]["id"],
         "runs": runs,
