@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "predecessor_commit": "7c9e2e227ffe",
+  "declared_objective": {
+    "board": "core_metal",
+    "workload_class": "xlarge",
+    "dimension": "time"
+  },
+  "declared_scope": "s3",
+  "files": {
+    "src/backends/metal/commit_backend.zig": "sha256:70530167703e49b956b42787a5dc1e58954c54836be0a58e10b0d81545b6acb7",
+    "src/backends/metal/core_aot.zig": "sha256:8ec8f84c47518d2bbe0852c7d638554147a02e6ac23383327a9b192f1cd9e1f9",
+    "src/backends/metal/runtime.m": "sha256:e52379be58d159abb930160590a57f50699f490e24880fe0975afd13f0ccac5b",
+    "src/backends/metal/runtime.zig": "sha256:f8557802aae22fba6520a110ad07bb3587f4064677683fb6f84189be4b1500e1",
+    "src/backends/metal/runtime/backend_composition.zig": "sha256:2147e3969abadecab7a541b62de1ed709f67c28b43c13ff20788206a75fbb760",
+    "src/backends/metal/runtime/bindings.zig": "sha256:7c007987511d52d32e12d53294c2760fb7291afd589e2b0e193ac229c6adf26b",
+    "src/backends/metal/runtime/circle_commit_epoch.m": "sha256:a99c319ae72e2ae31c314037ae66ea312f90d5d7cf2742f7c51ed714b131de87",
+    "src/backends/metal/runtime/combined_commit.zig": "sha256:e97bc642f92c587caa070b93b031e061661483c1755967c910403d21a69a5a74",
+    "src/backends/metal/runtime/combined_commit_operations.zig": "sha256:da47cbd15f0b01afc8dab0307d9943c9735166ac6115ea9200c20ce15a79c0cb",
+    "src/backends/metal/runtime/composition.m": "sha256:65bffbb1835054d08e8b4b4d5cdd8b73c1c4e2ad04dace546d588947ccbe26c5",
+    "src/backends/metal/runtime/polynomial_evaluation.m": "sha256:2350872290ad131426c3aa0a0a1add1ef1c1c863ad328e5dc7ca11f414c6f8d1",
+    "src/backends/metal/runtime/polynomial_operations.zig": "sha256:a2050f8f4b1910be7d37db26d613e10890f97accf0f83973f4ebd833279a56a2",
+    "src/backends/metal/runtime/secure_composition.zig": "sha256:6651af5b3479fcdd0c2228e8eb94c9d7f06a1f5c6b28c63c39280099e85eb8de",
+    "src/backends/metal/shaders/core/circle_transform.metal": "sha256:8b79decd6a625fd794f7b5a62bb49b22173102d6f3b12df1f484eee3d1087586",
+    "src/backends/metal/shaders/core/polynomial_eval.metal": "sha256:d76f302cc5ce2ff3d3b100abb91ac846758c1df939519c428b419f56cf0d0c9f",
+    "src/backends/metal/shaders/include/m31.metal": "sha256:82de20c9370a85998e8e2ebf6f3f14579da1898c1229b24522cbd25a0d721ba3",
+    "src/backends/metal/shaders/manifest.zig": "sha256:4a92886174ed6b65503221d1c3e77f8f166bb3140aeb7853358560fc01adf008"
+  },
+  "transcripts": {
+    "transcripts/session-01.md": {
+      "sha256": "995bf963f781ba8b71cd644ba3038c44eb032cbb1266a4326cca96ece964ca85",
+      "captured_by": "submitter"
+    }
+  },
+  "transcripts_declined": false
+}
