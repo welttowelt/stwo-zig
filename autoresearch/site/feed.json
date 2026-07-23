@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6002,8 +6002,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6463,8 +6463,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6583,8 +6583,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6869,8 +6869,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7404,8 +7404,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7998,6 +7998,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.952669,
+     "ci_low": 0.948479,
+     "commit": "a5ba0a34860bc3141bb73ce764011d377a103653",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 41.755003,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:fc1e748604c4b550d56bcccf7ed542c2c081d1280c75ae2a27686311e4a20036",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T18:20:34Z",
+     "judged_r": 0.950958,
+     "measurement_rounds": 21,
+     "measurement_seconds": 112.93589,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:0e684f6b55822624040fca46137064eb551f253e4bf63be1f12ebbb24e53e3d4",
+     "outcome": "neutral",
+     "peak_rss_mib": 1262.709333,
+     "predecessor": "799efe87a9ec",
+     "proof_bytes": 67695,
+     "prove_ms": 1105.655891,
+     "row_id": "sha256:facca27c251822e7ad8496da8e65175270e73d0ed1aa98775d2b42ba50e2b130",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-owned-twiddle-first-tree-deferral",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -8005,8 +8040,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8196,8 +8231,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8312,8 +8347,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 336,
-       "seconds": 178142
+       "commits": 344,
+       "seconds": 178387
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8326,7 +8361,7 @@
       },
       "effective_score": 0.771063,
       "evidence_share": {
-       "claimed": 2,
+       "claimed": 3,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -8339,15 +8374,16 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 1,
-       "pending": 1,
+       "eligible": 2,
+       "pending": 2,
        "share": 0.0
       },
       "unaudited_tail": {
-       "count": 2,
+       "count": 3,
        "observation_ids": [
         "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
-        "sha256:16d8e06d49b67f6f5dfe01c81835c499939c4608d55fef8c436a589490dc565f"
+        "sha256:16d8e06d49b67f6f5dfe01c81835c499939c4608d55fef8c436a589490dc565f",
+        "sha256:0e684f6b55822624040fca46137064eb551f253e4bf63be1f12ebbb24e53e3d4"
        ]
       }
      },
@@ -9718,7 +9754,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "348e43fc96a9501849dd9c015466671bbf52638db5a784f22e5f1e2044b98770",
+   "autoresearch/ledger/promotions.tsv": "ca61555cf6515005c6e522aea3ebdc1487aa0bcb9bfae250f57817cdfb363afe",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9863,6 +9899,7 @@
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
    "autoresearch/submissions/2026-07-23-riscv-eight-way-terminal-blake2s/verdict.json": "f173c0add6bcdae30458ab1f8e00ce0bb77f8bb63a828715546c2c4e7942b049",
+   "autoresearch/submissions/2026-07-23-riscv-owned-twiddle-first-tree-deferral/verdict.json": "c40dbade5cdfea589df11d8f4a96f9be24dbc944d07ee981b8ec652c61c08476",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
    "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-deep.json": "30f4d95f8f839643b149971ecbfc10ca918ab6fd97c356e2e2fb636f84ea4b83",
    "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-wide.json": "d9aeb81da5805585e9872f96dabce731fd65fbba72216470bbe480ba2b7d6b2c",
@@ -9870,8 +9907,8 @@
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "241b8ede373c",
-  "repo_commit_time": "2026-07-23T18:16:29Z"
+  "repo_commit": "cd57c746f9f3",
+  "repo_commit_time": "2026-07-23T18:20:34Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -18837,7 +18874,7 @@
      },
      "wide": {
       "available": true,
-      "available_points": 2,
+      "available_points": 3,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
@@ -18850,6 +18887,12 @@
         "judged_at_utc": "2026-07-23T18:16:29Z",
         "points": 2,
         "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.142100424068062,
+        "judged_at_utc": "2026-07-23T18:20:34Z",
+        "points": 3,
+        "row_id": "sha256:facca27c251822e7ad8496da8e65175270e73d0ed1aa98775d2b42ba50e2b130"
        }
       ],
       "latest": {
@@ -18870,10 +18913,10 @@
        "credited_ln_improvement": -0.0,
        "credited_ln_improvement_per_measurement_hour": -0.0,
        "gradient_snr": 0.0,
-       "judged_at_utc": "2026-07-23T18:16:29Z",
-       "measurement_wall_hours": 0.05134757761583387,
-       "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f",
-       "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+       "judged_at_utc": "2026-07-23T18:20:34Z",
+       "measurement_wall_hours": 0.03137108057888529,
+       "row_id": "sha256:facca27c251822e7ad8496da8e65175270e73d0ed1aa98775d2b42ba50e2b130",
+       "submission_id": "2026-07-23-riscv-owned-twiddle-first-tree-deferral",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18924,14 +18967,38 @@
         "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f",
         "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 21,
+        "actual_rounds_per_workload": {
+         "riscv_bubble_sort": 3,
+         "riscv_collatz": 3,
+         "riscv_keccak_128b": 3,
+         "riscv_memcpy_loop": 3,
+         "riscv_sha2_128b": 3,
+         "riscv_sha2_256b": 3,
+         "riscv_sieve_primes": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T18:20:34Z",
+        "measurement_wall_hours": 0.03137108057888529,
+        "row_id": "sha256:facca27c251822e7ad8496da8e65175270e73d0ed1aa98775d2b42ba50e2b130",
+        "submission_id": "2026-07-23-riscv-owned-twiddle-first-tree-deferral",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.2599851966947994,
-       "credited_ln_improvement_per_measurement_hour": 2.8887820440391367,
-       "measurement_wall_hours": 0.08999820434056852,
-       "median_gradient_snr": 15.181713936893614,
-       "points": 2
+       "credited_ln_improvement_per_measurement_hour": 2.142100424068062,
+       "measurement_wall_hours": 0.1213692849194538,
+       "median_gradient_snr": 0.0,
+       "points": 3
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -19821,6 +19888,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-23-riscv-owned-twiddle-first-tree-deferral",
+   "judged_r": 0.950958,
+   "note": "# Defer the first RISC-V commitment tree while the pool would be idle\n\n## Model and harness\n\nClaude Fable 5, operating as lane MERSENNE-B, authored the mechanism, rebase,\nand submission note, with CODEX ANVIL providing an independent correctness and\nverdict review. The repo-resident `stwo-perf`\nharness is `7efe3b1abd72`; the immutable candidate is\n`fe8d8303034915e1689ec33c986be2cbe6ae1f4c` over clean current-main\npredecessor `799efe87a9eccd6ae9a2e19c815e82bfbf1d4198`. The claimed result is\nRISC-V `wide/time` at S3, measured ReleaseFast on a quiet Apple M4 Max Studio.\nThe same-host paired run admitted at load1 3.22. Every timed proof verified,\ncross-arm proof digests matched, and the pinned Stark-V oracle accepted all\nseven programs.\n\n## Hypothesis\n\nThe previously promoted deferred-first-tree mechanism remained inert in the\nRISC-V prover because its commitment scheme constructs an owned twiddle source,\nwhile the deferral gate admitted only a borrowed immutable tower. That left the\nworker pool idle while the locked RISC-V frontend generated the main witness.\nSerializing the owned twiddle cache and resolving a pending tree before\nchannel-less root observation should safely overlap the first tree build with\nthat independent witness window without changing root-mix order or proof bytes.\n\n## Changes\n\n`TwiddleSource` now protects owned-cache lookup and insertion with a mutex. The\ndeferred first-tree gate consequently admits both borrowed and owned sources.\nA pending commitment can be joined and appended before a `roots()` observer;\nits root mix remains owed and is replayed at the next channel-bearing append,\nbefore any later tree mix. Single-commit observer paths need no later channel\ntraffic.\n\nThe failure path is explicit. If the observer's tree append allocation fails,\nthe scheme clears the pending state, deinitializes the unappended tree, destroys\nthe joined worker slot, and returns the error. A failing-allocator test pins\nthat lifecycle. Spawn failure and all ineligible shapes retain the sequential\nfallback.\n\n## Results\n\nThe seven-workload portfolio ratio is **0.950958**, with deterministic 95% CI\n**[0.948479, 0.952669]**, clearing theta 0.029602. All rows improve:\n\n| workload | prove ratio | 95% CI | verified-request ratio |\n| --- | ---: | ---: | ---: |\n| memcpy loop | 0.960869 | [0.950025, 0.966655] | 0.971493 |\n| sieve primes | 0.965140 | [0.961658, 0.969964] | 0.967985 |\n| bubble sort | 0.949900 | [0.945258, 0.953044] | 0.956641 |\n| Collatz | 0.945943 | [0.936243, 0.951578] | 0.950174 |\n| Keccak-128 | 0.945647 | [0.944365, 0.949227] | 0.970579 |\n| SHA2-128 | 0.944606 | [0.938288, 0.946958] | 0.974064 |\n| SHA2-256 | 0.944829 | [0.942475, 0.947723] | 0.963381 |\n\nG1-G5 pass. The run contains 21 measured rounds. Proof-byte ratio is exactly\n1.0, peak-RSS ratio is 0.999414 with upper-CI geomean 1.002076, and energy\nratio is 0.994896. Mechanism telemetry was canonical and stable for 7/7\nworkloads. The 380-source test closure passed; Native CPU, Native Metal, and\nRISC-V product boundaries and independent proof-identity checks were green.\n\n## Caveats\n\nAn earlier wide attempt at the `0d7f457`-era frontier scored 0.9727 and did\nnot clear the then-current 0.9704 significance bar. This filing is new evidence\nagainst a materially changed frontier after the resident quotient/FRI\npromotion and subsequent commits; it is not a reroll of the old samples.\n\nThe RISC-V objective uses the established `--guards none` route because the\nautomatic Native guard mapping does not describe this board; the affected\nproduct boundaries were therefore closed explicitly and sequentially. A first\nStudio launcher accidentally used obsolete predecessor `2beae9d0` and candidate\n`24d516b`; that result was rejected as diagnostic-only and is not included.\nThis package binds only the clean rerun against exact current main.\n\nThe result is a local claimed verdict, not a judged or promoted record. Only\nthe authenticated locked judge rerun can promote it. The separate PR6 all-cell\nmatrix, log22 oracle vector, both timing boundaries, and locked-M5 judged\nverdict remain incomplete. **PR6 Supremacy: not achieved.**\n",
+   "outcome": "neutral",
+   "solver": "welttowelt",
+   "title": "Defer the first RISC-V commitment tree while the pool would be idle",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Sanitized research transcript: RISC-V deferred first-tree enablement\n\nModel: Claude Fable 5, with CODEX ANVIL independent review.\n\n## Attribution and hypothesis\n\nThe RISC-V worker-count sweep showed saturation after eight workers and a large\nserial-equivalent floor. Lock attribution falsified a mutex-contention theory:\nalmost all waiting samples were workers parked at pool entry. Source inspection\nthen showed why the already-promoted deferred-first-tree path did not execute:\nRISC-V creates an owned twiddle source, while the gate admitted only borrowed\ntwiddles. The predicted recoverable window was the overlap between the first\npreprocessed commitment tree and locked witness generation.\n\n##",
+     "label": "session-01.md",
+     "sha256": "145f6ac57047f12b1d9603804e4a352803187979cb3969e7774215793c69bc52"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   },
   {
    "id": "2026-07-23-riscv-shared-prover-vectorization",
