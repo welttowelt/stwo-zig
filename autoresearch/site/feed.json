@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5890,6 +5890,76 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.751714,
+     "ci_low": 0.705944,
+     "commit": "179d83f56ca1b74292bcc9dab7fbd2206c10ef31",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.568705,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:64c33be26388d47214c01cef6d408ea36c009afbd73159c9b9213765e22e3a13",
+     "gates": "G1..G5:pass",
+     "harness_commit": "083877c03a81",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T11:21:44Z",
+     "judged_r": 0.725858,
+     "measurement_rounds": 9,
+     "measurement_seconds": 25.585825,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:553b569bfcebeb025b8fd8ac583c2249e21efb94b2e9a7c9722c446323cfd703",
+     "outcome": "promoted",
+     "peak_rss_mib": 351.313736,
+     "predecessor": "e363cadb75b4",
+     "proof_bytes": 74328,
+     "prove_ms": 41.529479,
+     "row_id": "sha256:b5765fffdb71806d525571a625b8e6ee6bac1d953a2e831ad2be039b7ea3bdb1",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+     "supersedes": "sha256:1dcb9ae38584d55876ad59c8b397c2bca066756dd0f73688783f7aba6eeea9ef",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "xlarge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.771348,
+     "ci_low": 0.609648,
+     "commit": "179d83f56ca1b74292bcc9dab7fbd2206c10ef31",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.837806,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:3ef83dcaeac2d3511f2a476fdc4ec59cec2dc4ee50288771f1c86d23bf4f46a3",
+     "gates": "G1..G5:pass",
+     "harness_commit": "083877c03a81",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T11:21:44Z",
+     "judged_r": 0.74883,
+     "measurement_rounds": 5,
+     "measurement_seconds": 11.008116,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:46d15452f5a131d00e2e7c4b3ab2cc7882e9339567a829115cdd7342293fa948",
+     "outcome": "promoted",
+     "peak_rss_mib": 882.345512,
+     "predecessor": "e363cadb75b4",
+     "proof_bytes": 86383,
+     "prove_ms": 180.505458,
+     "row_id": "sha256:fbf252d4570139528afe49a8debcff402b4525b751fa9ec68864f7a6d927aa10",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+     "supersedes": "sha256:99738ac5c0b164a0520b6dbf586b5ffd28e62e13a02a4c0fdf44a1f079cb8bb0",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "huge"
     }
    ],
    "frontier_by_class": {
@@ -5897,8 +5967,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6358,19 +6428,17 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": true,
-       "span_reasons": [
-        "subfloor_effect"
-       ]
+       "span": false,
+       "span_reasons": []
       },
-      "effective_score": 0.15170539997463847,
+      "effective_score": 0.11701765685963746,
       "evidence_share": {
        "claimed": 8,
        "claimed_share": 1.0,
@@ -6385,9 +6453,9 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 1,
-       "pending": 1,
-       "share": 0.0
+       "eligible": 0,
+       "pending": 0,
+       "share": null
       },
       "unaudited_tail": {
        "count": 8,
@@ -6398,8 +6466,8 @@
         "sha256:50761d5001fca8ef6896a582056c851f22720d7d898b6dd01ab4c7c7cfdfbb6f",
         "sha256:07dd081a48c37cc64dc4d5697fed6b1d2ea071650d5e967ec9f68802ce6a5f4d",
         "sha256:33f87d45e4a8c335315000ddd36b263bafe82236ab505c0380abcb4243b62766",
-        "sha256:46d15452f5a131d00e2e7c4b3ab2cc7882e9339567a829115cdd7342293fa948",
-        "sha256:530cea712621d373591b292bd0fbe0d4dbe1b61fdd0f9b7633eed4ce3f7e579f"
+        "sha256:530cea712621d373591b292bd0fbe0d4dbe1b61fdd0f9b7633eed4ce3f7e579f",
+        "sha256:46d15452f5a131d00e2e7c4b3ab2cc7882e9339567a829115cdd7342293fa948"
        ]
       }
      },
@@ -6442,35 +6510,35 @@
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.985253,
-      "ci_low": 0.96615,
-      "commit": "c35d409b0d51c05b63497b0f657402480f93de82",
+      "ci_high": 0.771348,
+      "ci_low": 0.609648,
+      "commit": "179d83f56ca1b74292bcc9dab7fbd2206c10ef31",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 0.594509,
+      "energy_j": 0.837806,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:9429a048f0c6f1e4eee873e188b57b23b9f8120263615ba100f492c151dce202",
+      "evidence_sha256": "sha256:3ef83dcaeac2d3511f2a476fdc4ec59cec2dc4ee50288771f1c86d23bf4f46a3",
       "gates": "G1..G5:pass",
-      "harness_commit": "abdfcf45daf4",
+      "harness_commit": "083877c03a81",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T09:38:23Z",
-      "judged_r": 0.969886,
+      "judged_at_utc": "2026-07-23T11:21:44Z",
+      "judged_r": 0.74883,
       "measurement_rounds": 5,
-      "measurement_seconds": 31.907007,
+      "measurement_seconds": 11.008116,
       "native_mhz": 0.0,
-      "observation_id": "sha256:530cea712621d373591b292bd0fbe0d4dbe1b61fdd0f9b7633eed4ce3f7e579f",
+      "observation_id": "sha256:46d15452f5a131d00e2e7c4b3ab2cc7882e9339567a829115cdd7342293fa948",
       "outcome": "promoted",
-      "peak_rss_mib": 822.985703,
-      "predecessor": "019699fd706c",
+      "peak_rss_mib": 882.345512,
+      "predecessor": "e363cadb75b4",
       "proof_bytes": 86383,
-      "prove_ms": 108.731625,
-      "row_id": "sha256:5687691c379d63b2d5e42dd930e7535f80b01534089e19d17356d68f92f6c7c5",
+      "prove_ms": 180.505458,
+      "row_id": "sha256:fbf252d4570139528afe49a8debcff402b4525b751fa9ec68864f7a6d927aa10",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-23-metal-paired-expansion-high-transform",
-      "supersedes": "",
+      "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+      "supersedes": "sha256:99738ac5c0b164a0520b6dbf586b5ffd28e62e13a02a4c0fdf44a1f079cb8bb0",
       "verdict_kind": "claimed",
       "waits": null,
       "workload_class": "huge"
@@ -6480,8 +6548,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6766,8 +6834,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7265,19 +7333,17 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": true,
-       "span_reasons": [
-        "subfloor_effect"
-       ]
+       "span": false,
+       "span_reasons": []
       },
-      "effective_score": 0.1135007106939106,
+      "effective_score": 0.0853200732385623,
       "evidence_share": {
        "claimed": 8,
        "claimed_share": 1.0,
@@ -7292,9 +7358,9 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 1,
-       "pending": 1,
-       "share": 0.0
+       "eligible": 0,
+       "pending": 0,
+       "share": null
       },
       "unaudited_tail": {
        "count": 8,
@@ -7384,35 +7450,35 @@
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.965666,
-      "ci_low": 0.930236,
-      "commit": "17376f1b222f88ec7606ee6d445987efddea067a",
+      "ci_high": 0.751714,
+      "ci_low": 0.705944,
+      "commit": "179d83f56ca1b74292bcc9dab7fbd2206c10ef31",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 0.448573,
+      "energy_j": 0.568705,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:a741445db082fc1400b659ac65c22aa2abc03e072171f54ab3da3418c35bc8ae",
+      "evidence_sha256": "sha256:64c33be26388d47214c01cef6d408ea36c009afbd73159c9b9213765e22e3a13",
       "gates": "G1..G5:pass",
-      "harness_commit": "2290dbc5d935",
+      "harness_commit": "083877c03a81",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T07:42:37Z",
-      "judged_r": 0.952527,
+      "judged_at_utc": "2026-07-23T11:21:44Z",
+      "judged_r": 0.725858,
       "measurement_rounds": 9,
-      "measurement_seconds": 24.219608,
+      "measurement_seconds": 25.585825,
       "native_mhz": 0.0,
-      "observation_id": "sha256:a80baf29a614158e5f8312b124dd79da551b39ab6a6e70e440a41e90d443c453",
+      "observation_id": "sha256:553b569bfcebeb025b8fd8ac583c2249e21efb94b2e9a7c9722c446323cfd703",
       "outcome": "promoted",
-      "peak_rss_mib": 326.157349,
-      "predecessor": "a01299b4c42c",
+      "peak_rss_mib": 351.313736,
+      "predecessor": "e363cadb75b4",
       "proof_bytes": 74328,
-      "prove_ms": 30.015729,
-      "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
+      "prove_ms": 41.529479,
+      "row_id": "sha256:b5765fffdb71806d525571a625b8e6ee6bac1d953a2e831ad2be039b7ea3bdb1",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
-      "supersedes": "",
+      "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+      "supersedes": "sha256:1dcb9ae38584d55876ad59c8b397c2bca066756dd0f73688783f7aba6eeea9ef",
       "verdict_kind": "claimed",
       "waits": null,
       "workload_class": "xlarge"
@@ -7429,10 +7495,10 @@
    "suite_score": {
     "active_credit_events": {
      "deep": 0,
-     "huge": 7,
+     "huge": 8,
      "small": 0,
      "wide": 1,
-     "xlarge": 7
+     "xlarge": 8
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -7444,10 +7510,10 @@
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
      "deep": 1.0,
-     "huge": 0.15170539997463847,
+     "huge": 0.11701765685963746,
      "small": 1.0,
      "wide": 0.649457,
-     "xlarge": 0.1135007106939106
+     "xlarge": 0.0853200732385623
     },
     "classes": [
      "small",
@@ -7457,10 +7523,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 40.710834483874095,
+    "index": 36.50653414276255,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.407108344838741,
-    "speedup": 2.4563485683303994
+    "ratio_geomean": 0.3650653414276255,
+    "speedup": 2.7392356559770845
    }
   },
   "heavy_cairo": {
@@ -7623,8 +7689,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7774,8 +7840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7815,8 +7881,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 292,
-       "seconds": 153050
+       "commits": 295,
+       "seconds": 153385
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -9146,7 +9212,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "d75391b2b114951d435c88e77241803d715d205a26a56ab95b3b27e84b1af176",
+   "autoresearch/ledger/promotions.tsv": "007f042e8ac51af97f553103787dbb110afc172758df36da98d4de64818299b1",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9290,8 +9356,8 @@
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "44566d92cfce",
-  "repo_commit_time": "2026-07-23T12:18:17+01:00"
+  "repo_commit": "48151fd17325",
+  "repo_commit_time": "2026-07-23T12:23:52+01:00"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -16946,7 +17012,7 @@
      },
      "huge": {
       "available": true,
-      "available_points": 8,
+      "available_points": 9,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 28.986022387503958,
@@ -16995,6 +17061,12 @@
         "judged_at_utc": "2026-07-23T09:38:23Z",
         "points": 8,
         "row_id": "sha256:5687691c379d63b2d5e42dd930e7535f80b01534089e19d17356d68f92f6c7c5"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 27.17958314004397,
+        "judged_at_utc": "2026-07-23T11:21:44Z",
+        "points": 8,
+        "row_id": "sha256:fbf252d4570139528afe49a8debcff402b4525b751fa9ec68864f7a6d927aa10"
        }
       ],
       "latest": {
@@ -17006,13 +17078,13 @@
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.014856817999200907,
-       "credited_ln_improvement_per_measurement_hour": 1.6762632940747537,
-       "gradient_snr": 0.9450948829697629,
-       "judged_at_utc": "2026-07-23T09:38:23Z",
-       "measurement_wall_hours": 0.008863057523073318,
-       "row_id": "sha256:5687691c379d63b2d5e42dd930e7535f80b01534089e19d17356d68f92f6c7c5",
-       "submission_id": "2026-07-23-metal-paired-expansion-high-transform",
+       "credited_ln_improvement": 0.2596156453842298,
+       "credited_ln_improvement_per_measurement_hour": 84.90248125090676,
+       "gradient_snr": 8.76261492284012,
+       "judged_at_utc": "2026-07-23T11:21:44Z",
+       "measurement_wall_hours": 0.0030578098726821027,
+       "row_id": "sha256:fbf252d4570139528afe49a8debcff402b4525b751fa9ec68864f7a6d927aa10",
+       "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -17159,13 +17231,31 @@
         "row_id": "sha256:5687691c379d63b2d5e42dd930e7535f80b01534089e19d17356d68f92f6c7c5",
         "submission_id": "2026-07-23-metal-paired-expansion-high-transform",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 5,
+        "actual_rounds_per_workload": {
+         "mwf_log20x100": 5
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.2596156453842298,
+        "credited_ln_improvement_per_measurement_hour": 84.90248125090676,
+        "gradient_snr": 8.76261492284012,
+        "judged_at_utc": "2026-07-23T11:21:44Z",
+        "measurement_wall_hours": 0.0030578098726821027,
+        "row_id": "sha256:fbf252d4570139528afe49a8debcff402b4525b751fa9ec68864f7a6d927aa10",
+        "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 1.8858147968561876,
-       "credited_ln_improvement_per_measurement_hour": 25.297828426945838,
-       "measurement_wall_hours": 0.07454453263852176,
-       "median_gradient_snr": 2.905110336296993,
+       "credited_ln_improvement": 1.5640678984149081,
+       "credited_ln_improvement_per_measurement_hour": 27.17958314004397,
+       "measurement_wall_hours": 0.057545691203429464,
+       "median_gradient_snr": 3.9106361108723124,
        "points": 8
       },
       "trailing_window": 8,
@@ -17505,7 +17595,7 @@
      },
      "xlarge": {
       "available": true,
-      "available_points": 8,
+      "available_points": 9,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 1.503537429661192,
@@ -17554,6 +17644,12 @@
         "judged_at_utc": "2026-07-23T09:30:38Z",
         "points": 8,
         "row_id": "sha256:1dcb9ae38584d55876ad59c8b397c2bca066756dd0f73688783f7aba6eeea9ef"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 33.806261111656084,
+        "judged_at_utc": "2026-07-23T11:21:44Z",
+        "points": 8,
+        "row_id": "sha256:b5765fffdb71806d525571a625b8e6ee6bac1d953a2e831ad2be039b7ea3bdb1"
        }
       ],
       "latest": {
@@ -17565,12 +17661,12 @@
        "auto_boost_target_rounds": 9,
        "available": true,
        "configured_rounds": 9,
-       "credited_ln_improvement": -0.0,
-       "credited_ln_improvement_per_measurement_hour": -0.0,
-       "gradient_snr": 0.0,
-       "judged_at_utc": "2026-07-23T09:30:38Z",
+       "credited_ln_improvement": 0.28539934652090293,
+       "credited_ln_improvement_per_measurement_hour": 40.156518992110435,
+       "gradient_snr": 8.15391082154755,
+       "judged_at_utc": "2026-07-23T11:21:44Z",
        "measurement_wall_hours": 0.0071071734723065876,
-       "row_id": "sha256:1dcb9ae38584d55876ad59c8b397c2bca066756dd0f73688783f7aba6eeea9ef",
+       "row_id": "sha256:b5765fffdb71806d525571a625b8e6ee6bac1d953a2e831ad2be039b7ea3bdb1",
        "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
        "verdict_kind": "claimed"
       },
@@ -17718,13 +17814,31 @@
         "row_id": "sha256:1dcb9ae38584d55876ad59c8b397c2bca066756dd0f73688783f7aba6eeea9ef",
         "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 9,
+        "actual_rounds_per_workload": {
+         "mwf_log18x100": 9
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 9,
+        "available": true,
+        "configured_rounds": 9,
+        "credited_ln_improvement": 0.28539934652090293,
+        "credited_ln_improvement_per_measurement_hour": 40.156518992110435,
+        "gradient_snr": 8.15391082154755,
+        "judged_at_utc": "2026-07-23T11:21:44Z",
+        "measurement_wall_hours": 0.0071071734723065876,
+        "row_id": "sha256:b5765fffdb71806d525571a625b8e6ee6bac1d953a2e831ad2be039b7ea3bdb1",
+        "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 2.175946180459926,
-       "credited_ln_improvement_per_measurement_hour": 27.24974233821056,
-       "measurement_wall_hours": 0.07985199101896595,
-       "median_gradient_snr": 2.8799493116503747,
+       "credited_ln_improvement": 2.4390774228929697,
+       "credited_ln_improvement_per_measurement_hour": 33.806261111656084,
+       "measurement_wall_hours": 0.07214868910930818,
+       "median_gradient_snr": 5.503433170612494,
        "points": 8
       },
       "trailing_window": 8,
