@@ -267,6 +267,7 @@ def measure(manifest: Manifest, out_dir: Path) -> Path:
                 name,
                 class_dir,
                 board=BOARD,
+                require_quiet_host=True,
             )
             ci = result["portfolio"]["ci"]
             if not ci[0] <= 1.0 <= ci[1]:

@@ -304,6 +304,7 @@ def _execute_item(repo: Path, manifest: Manifest, item: dict, out_dir: Path) -> 
                 holdout_seed=int(item["item_id"][-8:], 16),
                 guards_mode="all",
                 audit_mode=True,
+                require_quiet_host=True,
             )
         finally:
             _git(repo, "worktree", "remove", "--force", str(pred))

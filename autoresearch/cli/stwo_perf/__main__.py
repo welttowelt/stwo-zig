@@ -97,6 +97,7 @@ def cmd_run(args) -> int:
             result = runner.evaluate_aa(
                 m.root, m, args.workload_class, out_dir, board=board,
                 allow_staged=args.staged_calibration,
+                require_quiet_host=True,
             )
         except runner.RunError as exc:
             return _fail(str(exc))
@@ -143,6 +144,7 @@ def cmd_run(args) -> int:
             m.root, predecessor, m, args.workload_class, args.dimension,
             args.scope, judged=False, out_dir=out_dir, board=board,
             guards_mode=args.guards,
+            require_quiet_host=True,
         )
     except runner.RunError as exc:
         return _fail(str(exc))

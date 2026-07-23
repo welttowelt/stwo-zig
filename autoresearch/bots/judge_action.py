@@ -132,6 +132,7 @@ def main() -> int:
             verdict = runner.evaluate(
                 m.root, pred, m, wl_class, dimension, scope,
                 judged=True, out_dir=Path(tmp) / "runs", board=board,
+                require_quiet_host=True,
             )
         finally:
             lock.unlink(missing_ok=True)

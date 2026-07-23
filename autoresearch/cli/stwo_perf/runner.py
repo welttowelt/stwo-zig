@@ -1108,7 +1108,11 @@ def _seed(workload_id: str, round_no: int) -> int:
     return int.from_bytes(digest[:4], "big")
 
 
-def environment_block(repo_root: Path, judged: bool) -> dict:
+def environment_block(
+    repo_root: Path,
+    judged: bool,
+    admission_preflight: dict | None = None,
+) -> dict:
     clean = _git(repo_root, "status", "--porcelain") == ""
     zig = _try(lambda: _run("zig version", repo_root, 60).strip())
     return {
@@ -1118,7 +1122,14 @@ def environment_block(repo_root: Path, judged: bool) -> dict:
         "release_fast": True,
         "clean_tree": clean,
         "judge_lock_held": judged,
-        "preflight": _preflight(),
+        # Preserve the state that admitted the measurement. Re-sampling here,
+        # after the battery, can hide a busy start or falsely blame the run for
+        # load created by its own work.
+        "preflight": (
+            admission_preflight
+            if admission_preflight is not None
+            else _preflight()
+        ),
     }
 
 
@@ -1129,6 +1140,25 @@ def _preflight() -> dict:
         return {"load_ok": load1 < cores * 0.75, "load1": round(load1, 2)}
     except OSError:
         return {"load_ok": True, "load1": None}
+
+
+def require_quiet_preflight() -> dict:
+    """Fail closed before Apple timing when the host is already busy.
+
+    Linux qualification runners retain the existing telemetry-only behavior:
+    their load average is not calibrated to the Apple quiet-host policy.
+    """
+    preflight = _preflight()
+    if platform.system() == "Darwin" and not preflight["load_ok"]:
+        cores = os.cpu_count() or 1
+        threshold = cores * 0.75
+        raise RunError(
+            "Apple timing refused before measurement: "
+            f"load1={preflight['load1']} exceeds the quiet-host threshold "
+            f"{threshold:.2f} ({cores} logical cores). Wait for cooldown and "
+            "stop co-runners, then rerun; no timing samples were taken."
+        )
+    return preflight
 
 
 def acquire_judge_lock(repo_root: Path) -> Path:
@@ -1228,7 +1258,8 @@ def aa_dispersion(ci: tuple[float, float] | list[float]) -> float:
 
 def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
                 out_dir: Path, board: str = "core_cpu",
-                allow_staged: bool = False) -> dict:
+                allow_staged: bool = False,
+                require_quiet_host: bool = False) -> dict:
     """A/A run (both arms = this tree): measures the per-class dispersion that
     theta is built from. ``allow_staged`` is an explicit calibration-only path
     for a disabled board; ordinary evaluation remains fail-closed."""
@@ -1247,6 +1278,9 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
     group_id = next(iter(group_ids))
     policy = manifest.gates_for_workload(group_id, workload_class)
     build_arm(repo_root, manifest, groups=[manifest.group(group_id)])
+    admission_preflight = (
+        require_quiet_preflight() if require_quiet_host else _preflight()
+    )
     scores = [
         paired_rounds(repo_root, repo_root, manifest, workload, policy, out_dir)
         for workload in workloads
@@ -1300,6 +1334,7 @@ def evaluate_aa(repo_root: Path, manifest: Manifest, workload_class: str,
         },
         "half_width": round(half_width, 6),
         "dispersion": round(dispersion, 6),
+        "preflight": admission_preflight,
         "skipped_groups": skipped,
         "record_as": {
             "ledger/epochs.json": {"aa_dispersion": {
@@ -1724,6 +1759,7 @@ def evaluate(
     holdout_seed: int | None = None,
     guards_mode: str = "auto",
     audit_mode: bool = False,
+    require_quiet_host: bool = False,
 ) -> dict:
     """Run the full paired evaluation and assemble a verdict dict.
 
@@ -1765,6 +1801,9 @@ def evaluate(
     active_groups = [g for g in manifest.groups() if g.group_id in active_group_ids]
     for arm_root in (predecessor_root, repo_root):
         build_arm(arm_root, manifest, groups=active_groups)
+    admission_preflight = (
+        require_quiet_preflight() if require_quiet_host else _preflight()
+    )
 
     try:
         decision = search_health.decide_rounds(
@@ -1899,7 +1938,9 @@ def evaluate(
             "workload_class": workload_class,
             "dimension": dimension,
         },
-        "environment": environment_block(repo_root, judged),
+        "environment": environment_block(
+            repo_root, judged, admission_preflight=admission_preflight,
+        ),
         "search_health": health_evidence,
         "gates": gates,
         "score": {
