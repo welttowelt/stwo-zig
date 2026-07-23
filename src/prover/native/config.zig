@@ -204,7 +204,7 @@ const POSEIDON_COLUMNS: u64 = 1264;
 const MAX_XOR_OFFSET: usize = (1 << 31) - 1;
 const M31_MODULUS: u32 = 0x7fffffff;
 pub const MIN_HEADLINE_WARMUPS: usize = 10;
-pub const MAX_WARMUPS: usize = 10;
+pub const MAX_WARMUPS: usize = 30;
 
 pub fn parseArgs(backend: Backend, argv: []const []const u8) !ParseResult {
     var result = Args{};
@@ -411,7 +411,7 @@ pub fn writeUsage(writer: anytype, backend: Backend) !void {
         \\  --n-rounds N         Blake round count (maximum: 32)
         \\  --log-n-instances N  Poseidon log2 instance count
         \\  --protocol NAME      smoke, functional, or secure (default: functional)
-        \\  --warmups N          Verified untimed warmups (headline minimum: 10)
+        \\  --warmups N          Verified untimed warmups (minimum: 10, maximum: 30)
         \\  --samples N          Verified timed samples (maximum: 21)
         \\  --proof-artifact-out PATH
         \\  --blake2-backend MODE  auto, scalar, or simd (default: auto)

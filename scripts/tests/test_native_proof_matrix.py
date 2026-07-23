@@ -160,7 +160,7 @@ class NativeProofMatrixTests(unittest.TestCase):
         maximum_request_cells = suite.request_cells(
             MODULE.MAX_WARMUPS, MODULE.MAX_SAMPLES
         )
-        self.assertEqual(maximum_request_cells, 905_465_856)
+        self.assertEqual(maximum_request_cells, 1_489_637_376)
         self.assertLessEqual(maximum_request_cells, MODULE.MAX_TOTAL_REQUEST_CELLS)
         MODULE.validate_suite(suite)
 
@@ -321,9 +321,9 @@ class NativeProofMatrixTests(unittest.TestCase):
                     "--workload",
                     "wide_fibonacci:log_n_rows=16,sequence_len=512",
                     "--warmups",
-                    "1",
+                    str(MODULE.MAX_WARMUPS),
                     "--samples",
-                    "21",
+                    str(MODULE.MAX_SAMPLES),
                 ]
             )
         large_row = "wide_fibonacci:log_n_rows=20,sequence_len=100"

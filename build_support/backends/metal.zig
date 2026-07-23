@@ -116,6 +116,7 @@ fn nativeShaderDigest(b: *std.Build) []const u8 {
         .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/commitments.metal\"\n", .path = "src/backends/metal/shaders/core/commitments.metal" },
         .{ .header = "\n#line 1 \"src/backends/metal/kernels.metal\"\n", .path = "src/backends/metal/kernels.metal" },
         .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n", .path = "src/backends/metal/shaders/core/circle_transform.metal" },
+        .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/circle_transform_wide.metal\"\n", .path = "src/backends/metal/shaders/core/circle_transform_wide.metal" },
         .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n", .path = "src/backends/metal/shaders/core/arena_ops.metal" },
         .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n", .path = "src/backends/metal/shaders/core/transcript.metal" },
         .{ .header = "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n", .path = "src/backends/metal/shaders/core/composition.metal" },

@@ -66,6 +66,38 @@ class BenchmarkPagesTests(unittest.TestCase):
         (history / "index.json").write_bytes(encoded_json(index))
         return history
 
+    def append_run(
+        self,
+        history: Path,
+        run_id: str,
+        report: dict,
+        **entry_fields: object,
+    ) -> None:
+        report_path = history / "runs" / run_id / "report.json"
+        report_path.parent.mkdir(parents=True)
+        raw = encoded_json(report)
+        report_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        index_path = history / "index.json"
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        index["runs"][run_id] = {
+            "kind": report["protocol"],
+            "report": {
+                "path": f"runs/{run_id}/report.json",
+                "sha256": digest,
+                "bytes": len(raw),
+            },
+            "bundle": None,
+            "deltas": [],
+            **entry_fields,
+        }
+        index["artifacts"][digest] = {
+            "path": f"runs/{run_id}/report.json",
+            "bytes": len(raw),
+            "run": run_id,
+        }
+        index_path.write_bytes(encoded_json(index))
+
     def test_real_history_publishes_only_complete_runs(self) -> None:
         catalog = build_catalog(HISTORY)
         index = json.loads((HISTORY / "index.json").read_text(encoding="utf-8"))
@@ -91,6 +123,92 @@ class BenchmarkPagesTests(unittest.TestCase):
 
     def test_catalog_generation_is_deterministic(self) -> None:
         self.assertEqual(encoded_json(build_catalog(HISTORY)), encoded_json(build_catalog(HISTORY)))
+
+    def test_missing_or_explicit_active_status_is_publishable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            history = self.write_history(Path(temporary))
+            catalog = build_catalog(history)
+            self.assertEqual(catalog["latest_run_id"], "formal-run")
+
+            index_path = history / "index.json"
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            index["runs"]["formal-run"]["status"] = "active"
+            index_path.write_bytes(encoded_json(index))
+            catalog = build_catalog(history)
+            self.assertEqual(catalog["latest_run_id"], "formal-run")
+
+    def test_invalidated_and_superseded_runs_are_retained_but_not_published(self) -> None:
+        for status in ("invalidated", "superseded"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                history = self.write_history(Path(temporary))
+                report = copy.deepcopy(self.report)
+                report["generated_at"] = "2030-01-01T00:00:00+00:00"
+                fields: dict[str, object] = {
+                    "status": status,
+                    "status_reason": f"{status} by benchmark correction",
+                }
+                if status == "superseded":
+                    fields["superseded_by"] = "formal-run"
+                self.append_run(history, "excluded-run", report, **fields)
+
+                catalog = build_catalog(history)
+
+                self.assertEqual(catalog["latest_run_id"], "formal-run")
+                self.assertEqual([run["id"] for run in catalog["runs"]], ["formal-run"])
+                excluded = next(
+                    run for run in catalog["excluded_runs"] if run["id"] == "excluded-run"
+                )
+                self.assertEqual(excluded["status"], status)
+                self.assertEqual(
+                    excluded["superseded_by"],
+                    "formal-run" if status == "superseded" else None,
+                )
+                self.assertIn(fields["status_reason"], excluded["reasons"][0])
+
+    def test_inactive_status_metadata_fails_closed(self) -> None:
+        cases = (
+            ({"status": "withdrawn", "status_reason": "bad"}, "status"),
+            ({"status": "invalidated"}, "status_reason"),
+            (
+                {
+                    "status": "invalidated",
+                    "status_reason": "bad capture",
+                    "superseded_by": "formal-run",
+                },
+                "superseded_by is forbidden",
+            ),
+            (
+                {
+                    "status": "superseded",
+                    "status_reason": "replaced",
+                    "superseded_by": "missing-run",
+                },
+                "names an unknown run",
+            ),
+        )
+        for fields, message in cases:
+            with self.subTest(fields=fields), tempfile.TemporaryDirectory() as temporary:
+                history = self.write_history(Path(temporary))
+                index_path = history / "index.json"
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                index["runs"]["formal-run"].update(fields)
+                index_path.write_bytes(encoded_json(index))
+                with self.assertRaisesRegex(CatalogError, message):
+                    build_catalog(history)
+
+    def test_invalidated_report_still_requires_archive_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            history = self.write_history(Path(temporary))
+            index_path = history / "index.json"
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            index["runs"]["formal-run"].update(
+                {"status": "invalidated", "status_reason": "bad capture"}
+            )
+            index_path.write_bytes(encoded_json(index))
+            report_path = history / "runs" / "formal-run" / "report.json"
+            report_path.write_bytes(report_path.read_bytes() + b"\n")
+            with self.assertRaisesRegex(CatalogError, "digest mismatch"):
+                build_catalog(history)
 
     def test_request_resources_are_retained_without_replacing_process_rss(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
