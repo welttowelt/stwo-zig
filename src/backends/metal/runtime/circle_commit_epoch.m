@@ -291,7 +291,8 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                     (inverse_mode << 9u) | (fused_count << 10u) |
                     (inverse_layer << 14u);
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-                [encoder setComputePipelineState:runtime.circleRfftFusedSparseWide];
+                [encoder setComputePipelineState:runtime.circleRfftLastSparse];
+                [encoder setThreadgroupMemoryLength:4096u * sizeof(uint32_t) atIndex:0];
                 [encoder setBuffer:coefficients offset:0u atIndex:0];
                 [encoder setBuffer:base_offsets offset:0u atIndex:1];
                 [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
@@ -406,7 +407,8 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                 (inverse_mode << 9u) | (fused_count << 10u) |
                 (lowest_stage << 14u);
             id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleRfftFusedSparseWide];
+            [encoder setComputePipelineState:runtime.circleRfftLastSparse];
+            [encoder setThreadgroupMemoryLength:4096u * sizeof(uint32_t) atIndex:0];
             [encoder setBuffer:extended offset:0u atIndex:0];
             [encoder setBuffer:extended_offsets offset:0u atIndex:1];
             [encoder setBuffer:forward_buffer offset:0u atIndex:2];

@@ -594,7 +594,13 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
         circle_transform_all_source,
         "stwo_zig_circle_rfft_fused_tail_sparse_wide",
     );
-    try std.testing.expect(std.mem.indexOf(u8, wide_declaration, "column_config [[buffer(4)]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wide_declaration, "column_count [[buffer(4)]]") != null);
+    const high_declaration = try kernelDeclaration(
+        circle_transform_source,
+        "stwo_zig_circle_rfft_last_sparse",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "column_config [[buffer(4)]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "tile [[threadgroup(0)]]") != null);
 }
 
 test "polynomial evaluation declares standalone field and ABI dependencies" {
