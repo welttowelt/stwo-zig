@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "predecessor_commit": "799efe87a9ec",
+  "declared_objective": {
+    "board": "core_cpu",
+    "workload_class": "wide",
+    "dimension": "time"
+  },
+  "declared_scope": "s3",
+  "files": {
+    "src/prover/work_pool.zig": "sha256:fbbb0fb41877ed06ccef3cd8e6176abb3679b971d63ebac0b7f04ac0edef1508"
+  },
+  "transcripts": {
+    "transcripts/session-01.md": {
+      "sha256": "e241f056bebd3be539150ad8e2065fc855d59eec6cdf287b4d2e85cbc4723022",
+      "captured_by": "submitter"
+    }
+  },
+  "transcripts_declined": false
+}
