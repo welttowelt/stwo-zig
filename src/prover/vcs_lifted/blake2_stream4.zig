@@ -12,6 +12,18 @@ pub fn supports(comptime H: type) bool {
     return H == CoreHasher;
 }
 
+pub fn hashChildren8(
+    seed: CoreHasher.NodeSeed,
+    children: *const [16]CoreHasher.Hash,
+) [8]CoreHasher.Hash {
+    var payloads: [8][64]u8 = undefined;
+    for (&payloads, 0..) |*payload, lane| {
+        @memcpy(payload[0..32], children[2 * lane][0..]);
+        @memcpy(payload[32..64], children[2 * lane + 1][0..]);
+    }
+    return BackendHasher.hashFinal64FromSeed8(seed, &payloads);
+}
+
 fn loadStates(hashers: *const [4]CoreHasher) [4]BackendHasher {
     var states: [4]BackendHasher = undefined;
     for (0..4) |lane| states[lane] = hashers[lane].inner.ctx;

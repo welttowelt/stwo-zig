@@ -294,6 +294,39 @@ pub const Blake2sHasher = struct {
         return parallelStatesToDigests(&states);
     }
 
+    /// Finishes eight independent 128-byte messages that share their first
+    /// block. A 256-bit logical vector lets LLVM issue the two native AArch64
+    /// halves at each BLAKE dependency level instead of completing one
+    /// four-message compression before starting the next.
+    pub fn hashFinal64FromSeed8(
+        seed: Fixed64Seed,
+        data: *const [8][64]u8,
+    ) [8]Blake2sHash {
+        return hashFinal64FromSeed8WithMode(getDefaultBackendMode(), seed, data);
+    }
+
+    pub fn hashFinal64FromSeed8WithMode(
+        mode: BackendMode,
+        seed: Fixed64Seed,
+        data: *const [8][64]u8,
+    ) [8]Blake2sHash {
+        if (selectBackend(mode).effective == .scalar) {
+            var out: [8]Blake2sHash = undefined;
+            for (&out, data) |*digest, *block| {
+                digest.* = hashFinal64FromSeedWithMode(.scalar, seed, block);
+            }
+            return out;
+        }
+
+        var messages: [16]V8 = undefined;
+        loadParallelBlock8(data, &messages);
+
+        var states: [8]V8 = undefined;
+        for (0..8) |word_index| states[word_index] = @splat(seed[word_index]);
+        compressParallel8(&states, &messages, 128, 0, 0xFFFF_FFFF);
+        return parallel8StatesToDigests(&states);
+    }
+
     pub fn hashEqualFromSeed4(
         seed: Fixed64Seed,
         data: *const [4][]const u8,
@@ -596,6 +629,17 @@ fn loadParallelBlock4(data: *const [4][64]u8, out: *[16]V4) void {
     }
 }
 
+fn loadParallelBlock8(data: *const [8][64]u8, out: *[16]V8) void {
+    const halves: [2][4][64]u8 = @bitCast(data.*);
+    var low_words: [16]V4 = undefined;
+    var high_words: [16]V4 = undefined;
+    loadParallelBlock4(&halves[0], &low_words);
+    loadParallelBlock4(&halves[1], &high_words);
+    inline for (0..16) |word| {
+        out[word] = @bitCast([2]V4{ low_words[word], high_words[word] });
+    }
+}
+
 fn parallelStatesToDigests(states: *const [8]V4) [4]Blake2sHash {
     if (comptime builtin.cpu.arch.endian() == .little) {
         const low = transpose4x4(.{ states[0], states[1], states[2], states[3] });
@@ -612,6 +656,24 @@ fn parallelStatesToDigests(states: *const [8]V4) [4]Blake2sHash {
         }
         return out;
     }
+}
+
+fn parallel8StatesToDigests(states: *const [8]V8) [8]Blake2sHash {
+    var low: [8]V4 = undefined;
+    var high: [8]V4 = undefined;
+    inline for (0..8) |word| {
+        const halves: [2]V4 = @bitCast(states[word]);
+        low[word] = halves[0];
+        high[word] = halves[1];
+    }
+    const low_digests = parallelStatesToDigests(&low);
+    const high_digests = parallelStatesToDigests(&high);
+    var out: [8]Blake2sHash = undefined;
+    inline for (0..4) |lane| {
+        out[lane] = low_digests[lane];
+        out[lane + 4] = high_digests[lane];
+    }
+    return out;
 }
 
 fn stateToDigest(h: [8]u32) Blake2sHash {
@@ -679,6 +741,7 @@ fn compressScalar(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void
 }
 
 const V4 = @Vector(4, u32);
+const V8 = @Vector(8, u32);
 const Shift4 = @Vector(4, u5);
 const V16u8 = @Vector(16, u8);
 
@@ -718,6 +781,14 @@ fn rotr32x4(x: V4, comptime bits: u5) V4 {
     const r: Shift4 = @splat(bits);
     const l: Shift4 = @splat(left_bits);
     return (x >> r) | (x << l);
+}
+
+fn rotr32x8(x: V8, comptime bits: u5) V8 {
+    const halves: [2]V4 = @bitCast(x);
+    return @bitCast([2]V4{
+        rotr32x4(halves[0], bits),
+        rotr32x4(halves[1], bits),
+    });
 }
 
 fn gather4(values: *const [16]u32, idx: [4]u8) V4 {
@@ -830,6 +901,44 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
         parallel4.g4Interleaved(
             V4,
             rotr32x4,
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 5, 6, 7, 4 },
+            .{ 10, 11, 8, 9 },
+            .{ 15, 12, 13, 14 },
+            .{ m[s[8]], m[s[10]], m[s[12]], m[s[14]] },
+            .{ m[s[9]], m[s[11]], m[s[13]], m[s[15]] },
+        );
+    }
+
+    for (0..8) |i| h[i] ^= v[i] ^ v[i + 8];
+}
+
+fn compressParallel8(h: *[8]V8, m: *const [16]V8, t0: u32, t1: u32, f0: u32) void {
+    var v: [16]V8 = undefined;
+    for (0..8) |i| {
+        v[i] = h[i];
+        v[i + 8] = @splat(BLAKE2S_IV[i]);
+    }
+    v[12] ^= @as(V8, @splat(t0));
+    v[13] ^= @as(V8, @splat(t1));
+    v[14] ^= @as(V8, @splat(f0));
+
+    inline for (BLAKE2S_SIGMA) |s| {
+        parallel4.g4Interleaved(
+            V8,
+            rotr32x8,
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 4, 5, 6, 7 },
+            .{ 8, 9, 10, 11 },
+            .{ 12, 13, 14, 15 },
+            .{ m[s[0]], m[s[2]], m[s[4]], m[s[6]] },
+            .{ m[s[1]], m[s[3]], m[s[5]], m[s[7]] },
+        );
+        parallel4.g4Interleaved(
+            V8,
+            rotr32x8,
             &v,
             .{ 0, 1, 2, 3 },
             .{ 5, 6, 7, 4 },
