@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6002,8 +6002,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6463,8 +6463,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6583,8 +6583,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6869,8 +6869,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7404,8 +7404,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7753,6 +7753,111 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.896908,
+     "ci_low": 0.881676,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 31.058463,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.889288,
+     "measurement_rounds": 30,
+     "measurement_seconds": 116.321267,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+     "outcome": "promoted",
+     "peak_rss_mib": 1178.714931,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 58407,
+     "prove_ms": 817.052341,
+     "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.808122,
+     "ci_low": 0.799976,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 47.226419,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.803918,
+     "measurement_rounds": 29,
+     "measurement_seconds": 211.636388,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+     "outcome": "promoted",
+     "peak_rss_mib": 1344.828467,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 67692,
+     "prove_ms": 1260.467011,
+     "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.771063,
+     "ci_low": 0.759632,
+     "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 37.762286,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+     "gates": "G1..G5:pass",
+     "harness_commit": "7efe3b1abd72",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T15:20:32Z",
+     "judged_r": 0.764489,
+     "measurement_rounds": 27,
+     "measurement_seconds": 139.142256,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+     "outcome": "promoted",
+     "peak_rss_mib": 1263.422529,
+     "predecessor": "2beae9d03b33",
+     "proof_bytes": 67695,
+     "prove_ms": 884.847919,
+     "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -7760,8 +7865,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7770,9 +7875,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.6423093357803766,
+      "effective_score": 0.5190643050495095,
       "evidence_share": {
-       "claimed": 4,
+       "claimed": 5,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -7790,12 +7895,13 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 4,
+       "count": 5,
        "observation_ids": [
         "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
         "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
         "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
-        "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538"
+        "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
+        "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a"
        ]
       }
      },
@@ -7869,38 +7975,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "deep"
+      },
+      {
+       "board": "riscv",
+       "ci_high": 0.808122,
+       "ci_low": 0.799976,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 47.226419,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.803918,
+       "measurement_rounds": 29,
+       "measurement_seconds": 211.636388,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+       "outcome": "promoted",
+       "peak_rss_mib": 1344.828467,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 67692,
+       "prove_ms": 1260.467011,
+       "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "deep"
       }
      ],
      "head": {
       "board": "riscv",
-      "ci_high": 0.984837,
-      "ci_low": 0.980101,
-      "commit": "dd4bd2a135fac6e3ebd4de71198adfd935522629",
+      "ci_high": 0.808122,
+      "ci_low": 0.799976,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 53.924727,
+      "energy_j": 47.226419,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:d4280bafea8be5ddeee1c4021b43a430625823b875a62cd753cf46c14c705a6d",
+      "evidence_sha256": "sha256:b9296f841b9a56cb5939799a8805617a7212499af20715179157bb4fd6e12d80",
       "gates": "G1..G5:pass",
-      "harness_commit": "20e097517010",
+      "harness_commit": "7efe3b1abd72",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T02:43:05Z",
-      "judged_r": 0.982416,
-      "measurement_rounds": 23,
-      "measurement_seconds": 171.575155,
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.803918,
+      "measurement_rounds": 29,
+      "measurement_seconds": 211.636388,
       "native_mhz": 0.0,
-      "observation_id": "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
+      "observation_id": "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
       "outcome": "promoted",
-      "peak_rss_mib": 1344.621868,
-      "predecessor": "0a04f85af1e2",
+      "peak_rss_mib": 1344.828467,
+      "predecessor": "2beae9d03b33",
       "proof_bytes": 67692,
-      "prove_ms": 1531.363827,
-      "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
+      "prove_ms": 1260.467011,
+      "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -7911,8 +8052,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7921,12 +8062,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.896908,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -7941,19 +8082,91 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "riscv",
+       "ci_high": 0.896908,
+       "ci_low": 0.881676,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 31.058463,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.889288,
+       "measurement_rounds": 30,
+       "measurement_seconds": 116.321267,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+       "outcome": "promoted",
+       "peak_rss_mib": 1178.714931,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 58407,
+       "prove_ms": 817.052341,
+       "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "small"
+      }
+     ],
+     "head": {
+      "board": "riscv",
+      "ci_high": 0.896908,
+      "ci_low": 0.881676,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 31.058463,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:c0fa3b43a579e9bcf946fbfd217c1154a7e8f45b776946504c21284832f34f65",
+      "gates": "G1..G5:pass",
+      "harness_commit": "7efe3b1abd72",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.889288,
+      "measurement_rounds": 30,
+      "measurement_seconds": 116.321267,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+      "outcome": "promoted",
+      "peak_rss_mib": 1178.714931,
+      "predecessor": "2beae9d03b33",
+      "proof_bytes": 58407,
+      "prove_ms": 817.052341,
+      "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "small"
+     }
     },
     "wide": {
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 311,
-       "seconds": 159622
+       "commits": 318,
+       "seconds": 167585
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7962,12 +8175,12 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 1.0,
+      "effective_score": 0.771063,
       "evidence_share": {
-       "claimed": 0,
-       "claimed_share": null,
+       "claimed": 1,
+       "claimed_share": 1.0,
        "judged": 0,
-       "judged_share": null
+       "judged_share": 0.0
       },
       "overdue": {
        "direct": false,
@@ -7982,12 +8195,84 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 0,
-       "observation_ids": []
+       "count": 1,
+       "observation_ids": [
+        "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4"
+       ]
       }
      },
-     "frontier": [],
-     "head": null
+     "frontier": [
+      {
+       "board": "riscv",
+       "ci_high": 0.771063,
+       "ci_low": 0.759632,
+       "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 37.762286,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+       "gates": "G1..G5:pass",
+       "harness_commit": "7efe3b1abd72",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "judged_r": 0.764489,
+       "measurement_rounds": 27,
+       "measurement_seconds": 139.142256,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+       "outcome": "promoted",
+       "peak_rss_mib": 1263.422529,
+       "predecessor": "2beae9d03b33",
+       "proof_bytes": 67695,
+       "prove_ms": 884.847919,
+       "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
+      }
+     ],
+     "head": {
+      "board": "riscv",
+      "ci_high": 0.771063,
+      "ci_low": 0.759632,
+      "commit": "e2b4926e3f89dcbb217c62a8bdfb3939bea9e9fb",
+      "covers": [],
+      "credit_replaces": [],
+      "dispatches": null,
+      "energy_j": 37.762286,
+      "epoch": 2,
+      "evidence_kind": "promotion",
+      "evidence_sha256": "sha256:d244e7b66131f8cff155ff9518a2b57f323137da502a19e8fa7c69145dbb0c1e",
+      "gates": "G1..G5:pass",
+      "harness_commit": "7efe3b1abd72",
+      "holdout": "none",
+      "judged_at_utc": "2026-07-23T15:20:32Z",
+      "judged_r": 0.764489,
+      "measurement_rounds": 27,
+      "measurement_seconds": 139.142256,
+      "native_mhz": 0.0,
+      "observation_id": "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+      "outcome": "promoted",
+      "peak_rss_mib": 1263.422529,
+      "predecessor": "2beae9d03b33",
+      "proof_bytes": 67695,
+      "prove_ms": 884.847919,
+      "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+      "schema_version": 3,
+      "scope": "s3",
+      "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+      "supersedes": "",
+      "verdict_kind": "claimed",
+      "waits": null,
+      "workload_class": "wide"
+     }
     }
    },
    "scored_classes": [
@@ -7997,9 +8282,9 @@
    ],
    "suite_score": {
     "active_credit_events": {
-     "deep": 4,
-     "small": 0,
-     "wide": 0
+     "deep": 5,
+     "small": 1,
+     "wide": 1
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -8008,9 +8293,9 @@
     },
     "audited_ratio_geomean": 1.0,
     "class_ratios": {
-     "deep": 0.6423093357803766,
-     "small": 1.0,
-     "wide": 1.0
+     "deep": 0.5190643050495095,
+     "small": 0.896908,
+     "wide": 0.771063
     },
     "classes": [
      "small",
@@ -8018,10 +8303,10 @@
      "deep"
     ],
     "epoch": 2,
-    "index": 86.28091553629872,
+    "index": 71.06999888195409,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.8628091553629872,
-    "speedup": 1.1590048549951883
+    "ratio_geomean": 0.7106999888195409,
+    "speedup": 1.4070634806973628
    }
   },
   "stream": {
@@ -9283,7 +9568,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "b5902c36674f4b6ae4b69c809a24697b727456d59491f1f35c189b892859ed94",
+   "autoresearch/ledger/promotions.tsv": "03ea9b520a1bc82beee9d78fd82300b8f48343d1b72aa33953a9254baecaae3b",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9425,11 +9710,14 @@
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-deep.json": "30f4d95f8f839643b149971ecbfc10ca918ab6fd97c356e2e2fb636f84ea4b83",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-wide.json": "d9aeb81da5805585e9872f96dabce731fd65fbba72216470bbe480ba2b7d6b2c",
+   "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict.json": "370d873e346ae8ed851657a3a0cf9f923fc988296d303ffb1ba030026929b4ad",
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "733030b81a4b",
-  "repo_commit_time": "2026-07-23T13:07:49Z"
+  "repo_commit": "da98800ff4ad",
+  "repo_commit_time": "2026-07-23T15:20:32Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -18046,7 +18334,7 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 4,
+      "available_points": 5,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
@@ -18071,30 +18359,36 @@
         "judged_at_utc": "2026-07-23T02:43:05Z",
         "points": 4,
         "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.1637381341551545,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 5,
+        "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5"
        }
       ],
       "latest": {
-       "actual_rounds": 23,
+       "actual_rounds": 29,
        "actual_rounds_per_workload": {
-        "riscv_fib_iter": 5,
+        "riscv_fib_iter": 3,
         "riscv_gcd_euclid": 3,
-        "riscv_multi_shard_addi": 3,
-        "riscv_sha2_1024b": 3,
-        "riscv_sha2_2048b": 3,
-        "riscv_sha2_512b": 3,
+        "riscv_multi_shard_addi": 5,
+        "riscv_sha2_1024b": 5,
+        "riscv_sha2_2048b": 5,
+        "riscv_sha2_512b": 5,
         "riscv_xorshift_prng": 3
        },
        "auto_boost_reason": "trailing_median_at_or_above_threshold",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.01527913373724628,
-       "credited_ln_improvement_per_measurement_hour": 0.3205876833830169,
-       "gradient_snr": 6.2077460776035815,
-       "judged_at_utc": "2026-07-23T02:43:05Z",
-       "measurement_wall_hours": 0.04765976526612778,
-       "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
-       "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
+       "credited_ln_improvement": 0.21304224175988948,
+       "credited_ln_improvement_per_measurement_hour": 3.6239140016425817,
+       "gradient_snr": 40.84584167954905,
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "measurement_wall_hours": 0.05878788560195567,
+       "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18193,46 +18487,178 @@
         "row_id": "sha256:04514044f71a5ff3b70ea1ab2f228e2cbd46f649543a2b808185b67789661d75",
         "submission_id": "2026-07-23-riscv-shared-prover-vectorization",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 29,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 5,
+         "riscv_sha2_1024b": 5,
+         "riscv_sha2_2048b": 5,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.21304224175988948,
+        "credited_ln_improvement_per_measurement_hour": 3.6239140016425817,
+        "gradient_snr": 40.84584167954905,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.05878788560195567,
+        "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.4426852599020585,
-       "credited_ln_improvement_per_measurement_hour": 1.812314130618972,
-       "measurement_wall_hours": 0.24426519245362013,
-       "median_gradient_snr": 15.250549201621673,
-       "points": 4
+       "credited_ln_improvement": 0.6557275016619479,
+       "credited_ln_improvement_per_measurement_hour": 2.1637381341551545,
+       "measurement_wall_hours": 0.3030530780555758,
+       "median_gradient_snr": 20.501307668744357,
+       "points": 5
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "small": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 1,
+        "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 30,
+       "actual_rounds_per_workload": {
+        "riscv_alu_test": 5,
+        "riscv_branch_fib": 5,
+        "riscv_declared_region": 5,
+        "riscv_jal_jalr": 5,
+        "riscv_mem_ls": 5,
+        "riscv_shift_logic": 5
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.10880198628596223,
+       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+       "gradient_snr": 12.752000901415258,
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "measurement_wall_hours": 0.03231146306695235,
+       "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 30,
+        "actual_rounds_per_workload": {
+         "riscv_alu_test": 5,
+         "riscv_branch_fib": 5,
+         "riscv_declared_region": 5,
+         "riscv_jal_jalr": 5,
+         "riscv_mem_ls": 5,
+         "riscv_shift_logic": 5
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.10880198628596223,
+        "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+        "gradient_snr": 12.752000901415258,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.03231146306695235,
+        "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.10880198628596223,
+       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
+       "measurement_wall_hours": 0.03231146306695235,
+       "median_gradient_snr": 12.752000901415258,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "wide": {
-      "available": false,
-      "available_points": 0,
-      "decay": [],
-      "latest": null,
-      "time_series": [],
+      "available": true,
+      "available_points": 1,
+      "decay": [
+       {
+        "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "points": 1,
+        "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659"
+       }
+      ],
+      "latest": {
+       "actual_rounds": 27,
+       "actual_rounds_per_workload": {
+        "riscv_bubble_sort": 5,
+        "riscv_collatz": 3,
+        "riscv_keccak_128b": 3,
+        "riscv_memcpy_loop": 5,
+        "riscv_sha2_128b": 5,
+        "riscv_sha2_256b": 3,
+        "riscv_sieve_primes": 3
+       },
+       "auto_boost_reason": "insufficient_trailing_evidence",
+       "auto_boost_target_rounds": 5,
+       "available": true,
+       "configured_rounds": 5,
+       "credited_ln_improvement": 0.2599851966947994,
+       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+       "gradient_snr": 30.363427873787227,
+       "judged_at_utc": "2026-07-23T15:20:32Z",
+       "measurement_wall_hours": 0.03865062672473464,
+       "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "verdict_kind": "claimed"
+      },
+      "time_series": [
+       {
+        "actual_rounds": 27,
+        "actual_rounds_per_workload": {
+         "riscv_bubble_sort": 5,
+         "riscv_collatz": 3,
+         "riscv_keccak_128b": 3,
+         "riscv_memcpy_loop": 5,
+         "riscv_sha2_128b": 5,
+         "riscv_sha2_256b": 3,
+         "riscv_sieve_primes": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": 0.2599851966947994,
+        "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+        "gradient_snr": 30.363427873787227,
+        "judged_at_utc": "2026-07-23T15:20:32Z",
+        "measurement_wall_hours": 0.03865062672473464,
+        "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
+        "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+        "verdict_kind": "claimed"
+       }
+      ],
       "trailing": {
-       "credited_ln_improvement": null,
-       "credited_ln_improvement_per_measurement_hour": null,
-       "measurement_wall_hours": null,
-       "median_gradient_snr": null,
-       "points": 0
+       "credited_ln_improvement": 0.2599851966947994,
+       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
+       "measurement_wall_hours": 0.03865062672473464,
+       "median_gradient_snr": 30.363427873787227,
+       "points": 1
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -19111,6 +19537,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-23-riscv-sparse-qm31-base",
+   "judged_r": 0.764489,
+   "note": "# Preserve sparse base-field structure in QM31 evaluation\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: refreshed repo-resident `stwo-perf` at\n`7efe3b1abd72`, clean candidate `963f30da163a`, immutable task baseline\n`2beae9d03b33`, Zig 0.15.2 ReleaseFast on the 18-logical-CPU Apple M5 Max.\nThe submission carries RISC-V small, wide, and deep S3 time verdicts. Paired\nsame-host processes used adaptive counterbalanced rounds. Every timed proof\nverified, cross-arm proof digests were byte-identical, and the pinned Stark-V\noracle accepted all 20 programs. The complete research and rejection history\nis attached as `transcripts/session-01.md`.\n\n## Hypothesis\n\nRISC-V AIR evaluators promote committed M31 columns into QM31 values so one\nconstraint interface can also evaluate full-extension out-of-domain samples.\nThose promoted values remain structurally sparse\u2014three of four coordinates are\nzero\u2014but generic QM31 multiplication immediately paid a full nine-base-product\nKaratsuba operation. Preserving the actual base-field shape should remove most\nextension arithmetic in interaction and composition evaluation without\nchanging the AIR, statement, transcript, protocol, trace, or proof.\n\n## Changes\n\n`QM31` now exposes an algebraic `isBase` predicate. At runtime, multiplication\nby a structurally base operand uses the existing exact full-by-M31 operation,\nand a structurally base square remains in M31. Two full-extension operands keep\nthe original Karatsuba path. Randomized schoolbook-reference tests cover both\noperand orders and sparse squaring.\n\nThe final diff is 32 lines in one shared field file. Selection depends only on\nfield coordinates, never workload name, input digest, benchmark size, or\ncolumn count. An initially favorable packed batch-inverse layer was removed:\nit supplied only 0--2%, enlarged specialized text, and twice made a Native\nPlonk peak-RSS confidence bound miss its budget. The narrowed candidate passes\nthat guard.\n\n```text\nold: lifted M31 -> generic QM31 x QM31 -> 9 base products\nnew: lifted M31 -> structural base test -> QM31 x M31 -> 4 base products\n```\n\n## Results\n\nAll three exact-SHA RISC-V verdicts are significant:\n\n| class | programs | proving geometric mean |\n| --- | ---: | ---: |\n| small | 6 | 0.8893 |\n| wide | 7 | 0.7645 |\n| deep | 7 | 0.8039 |\n\nHeadline results:\n\n| workload | proving ratio | 95% CI | request ratio | energy ratio |\n| --- | ---: | ---: | ---: | ---: |\n| SHA2-128 | 0.6203 | [0.6056, 0.6486] | 0.7432 | 0.8332 |\n| SHA2-256 | 0.6283 | [0.6256, 0.6299] | 0.7367 | 0.8343 |\n| SHA2-512 | 0.6806 | [0.6686, 0.6934] | 0.7503 | 0.8297 |\n| SHA2-1024 | 0.7029 | [0.6933, 0.7226] | 0.7658 | 0.8278 |\n| SHA2-2048 | 0.7116 | [0.7037, 0.7241] | 0.7865 | 0.8312 |\n| Keccak-128 | 0.6571 | [0.6517, 0.6666] | 0.7210 | 0.8329 |\n\nThe six-row headline proving geometric mean is **0.6659** (1.502x faster);\nverified-request geometric mean is **0.7503** (1.333x). Across all 20 RISC-V\nprograms, proving/request geometric means are 0.8142/0.8514. Every individual\nrow improves. Proof bytes are exactly unchanged, all peak-RSS vectors pass,\nand energy improves in every RISC-V row.\n\nThe sparse path cut diagnostic SHA2-128 composition evaluation from 718 to 276\nms and interaction generation/commit from 473 to 352 ms. Instructions in the\ninitial verified SHA2-128 screen fell from 407.2 to 298.0 billion. The 380-\nsource ReleaseFast closure, RISC-V prove/verify suite, and source conformance\npass. Explicit Native CPU small/wide/deep guards pass at proving ratios\n0.9984, 0.9920, and 0.9821 with resource vectors in budget.\n\n## Caveats\n\nThese are local claimed verdicts; only the authenticated judge can promote\nthem. The harness's automatic cross-board guard expansion currently parses\nNative guard commands as RISC-V commands, so objective verdicts used\n`--guards none` and Native CPU guards were run explicitly on their correct\nboard.\n\nThis checkpoint does not satisfy the task's full 2x contract: headline request\nratio is 0.7503, complete-board ratios are 0.8142/0.8514, and no headline\nproving row is yet at most 0.50. **System-level 2x: not achieved.** The genuine\nRISC-V Metal backend phase is also still outstanding.\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Preserve sparse base-field structure in QM31 evaluation",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# RISC-V system-level 2x autoresearch transcript\n\n## Objective and invariants\n\nThe task is to reduce verified RISC-V proof latency by at least 2x across the\ncomplete headline hash portfolio, not merely one selected input. The immutable\nstarting point is `2beae9d03b33bc9c5b0b21bb445439799786f2fb`; the development\nbranch starts from current main `799efe87a9eccd6ae9a2e19c815e82bfbf1d4198`.\nThe target host is the 18-logical-CPU Apple M5 Max with Zig 0.15.2 ReleaseFast.\n\nCPU completion requires every SHA-256 128/256/512/1024/2048-byte point and the\nKeccak-128 proof point to reach ratio at most 0.50 against the pinned baseline,\n95% CI upper bound at most 0.55, both experiment halves winning, and a",
+     "label": "session-01.md",
+     "sha256": "b0bf15a5809c7c356880de63fbcd069ffbf17fd0be2afb248315a5088197f6b1"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   }
  ]
 }
