@@ -1,7 +1,7 @@
 const std = @import("std");
 const core_fri = @import("stwo_core").fri;
 const circle_domain = @import("stwo_core").poly.circle.domain;
-const quotient_ops = @import("pcs/quotient_ops.zig");
+const quotient_ops = @import("quotient_ops.zig");
 
 pub fn commitLazy(
     comptime Prover: type,
