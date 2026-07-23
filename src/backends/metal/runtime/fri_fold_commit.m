@@ -216,6 +216,7 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
 
 bool stwo_zig_metal_fri_line_cascade(
     void *runtime_ptr, void *source_ptr, uint32_t source_count,
+    void *circle_source_ptr, const uint32_t *circle_alpha,
     const uint32_t *inverse_x, uint32_t inverse_x_count,
     uint32_t domain_initial_index, uint32_t domain_step_size,
     void *const *coordinate_ptrs, void *final_destination_ptr,
@@ -226,6 +227,7 @@ bool stwo_zig_metal_fri_line_cascade(
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || source_ptr == NULL ||
+        ((circle_source_ptr == NULL) != (circle_alpha == NULL)) ||
         coordinate_ptrs == NULL || final_destination_ptr == NULL ||
         leaf_seed == NULL || node_seed == NULL || channel_state == NULL ||
         tree_outputs == NULL || stats == NULL || source_count < 2u ||
@@ -250,12 +252,39 @@ bool stwo_zig_metal_fri_line_cascade(
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
         id<MTLBuffer> initial_source = (__bridge id<MTLBuffer>)source_ptr;
+        id<MTLBuffer> circle_source = circle_source_ptr == NULL
+            ? nil
+            : (__bridge id<MTLBuffer>)circle_source_ptr;
         id<MTLBuffer> final_destination = (__bridge id<MTLBuffer>)final_destination_ptr;
         uint32_t final_count = source_count >> fri_layer_count;
         if (initial_source.length < (NSUInteger)source_count * 16u ||
+            (circle_source != nil && circle_source.length < (NSUInteger)source_count * 32u) ||
             final_destination.length < (NSUInteger)final_count * 16u) {
             write_error(error_message, error_message_len, @"Metal FRI cascade evaluation buffer is too small");
             return false;
+        }
+
+        id<MTLBuffer> circle_inverse_buffer = nil;
+        bool build_circle_inverse_cache = false;
+        if (circle_source != nil) {
+            @synchronized(runtime) {
+                if (runtime.friCircleInverseCache != nil &&
+                    runtime.friCircleInverseCacheCount == source_count &&
+                    runtime.friCircleInverseCacheInitialIndex == domain_initial_index &&
+                    runtime.friCircleInverseCacheStepSize == domain_step_size) {
+                    circle_inverse_buffer = runtime.friCircleInverseCache;
+                }
+            }
+            if (circle_inverse_buffer == nil) {
+                circle_inverse_buffer = [runtime.device newBufferWithLength:
+                    (NSUInteger)source_count * sizeof(uint32_t)
+                    options:MTLResourceStorageModePrivate];
+                build_circle_inverse_cache = true;
+            }
+            if (circle_inverse_buffer == nil) {
+                write_error(error_message, error_message_len, @"Metal FRI circle inverse allocation failed");
+                return false;
+            }
         }
 
         id<MTLBuffer> inverse_buffer = nil;
@@ -388,13 +417,43 @@ bool stwo_zig_metal_fri_line_cascade(
             write_error(error_message, error_message_len, @"Metal FRI cascade command allocation failed");
             return false;
         }
+        uint64_t compute_encoders = 1u, dispatches = 0u;
+        if (circle_source != nil) {
+            id<MTLComputeCommandEncoder> circle_encoder = [command computeCommandEncoder];
+            if (circle_encoder == nil) {
+                write_error(error_message, error_message_len, @"Metal FRI circle cascade encoder failed");
+                return false;
+            }
+            if (build_circle_inverse_cache) {
+                encode_fri_inverse_domain(
+                    runtime, circle_encoder, circle_inverse_buffer, 0u, source_count,
+                    domain_initial_index, domain_step_size, 2u
+                );
+                [circle_encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
+                dispatches += 1u;
+            }
+            [circle_encoder setComputePipelineState:runtime.friFoldCircle];
+            [circle_encoder setBuffer:circle_source offset:0u atIndex:0];
+            [circle_encoder setBuffer:circle_inverse_buffer offset:0u atIndex:1];
+            [circle_encoder setBytes:circle_alpha length:4u * sizeof(uint32_t) atIndex:2];
+            [circle_encoder setBuffer:initial_source offset:0u atIndex:3];
+            [circle_encoder setBytes:&source_count length:sizeof(source_count) atIndex:4];
+            NSUInteger circle_width = MIN(
+                runtime.friFoldCircle.maxTotalThreadsPerThreadgroup,
+                runtime.friFoldCircle.threadExecutionWidth * 8u
+            );
+            [circle_encoder dispatchThreads:MTLSizeMake(source_count, 1u, 1u)
+                   threadsPerThreadgroup:MTLSizeMake(circle_width, 1u, 1u)];
+            [circle_encoder endEncoding];
+            compute_encoders += 1u;
+            dispatches += 1u;
+        }
         id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
         if (encoder == nil) {
             write_error(error_message, error_message_len, @"Metal FRI cascade compute encoder failed");
             return false;
         }
         const uint32_t disabled_transcript_config[3] = {0u, 0u, 0u};
-        uint64_t compute_encoders = 1u, dispatches = 0u;
 
         if (build_inverse_cache) {
             uint32_t domain_count = source_count;
@@ -628,6 +687,14 @@ bool stwo_zig_metal_fri_line_cascade(
             write_error(error_message, error_message_len,
                         command.error.localizedDescription ?: @"Metal FRI cascade failed");
             return false;
+        }
+        if (build_circle_inverse_cache) {
+            @synchronized(runtime) {
+                runtime.friCircleInverseCache = circle_inverse_buffer;
+                runtime.friCircleInverseCacheCount = source_count;
+                runtime.friCircleInverseCacheInitialIndex = domain_initial_index;
+                runtime.friCircleInverseCacheStepSize = domain_step_size;
+            }
         }
         uint32_t *completed_state = (uint32_t *)transcript_arena.contents;
         if (completed_state[9] != 0u) {

@@ -386,6 +386,19 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             const circle_fold_domain = try line.LineDomain.init(
                 circle.Coset.halfOdds(circle_fold_log_size),
             );
+            if (comptime @hasDecl(B, "commitFriCircleLayers")) {
+                if (try B.commitFriCircleLayers(
+                    H,
+                    InnerLayerProver,
+                    InnerCommitResult,
+                    allocator,
+                    first_layer.column,
+                    first_layer.domain,
+                    circle_fold_domain,
+                    channel,
+                    config,
+                )) |result| return result;
+            }
 
             var layer_evaluation = if (comptime @hasDecl(B, "allocateLineEvaluation"))
                 try B.allocateLineEvaluation(circle_fold_domain)

@@ -641,6 +641,8 @@ pub const MetalCommitBackend = struct {
         workspace: *@import("stwo_core").fri.FoldLineWorkspace,
         last_layer_size: usize,
         fold_step: u32,
+        circle_source: ?*anyopaque,
+        circle_alpha: ?[4]u32,
     ) !?FriLineCascadeResult(H) {
         const channel_blake2s = @import("stwo_core").channel.blake2s;
         const M31 = @import("stwo_core").fields.m31.M31;
@@ -719,6 +721,8 @@ pub const MetalCommitBackend = struct {
             allocator,
             source_storage.handle,
             @intCast(evaluation.len()),
+            circle_source,
+            circle_alpha,
             inverse_words,
             @intCast(initial_coset.initial_index.v),
             @intCast(initial_coset.step_size.v),
@@ -788,6 +792,8 @@ pub const MetalCommitBackend = struct {
             workspace,
             config.lastLayerDomainSize(),
             config.fold_step,
+            null,
+            null,
         )) orelse return null;
         std.debug.assert(cascade.columns.len == cascade.trees.len);
         const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
@@ -814,6 +820,84 @@ pub const MetalCommitBackend = struct {
             .last_layer_evaluation = terminal_evaluation,
         };
     }
+
+    /// Starts the resident FRI line cascade in the same command buffer as the
+    /// circle-to-line fold. The transcript challenge is still drawn by the
+    /// canonical host channel; only the independent GPU work and its
+    /// synchronization boundary are fused.
+    pub fn commitFriCircleLayers(
+        comptime H: type,
+        comptime InnerLayerProver: type,
+        comptime InnerCommitResult: type,
+        allocator: std.mem.Allocator,
+        circle_column: @import("stwo_prover_impl").secure_column.SecureColumnByCoords,
+        circle_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        line_domain: @import("stwo_core").poly.line.LineDomain,
+        channel: anytype,
+        config: @import("stwo_core").fri.FriConfig,
+    ) !?InnerCommitResult {
+        const channel_blake2s = @import("stwo_core").channel.blake2s;
+        if (comptime @TypeOf(channel.*) != channel_blake2s.Blake2sChannel) return null;
+        if (config.fold_step != 1 or
+            circle_column.resident_storage == null or
+            circle_column.len() != circle_domain.size() or
+            circle_column.len() != line_domain.size() * 2 or
+            line_domain.size() < fri_inverse_cache_min_values or
+            line_domain.size() <= config.lastLayerDomainSize())
+        {
+            return null;
+        }
+
+        var evaluation = try allocateLineEvaluation(line_domain);
+        defer evaluation.deinit(allocator);
+        var workspace = try @import("stwo_core").fri.FoldLineWorkspace.init(allocator, 0);
+        defer workspace.deinit(allocator);
+
+        const folding_alpha = channel.drawSecureFelt();
+        const alpha_coordinates = folding_alpha.toM31Array();
+        const alpha_words = [4]u32{
+            alpha_coordinates[0].v,
+            alpha_coordinates[1].v,
+            alpha_coordinates[2].v,
+            alpha_coordinates[3].v,
+        };
+        var cascade = (try commitFriLineCascade(
+            H,
+            allocator,
+            evaluation,
+            channel,
+            &workspace,
+            config.lastLayerDomainSize(),
+            config.fold_step,
+            circle_column.resident_storage.?.handle,
+            alpha_words,
+        )) orelse return error.InvalidColumns;
+        telemetry.record(.metal_fri_circle_fold_dispatch);
+
+        std.debug.assert(cascade.columns.len == cascade.trees.len);
+        const ready_layers = allocator.alloc(InnerLayerProver, cascade.columns.len) catch |err| {
+            cascade.deinit(allocator);
+            return err;
+        };
+        var layer_domain = line_domain;
+        for (ready_layers, cascade.columns, cascade.trees) |*layer, column, tree| {
+            layer.* = .{
+                .domain = layer_domain,
+                .column = column,
+                .merkle_tree = tree,
+                .fold_step = 1,
+            };
+            layer_domain = layer_domain.double();
+        }
+        const terminal_evaluation = cascade.last_layer_evaluation;
+        allocator.free(cascade.columns);
+        allocator.free(cascade.trees);
+        return .{
+            .inner_layers = ready_layers,
+            .last_layer_evaluation = terminal_evaluation,
+        };
+    }
+
     pub const foldLine = cpu.foldLine;
     pub const foldLineN = cpu.foldLineN;
     pub const accumulateQuotients = cpu.accumulateQuotients;

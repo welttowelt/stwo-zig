@@ -55,6 +55,8 @@ pub extern fn stwo_zig_metal_fri_line_cascade(
     runtime: *anyopaque,
     source: *anyopaque,
     source_count: u32,
+    circle_source: ?*anyopaque,
+    circle_alpha: ?*const [4]u32,
     inverse_x: ?[*]const u32,
     inverse_x_count: u32,
     domain_initial_index: u32,

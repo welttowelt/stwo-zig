@@ -175,6 +175,8 @@ pub fn foldFriLineCascade(
     allocator: std.mem.Allocator,
     source: *anyopaque,
     source_count: u32,
+    circle_source: ?*anyopaque,
+    circle_alpha: ?[4]u32,
     inverse_x: ?[]const u32,
     domain_initial_index: u32,
     domain_step_size: u32,
@@ -185,7 +187,8 @@ pub fn foldFriLineCascade(
     domain_prefix_bytes: u32,
     channel_state: *[10]u32,
 ) (MetalError || std.mem.Allocator.Error)!FriLineCascadeResult {
-    if (source_count < 2 or coordinates.len == 0 or coordinates.len >= 31 or
+    if ((circle_source == null) != (circle_alpha == null) or
+        source_count < 2 or coordinates.len == 0 or coordinates.len >= 31 or
         source_count & (source_count - 1) != 0 or
         !validDomainPrefixBytes(domain_prefix_bytes))
     {
@@ -210,10 +213,13 @@ pub fn foldFriLineCascade(
     @memset(handles, null);
     var stats: CommandEpochStats = undefined;
     var message: [1024]u8 = [_]u8{0} ** 1024;
+    var circle_alpha_value = circle_alpha;
     if (!ffi.stwo_zig_metal_fri_line_cascade(
         self.handle,
         source,
         source_count,
+        circle_source,
+        if (circle_alpha_value) |*value| value else null,
         if (inverse_x) |values| values.ptr else null,
         @intCast(expected_inverse_count),
         domain_initial_index,
