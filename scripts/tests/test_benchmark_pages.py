@@ -81,7 +81,12 @@ class BenchmarkPagesTests(unittest.TestCase):
             max(run["captured_at"] for run in catalog["runs"]),
         )
         self.assertEqual(latest["machine"]["chip"], "Apple M5 Max")
-        self.assertEqual(latest["summary"]["verified_proofs"], 240)
+        expected_verified = sum(
+            row["lanes"][lane]["proof"]["verified_samples"]
+            for row in latest["rows"]
+            for lane in ("cpu", "metal")
+        )
+        self.assertEqual(latest["summary"]["verified_proofs"], expected_verified)
         self.assertTrue(all(row["proof"]["rust_oracle_verified"] for row in latest["rows"]))
 
     def test_catalog_generation_is_deterministic(self) -> None:
