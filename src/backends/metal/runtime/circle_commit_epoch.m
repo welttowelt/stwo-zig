@@ -89,10 +89,22 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             length:base_bytes options:MTLResourceStorageModeShared deallocator:nil];
         id<MTLBuffer> extended = [runtime.device newBufferWithBytesNoCopy:extended_words
             length:extended_bytes options:MTLResourceStorageModeShared deallocator:nil];
-        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_twiddles
-            length:(NSUInteger)base_pairs * sizeof(uint32_t) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> forward_buffer = [runtime.device newBufferWithBytes:forward_twiddles
-            length:(NSUInteger)extended_pairs * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        size_t inverse_bytes = (size_t)base_pairs * sizeof(uint32_t);
+        size_t forward_bytes = (size_t)extended_pairs * sizeof(uint32_t);
+        bool direct_inverse = ((uintptr_t)inverse_twiddles % page_size) == 0u &&
+            (inverse_bytes % page_size) == 0u;
+        bool direct_forward = ((uintptr_t)forward_twiddles % page_size) == 0u &&
+            (forward_bytes % page_size) == 0u;
+        id<MTLBuffer> inverse_buffer = direct_inverse
+            ? [runtime.device newBufferWithBytesNoCopy:(void *)inverse_twiddles
+                length:inverse_bytes options:MTLResourceStorageModeShared deallocator:nil]
+            : [runtime.device newBufferWithBytes:inverse_twiddles
+                length:inverse_bytes options:MTLResourceStorageModeShared];
+        id<MTLBuffer> forward_buffer = direct_forward
+            ? [runtime.device newBufferWithBytesNoCopy:(void *)forward_twiddles
+                length:forward_bytes options:MTLResourceStorageModeShared deallocator:nil]
+            : [runtime.device newBufferWithBytes:forward_twiddles
+                length:forward_bytes options:MTLResourceStorageModeShared];
         id<MTLBuffer> base_offsets = [runtime.device newBufferWithLength:
             (NSUInteger)column_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
         id<MTLBuffer> extended_offsets = [runtime.device newBufferWithLength:
@@ -370,11 +382,40 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             }
         }
 
-        uint32_t fuse_top_two = 1u;
+        MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
+        bool use_wide_tile = column_count >= 64u;
+        uint32_t fused_layer = use_wide_tile ? 11u : 10u;
+        uint32_t layer = extended_log_size - 3u;
+        uint32_t high_layer_count = layer - fused_layer;
+        uint32_t fused_count = 0u, lowest_stage = 0u;
+        uint32_t lane_batches = 0u, outer_groups = 0u;
+        if (use_wide_tile && high_layer_count >= 5u) {
+            fused_count = high_layer_count > 12u ? 12u : high_layer_count;
+            lowest_stage = layer - fused_count + 1u;
+            uint32_t lanes_per_group = 4096u >> fused_count;
+            lane_batches = (1u << lowest_stage) / lanes_per_group;
+            outer_groups = 1u <<
+                (extended_log_size - lowest_stage - fused_count);
+        }
         uint32_t expand_scale_factor =
             (trace_recipe != NULL || coefficients_ready != 0u) ? 1u : scale_factor;
+        bool combine_expand_high = fused_count != 0u && expand_scale_factor == 1u;
+        NSUInteger expand_static_memory =
+            runtime.circleExpand.staticThreadgroupMemoryLength;
+        NSUInteger expand_dynamic_capacity =
+            runtime.device.maxThreadgroupMemoryLength > expand_static_memory
+                ? runtime.device.maxThreadgroupMemoryLength - expand_static_memory
+                : 0u;
+        bool pair_expand_high = combine_expand_high && outer_groups == 4u &&
+            runtime.circleExpand.maxTotalThreadsPerThreadgroup >= 512u &&
+            expand_dynamic_capacity >= 8192u * sizeof(uint32_t);
+        uint32_t fuse_top_two = pair_expand_high ? 3u :
+            (combine_expand_high ? 2u : 1u);
         id<MTLComputeCommandEncoder> expand = [command computeCommandEncoder];
         [expand setComputePipelineState:runtime.circleExpand];
+        if (combine_expand_high)
+            [expand setThreadgroupMemoryLength:
+                (pair_expand_high ? 8192u : 4096u) * sizeof(uint32_t) atIndex:0];
         [expand setBuffer:coefficients offset:0u atIndex:0];
         [expand setBuffer:extended offset:0u atIndex:1];
         [expand setBuffer:forward_buffer offset:0u atIndex:2];
@@ -385,24 +426,24 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         [expand setBytes:&column_count length:sizeof(column_count) atIndex:7];
         [expand setBytes:&expand_scale_factor length:sizeof(expand_scale_factor) atIndex:8];
         [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:9];
-        [expand dispatchThreads:MTLSizeMake(base_len >> 1u, column_count, 1u)
-            threadsPerThreadgroup:MTLSizeMake(
-                MIN((NSUInteger)256u, runtime.circleExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        if (combine_expand_high) {
+            uint32_t dispatched_outer_groups =
+                pair_expand_high ? outer_groups >> 1u : outer_groups;
+            [expand dispatchThreadgroups:MTLSizeMake(
+                    lane_batches * dispatched_outer_groups, column_count, 1u)
+                threadsPerThreadgroup:MTLSizeMake(
+                    pair_expand_high ? 512u : 256u, 1u, 1u)];
+        } else {
+            [expand dispatchThreads:MTLSizeMake(base_len >> 1u, column_count, 1u)
+                threadsPerThreadgroup:MTLSizeMake(
+                    MIN((NSUInteger)256u, runtime.circleExpand.maxTotalThreadsPerThreadgroup), 1u, 1u)];
+        }
         [expand endEncoding];
 
-        MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
-        bool use_wide_tile = column_count >= 64u;
-        uint32_t fused_layer = use_wide_tile ? 11u : 10u;
-        uint32_t layer = extended_log_size - 3u;
-        uint32_t high_layer_count = layer - fused_layer;
-        if (use_wide_tile && high_layer_count >= 5u) {
-            uint32_t fused_count = high_layer_count > 12u ? 12u : high_layer_count;
-            uint32_t lowest_stage = layer - fused_count + 1u;
+        if (combine_expand_high) {
+            layer -= fused_count;
+        } else if (use_wide_tile && high_layer_count >= 5u) {
             uint32_t inverse_mode = 0u;
-            uint32_t lanes_per_group = 4096u >> fused_count;
-            uint32_t lane_batches = (1u << lowest_stage) / lanes_per_group;
-            uint32_t outer_groups = 1u <<
-                (extended_log_size - lowest_stage - fused_count);
             uint32_t column_config = 0x80000000u | column_count |
                 (inverse_mode << 9u) | (fused_count << 10u) |
                 (lowest_stage << 14u);
