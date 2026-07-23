@@ -141,8 +141,7 @@ fn denominatorInversesInto(
 }
 
 const SamplePointComponents = struct {
-    prx: CM31,
-    pry: CM31,
+    determinant: CM31,
     pix: CM31,
     piy: CM31,
 };
@@ -168,11 +167,14 @@ pub const RowQuotientWorkspace = struct {
         errdefer allocator.free(batch_numerators);
 
         for (sample_batches, 0..) |batch, i| {
+            const prx = batch.point.x.c0;
+            const pry = batch.point.y.c0;
+            const pix = batch.point.x.c1;
+            const piy = batch.point.y.c1;
             sample_point_components[i] = .{
-                .prx = batch.point.x.c0,
-                .pry = batch.point.y.c0,
-                .pix = batch.point.x.c1,
-                .piy = batch.point.y.c1,
+                .determinant = prx.mul(piy).sub(pry.mul(pix)),
+                .pix = pix,
+                .piy = piy,
             };
         }
 
@@ -229,6 +231,34 @@ pub const RowQuotientWorkspace = struct {
         try batchInverseIntoCM31(denominators, denominator_inverses);
     }
 
+    /// Computes batch-major denominator inverses for several domain points.
+    /// Keeping adjacent rows contiguous lets quotient finalization load four
+    /// CM31 values without gathering from a row-major batch stride.
+    pub fn prepareDenominatorInversesForRowsBatchMajor(
+        self: *const RowQuotientWorkspace,
+        domain_points: []const CirclePointM31,
+        denominators: []CM31,
+        denominator_inverses: []CM31,
+    ) !void {
+        const cell_count = std.math.mul(
+            usize,
+            domain_points.len,
+            self.sample_point_components.len,
+        ) catch return error.ScratchSizeOverflow;
+        if (denominators.len != cell_count) return error.ShapeMismatch;
+        if (denominator_inverses.len != cell_count) return error.ShapeMismatch;
+
+        for (self.sample_point_components, 0..) |sample, batch| {
+            const start = batch * domain_points.len;
+            denominatorValuesForSampleBatch(
+                sample,
+                domain_points,
+                denominators[start..][0..domain_points.len],
+            );
+        }
+        try batchInverseIntoCM31(denominators, denominator_inverses);
+    }
+
     pub inline fn resetNumerators(self: *RowQuotientWorkspace) void {
         @memset(self.batch_numerators, QM31.zero());
     }
@@ -254,11 +284,84 @@ fn denominatorValuesIntoFromComponents(
     denominators: []CM31,
 ) void {
     std.debug.assert(denominators.len == sample_point_components.len);
-    const domain_x = CM31.fromBase(domain_point.x);
-    const domain_y = CM31.fromBase(domain_point.y);
-
     for (sample_point_components, 0..) |sample, i| {
-        denominators[i] = sample.prx.sub(domain_x).mul(sample.piy).sub(sample.pry.sub(domain_y).mul(sample.pix));
+        denominators[i] = denominatorValue(sample, domain_point);
+    }
+}
+
+inline fn denominatorValue(sample: SamplePointComponents, domain_point: CirclePointM31) CM31 {
+    // (prx - x) * piy - (pry - y) * pix
+    // = prx*piy - pry*pix - x*piy + y*pix.
+    return sample.determinant
+        .sub(sample.piy.mulM31(domain_point.x))
+        .add(sample.pix.mulM31(domain_point.y));
+}
+
+/// Evaluates one sample-point denominator across adjacent domain rows. The
+/// sample terms are constant, so the four base-field coordinate multiplies
+/// are issued as packed row vectors instead of repeating two CM31 products.
+fn denominatorValuesForSampleBatch(
+    sample: SamplePointComponents,
+    domain_points: []const CirclePointM31,
+    denominators: []CM31,
+) void {
+    std.debug.assert(denominators.len == domain_points.len);
+    comptime {
+        if (@sizeOf(CirclePointM31) != 2 * @sizeOf(M31) or
+            @offsetOf(CirclePointM31, "y") != @sizeOf(M31))
+        {
+            @compileError("packed circle-point layout changed");
+        }
+        if (@sizeOf(CM31) != 2 * @sizeOf(M31) or
+            @offsetOf(CM31, "b") != @sizeOf(M31))
+        {
+            @compileError("packed CM31 layout changed");
+        }
+    }
+
+    const point_words: [*]const M31 = @ptrCast(domain_points.ptr);
+    const denominator_words: [*]M31 = @ptrCast(denominators.ptr);
+    const determinant_re: m31_mod.Vec4u32 = @splat(sample.determinant.a.v);
+    const determinant_im: m31_mod.Vec4u32 = @splat(sample.determinant.b.v);
+    const piy_re: m31_mod.Vec4u32 = @splat(sample.piy.a.v);
+    const piy_im: m31_mod.Vec4u32 = @splat(sample.piy.b.v);
+    const pix_re: m31_mod.Vec4u32 = @splat(sample.pix.a.v);
+    const pix_im: m31_mod.Vec4u32 = @splat(sample.pix.b.v);
+
+    var row: usize = 0;
+    while (row + m31_mod.VEC_WIDTH <= domain_points.len) : (row += m31_mod.VEC_WIDTH) {
+        const raw_lo = m31_mod.loadVec4(point_words + row * 2);
+        const raw_hi = m31_mod.loadVec4(point_words + row * 2 + m31_mod.VEC_WIDTH);
+        const xs = @shuffle(u32, raw_lo, raw_hi, @Vector(4, i32){ 0, 2, -1, -3 });
+        const ys = @shuffle(u32, raw_lo, raw_hi, @Vector(4, i32){ 1, 3, -2, -4 });
+        const real = m31_mod.addVec4(
+            m31_mod.subVec4(determinant_re, m31_mod.mulVec4(xs, piy_re)),
+            m31_mod.mulVec4(ys, pix_re),
+        );
+        const imaginary = m31_mod.addVec4(
+            m31_mod.subVec4(determinant_im, m31_mod.mulVec4(xs, piy_im)),
+            m31_mod.mulVec4(ys, pix_im),
+        );
+        const interleaved_lo = @shuffle(
+            u32,
+            real,
+            imaginary,
+            @Vector(4, i32){ 0, -1, 1, -2 },
+        );
+        const interleaved_hi = @shuffle(
+            u32,
+            real,
+            imaginary,
+            @Vector(4, i32){ 2, -3, 3, -4 },
+        );
+        m31_mod.storeVec4(denominator_words + row * 2, interleaved_lo);
+        m31_mod.storeVec4(
+            denominator_words + row * 2 + m31_mod.VEC_WIDTH,
+            interleaved_hi,
+        );
+    }
+    while (row < domain_points.len) : (row += 1) {
+        denominators[row] = denominatorValue(sample, domain_points[row]);
     }
 }
 
