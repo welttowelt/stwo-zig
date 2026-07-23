@@ -762,6 +762,47 @@ fn g4(a: *V4, b: *V4, c: *V4, d: *V4, x: V4, y: V4) void {
     b.* = rotr32x4(b.* ^ c.*, 7);
 }
 
+/// Advances four independent BLAKE2s G functions in lockstep. AArch64 has
+/// enough vector arithmetic throughput to execute several of these operations
+/// per cycle, but a source-level sequence of four complete G calls leaves the
+/// scheduler following one long dependency chain at a time. Grouping each
+/// dependency level exposes the four-way instruction-level parallelism while
+/// retaining the same four-message SIMD lane layout.
+inline fn g4Interleaved(
+    v: *[16]V4,
+    comptime a_indices: [4]u8,
+    comptime b_indices: [4]u8,
+    comptime c_indices: [4]u8,
+    comptime d_indices: [4]u8,
+    x: [4]V4,
+    y: [4]V4,
+) void {
+    inline for (0..4) |i| {
+        v[a_indices[i]] = v[a_indices[i]] +% v[b_indices[i]] +% x[i];
+    }
+    inline for (0..4) |i| {
+        v[d_indices[i]] = rotr32x4(v[d_indices[i]] ^ v[a_indices[i]], 16);
+    }
+    inline for (0..4) |i| {
+        v[c_indices[i]] +%= v[d_indices[i]];
+    }
+    inline for (0..4) |i| {
+        v[b_indices[i]] = rotr32x4(v[b_indices[i]] ^ v[c_indices[i]], 12);
+    }
+    inline for (0..4) |i| {
+        v[a_indices[i]] = v[a_indices[i]] +% v[b_indices[i]] +% y[i];
+    }
+    inline for (0..4) |i| {
+        v[d_indices[i]] = rotr32x4(v[d_indices[i]] ^ v[a_indices[i]], 8);
+    }
+    inline for (0..4) |i| {
+        v[c_indices[i]] +%= v[d_indices[i]];
+    }
+    inline for (0..4) |i| {
+        v[b_indices[i]] = rotr32x4(v[b_indices[i]] ^ v[c_indices[i]], 7);
+    }
+}
+
 fn compressSimd(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
     if (comptime builtin.is_test) _ = test_simd_compressions.fetchAdd(1, .monotonic);
     var v: [16]u32 = undefined;
@@ -831,14 +872,24 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
     v[14] ^= @as(V4, @splat(f0));
 
     inline for (BLAKE2S_SIGMA) |s| {
-        g4(&v[0], &v[4], &v[8], &v[12], m[s[0]], m[s[1]]);
-        g4(&v[1], &v[5], &v[9], &v[13], m[s[2]], m[s[3]]);
-        g4(&v[2], &v[6], &v[10], &v[14], m[s[4]], m[s[5]]);
-        g4(&v[3], &v[7], &v[11], &v[15], m[s[6]], m[s[7]]);
-        g4(&v[0], &v[5], &v[10], &v[15], m[s[8]], m[s[9]]);
-        g4(&v[1], &v[6], &v[11], &v[12], m[s[10]], m[s[11]]);
-        g4(&v[2], &v[7], &v[8], &v[13], m[s[12]], m[s[13]]);
-        g4(&v[3], &v[4], &v[9], &v[14], m[s[14]], m[s[15]]);
+        g4Interleaved(
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 4, 5, 6, 7 },
+            .{ 8, 9, 10, 11 },
+            .{ 12, 13, 14, 15 },
+            .{ m[s[0]], m[s[2]], m[s[4]], m[s[6]] },
+            .{ m[s[1]], m[s[3]], m[s[5]], m[s[7]] },
+        );
+        g4Interleaved(
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 5, 6, 7, 4 },
+            .{ 10, 11, 8, 9 },
+            .{ 15, 12, 13, 14 },
+            .{ m[s[8]], m[s[10]], m[s[12]], m[s[14]] },
+            .{ m[s[9]], m[s[11]], m[s[13]], m[s[15]] },
+        );
     }
 
     for (0..8) |i| h[i] ^= v[i] ^ v[i + 8];

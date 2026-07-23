@@ -291,6 +291,7 @@ pub fn interpolateIntoBufferWithTwiddles(
         return;
     }
 
+    const n_inv = M31.fromCanonical(@intCast(n)).inv() catch return PolyError.SingularSystem;
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
     const fuse_bottom = line_log_size >= 3;
@@ -319,17 +320,29 @@ pub fn interpolateIntoBufferWithTwiddles(
         }
     }
 
+    var normalization_fused = false;
     while (layer_idx < line_log_size) {
         const lowest_stage = layer_idx + 1;
         if (lowest_stage + 2 <= line_log_size and
             fft_kernels.canFuseThreeLayersPacked(lowest_stage))
         {
-            fft_kernels.fftThreeLayersInversePackedM31(
-                coeffs,
-                domain.logSize(),
-                lowest_stage,
-                twiddle_tree.itwiddles,
-            );
+            if (lowest_stage + 2 == line_log_size) {
+                fft_kernels.fftThreeLayersInversePackedM31Normalized(
+                    coeffs,
+                    domain.logSize(),
+                    lowest_stage,
+                    twiddle_tree.itwiddles,
+                    n_inv,
+                );
+                normalization_fused = true;
+            } else {
+                fft_kernels.fftThreeLayersInversePackedM31(
+                    coeffs,
+                    domain.logSize(),
+                    lowest_stage,
+                    twiddle_tree.itwiddles,
+                );
+            }
             layer_idx += 3;
             continue;
         }
@@ -343,8 +356,7 @@ pub fn interpolateIntoBufferWithTwiddles(
         layer_idx += 1;
     }
 
-    const n_inv = M31.fromCanonical(@intCast(n)).inv() catch return PolyError.SingularSystem;
-    scaleM31(coeffs, n_inv);
+    if (!normalization_fused) scaleM31(coeffs, n_inv);
 }
 
 /// Interpolates a batch in place while sharing twiddle traversal.
@@ -396,6 +408,7 @@ pub fn interpolateBuffersWithTwiddles(
         return;
     }
 
+    const n_inv = M31.fromCanonical(@intCast(coeffs_batch[0].len)).inv() catch return PolyError.SingularSystem;
     const line_log_size = domain.half_coset.logSize();
     const itwiddle_len = twiddle_tree.itwiddles.len;
     const fuse_bottom = line_log_size >= 3;
@@ -430,18 +443,32 @@ pub fn interpolateBuffersWithTwiddles(
         }
     }
 
+    var normalization_fused = false;
     while (layer_idx < line_log_size) {
         const lowest_stage = layer_idx + 1;
         if (lowest_stage + 2 <= line_log_size and
             fft_kernels.canFuseThreeLayersPacked(lowest_stage))
         {
-            for (coeffs_batch) |coeffs| {
-                fft_kernels.fftThreeLayersInversePackedM31(
-                    coeffs,
-                    domain.logSize(),
-                    lowest_stage,
-                    twiddle_tree.itwiddles,
-                );
+            if (lowest_stage + 2 == line_log_size) {
+                for (coeffs_batch) |coeffs| {
+                    fft_kernels.fftThreeLayersInversePackedM31Normalized(
+                        coeffs,
+                        domain.logSize(),
+                        lowest_stage,
+                        twiddle_tree.itwiddles,
+                        n_inv,
+                    );
+                }
+                normalization_fused = true;
+            } else {
+                for (coeffs_batch) |coeffs| {
+                    fft_kernels.fftThreeLayersInversePackedM31(
+                        coeffs,
+                        domain.logSize(),
+                        lowest_stage,
+                        twiddle_tree.itwiddles,
+                    );
+                }
             }
             layer_idx += 3;
             continue;
@@ -458,9 +485,10 @@ pub fn interpolateBuffersWithTwiddles(
         layer_idx += 1;
     }
 
-    const n_inv = M31.fromCanonical(@intCast(coeffs_batch[0].len)).inv() catch return PolyError.SingularSystem;
-    for (coeffs_batch) |coeffs| {
-        scaleM31(coeffs, n_inv);
+    if (!normalization_fused) {
+        for (coeffs_batch) |coeffs| {
+            scaleM31(coeffs, n_inv);
+        }
     }
 }
 
@@ -503,7 +531,7 @@ pub fn evaluateBuffersWithTwiddles(
         return;
     }
 
-    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 0);
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 0, false);
 }
 
 /// Batched forward evaluation for buffers whose upper halves are known to be
@@ -524,11 +552,7 @@ pub fn evaluateExtensionBuffersWithTwiddles(
         }
         return evaluateBuffersWithTwiddles(values_batch, domain, twiddle_tree);
     }
-    for (values_batch) |values| {
-        const half = values.len / 2;
-        @memcpy(values[half..], values[0..half]);
-    }
-    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 1);
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 1, true);
 }
 
 fn evaluateBuffersTailLayers(
@@ -536,6 +560,7 @@ fn evaluateBuffersTailLayers(
     domain: CircleDomain,
     twiddle_tree: M31TwiddleTree,
     skip_layers: u32,
+    duplicate_upper_from_lower: bool,
 ) PolyError!void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
@@ -549,18 +574,39 @@ fn evaluateBuffersTailLayers(
     const fuse_bottom = line_log_size >= 3 and active_layers >= 3;
     const bottom_layers = if (fuse_bottom) fusedBottomLayerCount(active_layers) else 0;
     const stop: u32 = if (fuse_bottom) bottom_layers - 1 else 0;
+    var expand_on_first_radix = duplicate_upper_from_lower;
+    const first_pass_is_packed_radix8 = layer_idx > stop and
+        layer_idx >= 5 and
+        fft_kernels.canFuseThreeLayersPacked(layer_idx - 2);
+    if (expand_on_first_radix and !first_pass_is_packed_radix8) {
+        for (values_batch) |values| {
+            const half = values.len / 2;
+            @memcpy(values[half..], values[0..half]);
+        }
+        expand_on_first_radix = false;
+    }
     while (layer_idx > stop) {
         if (layer_idx >= 5 and
             fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
         {
             for (values_batch) |values| {
-                fft_kernels.fftThreeLayersForwardPackedM31(
-                    values,
-                    domain.logSize(),
-                    layer_idx,
-                    twiddle_tree.twiddles,
-                );
+                if (expand_on_first_radix) {
+                    fft_kernels.fftThreeLayersForwardPackedM31FromDuplicatedHalf(
+                        values,
+                        domain.logSize(),
+                        layer_idx,
+                        twiddle_tree.twiddles,
+                    );
+                } else {
+                    fft_kernels.fftThreeLayersForwardPackedM31(
+                        values,
+                        domain.logSize(),
+                        layer_idx,
+                        twiddle_tree.twiddles,
+                    );
+                }
             }
+            expand_on_first_radix = false;
             layer_idx -= 3;
             continue;
         }
@@ -575,6 +621,7 @@ fn evaluateBuffersTailLayers(
             }
         }
     }
+    std.debug.assert(!expand_on_first_radix);
 
     if (fuse_bottom) {
         for (values_batch) |values| {

@@ -148,11 +148,16 @@ fn fftThreeLayersPackedM31(
     stage: u32,
     twiddles: []const M31,
     comptime inverse: bool,
+    comptime normalize: bool,
+    normalization: M31,
+    comptime duplicate_upper_from_lower: bool,
 ) void {
     std.debug.assert(log_size < @bitSizeOf(usize));
     std.debug.assert(values.len == @as(usize, 1) << @intCast(log_size));
     const pair_count = values.len / 2;
     std.debug.assert(twiddles.len >= pair_count);
+    std.debug.assert(!normalize or inverse);
+    std.debug.assert(!duplicate_upper_from_lower or (!inverse and !normalize));
 
     const lowest_stage = if (inverse) stage else stage - 2;
     std.debug.assert(canFuseThreeLayersPacked(lowest_stage));
@@ -160,16 +165,24 @@ fn fftThreeLayersPackedM31(
 
     const distance = @as(usize, 1) << @intCast(lowest_stage);
     const group_count = values.len >> @intCast(lowest_stage + 3);
+    std.debug.assert(!duplicate_upper_from_lower or group_count == 2);
     const PW = m31.PACK_WIDTH;
+    const normalization_packed: m31.PackedM31 = @splat(normalization.v);
 
-    var group: usize = 0;
-    while (group < group_count) : (group += 1) {
+    // Expansion starts with the upper group while the source lower half is
+    // still untouched, then transforms the lower group in place. Normal
+    // transforms retain their ascending traversal.
+    var group_cursor: usize = if (duplicate_upper_from_lower) group_count else 0;
+    while (if (duplicate_upper_from_lower) group_cursor > 0 else group_cursor < group_count) {
+        if (duplicate_upper_from_lower) group_cursor -= 1;
+        const group = group_cursor;
         const base = group << @intCast(lowest_stage + 3);
+        const load_base = if (duplicate_upper_from_lower and group == 1) 0 else base;
         var lane: usize = 0;
         while (lane < distance) : (lane += PW) {
             var tuple: [8]m31.PackedM31 = undefined;
             inline for (0..8) |item| {
-                tuple[item] = m31.loadPacked(values.ptr + base + lane + item * distance);
+                tuple[item] = m31.loadPacked(values.ptr + load_base + lane + item * distance);
             }
 
             inline for (0..3) |step| {
@@ -186,8 +199,12 @@ fn fftThreeLayersPackedM31(
                     (@as(usize, 1) << @intCast(log_size - substage));
 
                 inline for (0..block_count) |block| {
+                    const raw_twiddle = twiddles[twiddle_offset + group * block_count + block];
                     const twiddle: m31.PackedM31 = @splat(
-                        twiddles[twiddle_offset + group * block_count + block].v,
+                        if (inverse and normalize and step == 2)
+                            raw_twiddle.mul(normalization).v
+                        else
+                            raw_twiddle.v,
                     );
                     const block_start = block * (half_span * 2);
                     inline for (0..half_span) |item| {
@@ -196,7 +213,10 @@ fn fftThreeLayersPackedM31(
                         const lhs = tuple[lo];
                         const rhs = tuple[hi];
                         if (inverse) {
-                            tuple[lo] = m31.addPacked(lhs, rhs);
+                            tuple[lo] = if (normalize and step == 2)
+                                m31.mulPacked(m31.addPacked(lhs, rhs), normalization_packed)
+                            else
+                                m31.addPacked(lhs, rhs);
                             tuple[hi] = m31.mulPacked(m31.subPacked(lhs, rhs), twiddle);
                         } else {
                             const product = m31.mulPacked(rhs, twiddle);
@@ -211,6 +231,7 @@ fn fftThreeLayersPackedM31(
                 m31.storePacked(values.ptr + base + lane + item * distance, tuple[item]);
             }
         }
+        if (!duplicate_upper_from_lower) group_cursor += 1;
     }
 }
 
@@ -220,7 +241,20 @@ pub fn fftThreeLayersForwardPackedM31(
     highest_stage: u32,
     twiddles: []const M31,
 ) void {
-    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false);
+    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false, false, M31.one(), false);
+}
+
+/// Starts a 2x extension without materializing the degenerate first layer.
+/// The upper half is logically identical to the lower half; processing that
+/// destination group first keeps its source intact and removes one complete
+/// coefficient-buffer copy.
+pub fn fftThreeLayersForwardPackedM31FromDuplicatedHalf(
+    values: []M31,
+    log_size: u32,
+    highest_stage: u32,
+    twiddles: []const M31,
+) void {
+    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false, false, M31.one(), true);
 }
 
 pub fn fftThreeLayersInversePackedM31(
@@ -229,7 +263,20 @@ pub fn fftThreeLayersInversePackedM31(
     lowest_stage: u32,
     itwiddles: []const M31,
 ) void {
-    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true);
+    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true, false, M31.one(), false);
+}
+
+/// Runs three inverse stages and absorbs whole-transform normalization into
+/// the final stage. Every output is already resident in the radix-8 tuple, so
+/// this avoids a separate read/modify/write pass over the coefficient column.
+pub fn fftThreeLayersInversePackedM31Normalized(
+    values: []M31,
+    log_size: u32,
+    lowest_stage: u32,
+    itwiddles: []const M31,
+    normalization: M31,
+) void {
+    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true, true, normalization, false);
 }
 
 /// Fused forward pass over the three smallest-block layers (half-block 4, 2,
@@ -793,6 +840,16 @@ test "packed radix-8 pass matches three independent stages" {
         try std.testing.expectEqualSlices(M31, expected, actual);
     }
 
+    // A 2x extension's first active group sees two identical halves. The
+    // expansion kernel must synthesize the upper group without reading its
+    // deliberately unrelated contents.
+    @memcpy(expected, input);
+    @memcpy(expected[value_count / 2 ..], expected[0 .. value_count / 2]);
+    @memcpy(actual, input);
+    fftThreeLayersForwardPackedM31(expected, log_size, 8, twiddles);
+    fftThreeLayersForwardPackedM31FromDuplicatedHalf(actual, log_size, 8, twiddles);
+    try std.testing.expectEqualSlices(M31, expected, actual);
+
     const inverse_stages = [_]u32{ 3, 7 };
     for (inverse_stages) |lowest_stage| {
         @memcpy(expected, input);
@@ -807,6 +864,18 @@ test "packed radix-8 pass matches three independent stages" {
             }
         }
         fftThreeLayersInversePackedM31(actual, log_size, lowest_stage, twiddles);
+        try std.testing.expectEqualSlices(M31, expected, actual);
+
+        const normalization = M31.fromCanonical(1_234_567);
+        for (expected) |*value| value.* = value.mul(normalization);
+        @memcpy(actual, input);
+        fftThreeLayersInversePackedM31Normalized(
+            actual,
+            log_size,
+            lowest_stage,
+            twiddles,
+            normalization,
+        );
         try std.testing.expectEqualSlices(M31, expected, actual);
     }
 }
