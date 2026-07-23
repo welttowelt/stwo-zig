@@ -93,8 +93,28 @@ fn detectWorkerCount() usize {
         } else |_| {}
     }
 
-    const cpu_count = std.Thread.getCpuCount() catch return 1;
+    // Prefer the PERFORMANCE-core count over total logicals: E-cores drag
+    // statically-chunked parallel stages (measured: wide -5.8% at P-only on
+    // 8P+4E; the effect is a K3 static-scheduling artifact). Detected at
+    // runtime so it transfers across hosts (e.g. an M5's larger P-cluster)
+    // instead of hardcoding one machine's count. Falls back to total logical
+    // cores where the probe is unavailable (non-Apple / CI), preserving prior
+    // behavior there.
+    const performance_cores = detectPerformanceCores();
+    const cpu_count = performance_cores orelse (std.Thread.getCpuCount() catch return 1);
     return @min(cpu_count, MAX_WORKERS);
+}
+
+/// Apple-only: logical CPUs in the highest-performance core cluster
+/// (`hw.perflevel0.logicalcpu`). Returns null off Apple or on any probe
+/// failure, so callers fall back to the total logical count.
+fn detectPerformanceCores() ?usize {
+    if (builtin.os.tag != .macos) return null;
+    var value: c_int = 0;
+    var len: usize = @sizeOf(c_int);
+    const rc = std.c.sysctlbyname("hw.perflevel0.logicalcpu", &value, &len, null, 0);
+    if (rc != 0 or value <= 0) return null;
+    return @intCast(value);
 }
 
 // Tests
