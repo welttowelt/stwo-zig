@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "kind": "claimed",
-  "harness_commit": "539175a491e8",
-  "repo_commit": "7d74040be699",
+  "harness_commit": "f05c84e1750f",
+  "repo_commit": "05e9193d4067",
   "predecessor_commit": "7c9e2e227ffe",
   "scope": "s3",
   "declared_objective": {
@@ -19,7 +19,7 @@
     "judge_lock_held": false,
     "preflight": {
       "load_ok": true,
-      "load1": 2.02
+      "load1": 1.87
     }
   },
   "search_health": {
@@ -49,9 +49,9 @@
     "actual_rounds_per_workload": {
       "mwf_log20x100": 5
     },
-    "objective_wall_seconds": 2.838563167024404,
-    "measurement_wall_seconds": 22.357301541953348,
-    "measurement_wall_hours": 0.006210361539431486,
+    "objective_wall_seconds": 2.8668931249994785,
+    "measurement_wall_seconds": 19.147413874976337,
+    "measurement_wall_hours": 0.005318726076382316,
     "gradient_snr": null,
     "credited_ln_improvement": null,
     "credited_ln_improvement_per_measurement_hour": null,
@@ -73,7 +73,7 @@
     },
     "G4": {
       "pass": true,
-      "detail": "candidate/anchor 0.0659 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
+      "detail": "candidate/anchor 0.0668 vs targeted budget x1.02; matrix row upper CIs 1/1 within budget x1.05; regression guards 13/13 within budget; request ratios 1/1 present rows within budget x1.05; resource vectors 1/1 within named budgets"
     },
     "G5": {
       "pass": true,
@@ -83,34 +83,34 @@
   "score": {
     "per_workload": {
       "mwf_log20x100": {
-        "r": 0.940208,
+        "r": 0.929704,
         "ci": [
-          0.911487,
-          0.953475
+          0.91831,
+          0.94145
         ],
         "rounds": 5,
-        "a_median_ms": 116.527959,
-        "b_median_ms": 109.187,
-        "request_ratio": 0.849958,
-        "rss_ratio": 0.982137,
+        "a_median_ms": 119.684417,
+        "b_median_ms": 110.789208,
+        "request_ratio": 0.824106,
+        "rss_ratio": 1.018765,
         "resources": {
           "energy_j": {
-            "ratio": 0.845607,
+            "ratio": 0.843864,
             "ci": [
-              0.827836,
-              0.86715
+              0.830001,
+              0.899143
             ],
             "observations": 5,
-            "candidate": 0.631409011
+            "candidate": 0.644922582
           },
           "peak_rss_mib": {
-            "ratio": 0.982137,
+            "ratio": 1.018765,
             "ci": [
-              0.968762,
-              0.995979
+              1.007856,
+              1.029546
             ],
             "observations": 5,
-            "candidate": 838.0950546264648
+            "candidate": 880.3450775146484
           },
           "proof_bytes": {
             "ratio": 1.0,
@@ -124,25 +124,25 @@
         },
         "mechanism_verified": null,
         "proof_bytes": 86383,
-        "measurement_seconds": 2.81661,
+        "measurement_seconds": 2.844659,
         "resources_complete": null
       }
     },
-    "R_geomean": 0.940208,
+    "R_geomean": 0.929704,
     "portfolio": {
       "ci_method": "independent_workload_round_bootstrap_percentile_v1",
       "ci_level": 0.95,
       "bootstrap_iterations": 4000,
       "seed": 423517478,
       "ci": [
-        0.911487,
-        0.953475
+        0.91831,
+        0.94145
       ],
       "prove_ms_method": "geometric_mean_candidate_workload_medians_ms_v1",
-      "b_median_ms_geomean": 109.187,
+      "b_median_ms_geomean": 110.789208,
       "proof_bytes_method": "rounded_geometric_mean_candidate_proof_bytes_v1",
       "proof_bytes": 86383,
-      "measurement_seconds": 2.81661,
+      "measurement_seconds": 2.844659,
       "measurement_rounds": 5
     },
     "theta": 0.01,
@@ -156,14 +156,14 @@
     },
     "resource_portfolio": {
       "peak_rss_mib": {
-        "ratio_geomean": 0.9821373440831347,
-        "upper_ci_geomean": 0.995978988789131,
-        "candidate_geomean": 838.0950546264645
+        "ratio_geomean": 1.0187648908215943,
+        "upper_ci_geomean": 1.0295459463333108,
+        "candidate_geomean": 880.3450775146484
       },
       "energy_j": {
-        "ratio_geomean": 0.8456066344138522,
-        "upper_ci_geomean": 0.8671499030257714,
-        "candidate_geomean": 0.631409011
+        "ratio_geomean": 0.8438639962257084,
+        "upper_ci_geomean": 0.8991425844662666,
+        "candidate_geomean": 0.644922582
       },
       "proof_bytes": {
         "ratio_geomean": 1.0,
@@ -173,41 +173,41 @@
     }
   },
   "tiebreakers": {
-    "rss_ratio": 0.982137,
+    "rss_ratio": 1.018765,
     "waits": null,
     "dispatches": null,
-    "energy_j": 0.631409011,
+    "energy_j": 0.644922582,
     "proof_bytes": 86382.99999999994
   },
   "holdout": null,
   "guards": {
     "guard_blake_10x10": {
-      "r": 1.001734,
+      "r": 0.987387,
       "ci": [
-        0.971812,
-        1.021246
+        0.969051,
+        0.99441
       ],
-      "rounds": 8,
+      "rounds": 3,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
     },
     "guard_blake_12x16": {
-      "r": 1.004442,
+      "r": 1.000504,
       "ci": [
-        0.984149,
-        1.026673
+        0.977459,
+        1.027084
       ],
-      "rounds": 8,
+      "rounds": 5,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
     },
     "guard_plonk_14": {
-      "r": 0.964584,
+      "r": 0.988319,
       "ci": [
-        0.955777,
-        0.976495
+        0.974962,
+        0.99889
       ],
       "rounds": 3,
       "budget_upper": 1.05,
@@ -215,54 +215,54 @@
       "proof_digest": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
     },
     "guard_plonk_16": {
-      "r": 0.893566,
+      "r": 0.902728,
       "ci": [
-        0.88741,
-        0.905055
+        0.894841,
+        0.926325
       ],
-      "rounds": 3,
+      "rounds": 5,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
     },
     "guard_poseidon_10": {
-      "r": 0.994461,
+      "r": 0.992966,
       "ci": [
-        0.991209,
-        1.002006
+        0.967126,
+        1.005143
       ],
-      "rounds": 3,
+      "rounds": 6,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
     },
     "guard_poseidon_13": {
-      "r": 0.992355,
+      "r": 0.995217,
       "ci": [
-        0.962721,
-        1.012061
+        0.973311,
+        1.020694
       ],
-      "rounds": 3,
+      "rounds": 5,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
     },
     "guard_sm_14": {
-      "r": 0.975685,
+      "r": 0.985188,
       "ci": [
-        0.960888,
-        0.997585
+        0.96148,
+        1.00966
       ],
-      "rounds": 10,
+      "rounds": 6,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
     },
     "guard_sm_16": {
-      "r": 0.876606,
+      "r": 0.871155,
       "ci": [
-        0.869758,
-        0.881921
+        0.851232,
+        0.882136
       ],
       "rounds": 3,
       "budget_upper": 1.05,
@@ -270,10 +270,10 @@
       "proof_digest": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
     },
     "guard_wf_10x8": {
-      "r": 0.848169,
+      "r": 0.941181,
       "ci": [
-        0.808682,
-        0.935302
+        0.872819,
+        1.009147
       ],
       "rounds": 8,
       "budget_upper": 1.05,
@@ -281,10 +281,10 @@
       "proof_digest": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
     },
     "guard_wf_14x32": {
-      "r": 0.902944,
+      "r": 0.937088,
       "ci": [
-        0.883115,
-        0.93278
+        0.930064,
+        0.944391
       ],
       "rounds": 3,
       "budget_upper": 1.05,
@@ -292,10 +292,10 @@
       "proof_digest": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
     },
     "guard_wf_16x64": {
-      "r": 0.84467,
+      "r": 0.836086,
       "ci": [
-        0.838247,
-        0.861212
+        0.830612,
+        0.840972
       ],
       "rounds": 3,
       "budget_upper": 1.05,
@@ -303,21 +303,21 @@
       "proof_digest": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
     },
     "guard_xor_14": {
-      "r": 0.990729,
+      "r": 0.989187,
       "ci": [
-        0.964757,
-        0.997075
+        0.969152,
+        1.030552
       ],
-      "rounds": 5,
+      "rounds": 8,
       "budget_upper": 1.05,
       "pass": true,
       "proof_digest": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
     },
     "guard_xor_16": {
-      "r": 0.892005,
+      "r": 0.88708,
       "ci": [
-        0.859141,
-        0.906271
+        0.878419,
+        0.891326
       ],
       "rounds": 3,
       "budget_upper": 1.05,
@@ -344,33 +344,33 @@
     "per_workload": {
       "mwf_log20x100": {
         "round_ratios": [
-          0.927305,
-          0.895669,
-          0.95311,
-          0.945334,
-          0.953839
+          0.939322,
+          0.916535,
+          0.920086,
+          0.923966,
+          0.943577
         ],
         "proof_digest": "e6609d0564a47192212bec7973e2660c2eea88bef90c573c3df09569cc3c7e86",
-        "request_ratio": 0.849958,
-        "rss_ratio": 0.982137,
+        "request_ratio": 0.824106,
+        "rss_ratio": 1.018765,
         "resources": {
           "energy_j": {
-            "ratio": 0.845607,
+            "ratio": 0.843864,
             "ci": [
-              0.827836,
-              0.86715
+              0.830001,
+              0.899143
             ],
             "observations": 5,
-            "candidate": 0.631409011
+            "candidate": 0.644922582
           },
           "peak_rss_mib": {
-            "ratio": 0.982137,
+            "ratio": 1.018765,
             "ci": [
-              0.968762,
-              0.995979
+              1.007856,
+              1.029546
             ],
             "observations": 5,
-            "candidate": 838.0950546264648
+            "candidate": 880.3450775146484
           },
           "proof_bytes": {
             "ratio": 1.0,
@@ -383,16 +383,16 @@
           }
         },
         "report_sha256s": [
-          "8cca43503d1095e5916b35cc8fde54b469f6784964f66f7126d98e0cde7842f7",
-          "ea907d8f68741c3933a1a28acc9df7f3ffa5b3f34ecc6c5a599032bd6d502416",
-          "bc4a4ae609fca9e6b5c9ff8942897bc318e3e3e72584b393304f2906800b9268",
-          "091a19c01c845384cb193c258356dba665ffabb2e8c035da0b703e55532b6952",
-          "86c06c1595fa49dfaca8617adcc127950369346f1ced85d6e1a6474c1c90b07e",
-          "ecff2bdfafadfc70dc833b67c4f5dba51b1080e6bea588ec777b707dc4a00d4a",
-          "c7c571b50f2266b0675e5bf188e6a0cb4f901fc1ff20eac66efe625c474a5924",
-          "d9e116c9346d38db6b2f2e7537866d9b1c85410426450c923b4493c920dd7528",
-          "3cef1a503012e494bfb66474ead34ad634740fe9ffc15cfbc7493b9f4949fb1f",
-          "af9107afc01c8694e99934da988dcaebe0673051b939dcd0ca792d867ed528e2"
+          "2a498d08b85c769b1086ef5133cd6fcb0b63517253dec7ae57566fdfe697d061",
+          "6078f4b6cc905c4aca08a235695973bb282efd4707d3fb5191f161fa1750fa5d",
+          "05d3c461e1f8b0ad403d38a12c8b19f6930aa45ec2b4a5e654069334ecae167d",
+          "7951c5d096a2c5223d385e2cb006ed851f9b0d49df0bc9a267ef6a118e11e595",
+          "6234aa4996ea02a9eff9027f1a79ca7f7f2deb4289ffbab8dd48074a6ec86548",
+          "24bfa225bca466e7c0911325ad1594a673d94ae2bfd31c4d85f9e5f7e1a22f75",
+          "82a97c132de819d5a8f12d5cb5f3593a7f2f5fa77353b1c8ac5ee4f92c6da82f",
+          "ecb7442bc0e730af819b8cdbc9a05f5d063d823e5a2ef0d4a2236a752cbf15c5",
+          "6ac9adba7fcc040b47ddf24b3754fa4ee099a6ff9414ca8cd948b318a104336f",
+          "0247eb17a40fcdbd74d23aea5e2e7c23f52d385a924db68e914186474a2e8ee5"
         ],
         "mechanism_verified": null,
         "resources_complete": null

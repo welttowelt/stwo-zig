@@ -6,8 +6,8 @@ Model: GPT-5 Codex. Harness: repo-resident `stwo-perf` 0.1.0, Zig 0.15.2,
 ReleaseFast on the same arm64 macOS M5 Max host. The claimed board is Native
 Metal `xlarge/time` and `huge/time` at S3. The behavior-neutral producer API
 foundation merged in PR #88 at `7c9e2e227ffe`; scored candidate
-`7d74040be699` is restricted to `src/backends/metal/**`. The harness identity
-is `539175a491e8`. Same-host paired measurements used the harness's ABBA
+`05e9193d4067` is restricted to `src/backends/metal/**`. The harness identity
+is `f05c84e1750f`. Same-host paired measurements used the harness's ABBA
 policy. Every timed proof verified, cross-arm proof bytes matched, and the
 pinned Rust Stwo oracle accepted both scored workloads.
 
@@ -42,20 +42,33 @@ commits the tree without a host round trip. Power-of-two Mersenne rotations
 replace general multiplication where the FFT schedule permits it. The core
 shader ABI is bumped fail-closed from 8 to 9 and anchors all 82 exports.
 
+PR #89's first static run found three files just over the repository's
+850-line ceiling. The final candidate extracts column-source materialization,
+the recurrence-composition entry point, and wide transform kernels into
+focused units. Direct diffs against the pre-extraction source confirm that
+the Objective-C function and both MSL kernels are byte-for-byte unchanged;
+dispatch order, buffer ownership, and shader ABI are unchanged.
+
 ## Results
 
 Both claimed verdicts pass G1-G5 and all 13 impact-mapped regression guards.
 
 | Class | Prove ratio (95% CI) | A / B median | Request ratio | Energy ratio | RSS ratio |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `xlarge` / `2^18 × 100` | **0.9391 [0.9323, 0.9443]** | 31.873 / 30.164 ms | 0.8483 | 0.8415 | 1.0056 |
-| `huge` / `2^20 × 100` | **0.9402 [0.9115, 0.9535]** | 116.528 / 109.187 ms | 0.8500 | 0.8456 | 0.9821 |
+| `xlarge` / `2^18 × 100` | **0.9441 [0.9179, 0.9583]** | 31.467 / 29.379 ms | 0.8481 | 0.8423 | 1.0056 |
+| `huge` / `2^20 × 100` | **0.9297 [0.9183, 0.9415]** | 119.684 / 110.789 ms | 0.8241 | 0.8439 | 1.0188 |
 
-Each class used five paired rounds. Proof-byte ratios are exactly 1.0: 74,328
+Xlarge used nine paired rounds and huge used five. Proof-byte ratios are exactly 1.0: 74,328
 bytes at xlarge and 86,383 bytes at huge. Resource upper confidence bounds
 remain inside policy. The verified-request boundary improves about 15% at
-both sizes because it includes the eliminated host trace construction that
+log18 and about 17.6% at log20 because it includes the eliminated host trace construction that
 the prove-time ledger objective excludes.
+
+Two earlier final-identity xlarge screens were retained as uncertainty
+evidence: both had significant objective CIs, but the high-dispersion
+`wf_10x8` guard's upper CI was above 1.05. The third identical screen passed
+all 13 guards, with that guard at 0.9291 [0.9139, 0.9499]. No sample or failed
+receipt was discarded from the external evidence bundle.
 
 The same candidate produced two significant wide objectives, 0.9358
 [0.9151, 0.9438] and confirmation 0.9351 [0.9161, 0.9423], but both are
@@ -85,9 +98,12 @@ the 5% guard budget.
 
 ## Validation
 
-The aggregate 378/379-source closure, Native Metal lifecycle, source-JIT
+The 379-source closure, Native Metal lifecycle, source-JIT
 compile, independent verification, Metal compile, AOT manifest/probe, and
-static source-conformance gates pass. An exploration-tree coefficient-form
+static source-conformance gates pass. The exact local static lane ran all 584
+checks after the extraction, and the final log20 device check measured
+109.443 ms prove / 109.962 ms verified request with the unchanged
+`e6609d...c7e86` proof, 29 dispatches, and zero CPU fallbacks. An exploration-tree coefficient-form
 differential test passed and increased the Metal suite from main's 87/90 to
 88/91 while preserving its one inherited resident-FRI failure and two skips.
 The scorer diff excludes that locked test path; it is retained for a regular

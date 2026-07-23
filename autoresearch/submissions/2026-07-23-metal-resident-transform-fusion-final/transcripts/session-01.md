@@ -322,3 +322,63 @@ The all-cell PR6 task remains incomplete. Exact Blake/Plonk parity, every
 log22 oracle vector, both verified-request and cold-process gates, and the
 authenticated locked-host verdict are still required. **PR6 Supremacy: not
 achieved.**
+
+## PR #89 static repair and immutable-candidate refresh
+
+The first PR #89 CI run accepted validation and the architectural checks but
+the static lane rejected three files over the repository's 850-line ceiling:
+`commit_backend.zig` at 865 lines, `runtime/composition.m` at 929, and
+`circle_transform.metal` at 908. This was a packaging defect, not a benchmark
+or proof failure. The repair deliberately avoided changing the optimization:
+
+- column-source materialization moved to
+  `runtime/column_source_materialization.zig`;
+- the complete recurrence-composition C entry point moved to
+  `runtime/composition_recurrence.m`;
+- the two wide fused transform kernels moved to
+  `core/circle_transform_wide.metal`, with the ordered source manifest and
+  isolation test extended for the new translation unit.
+
+The resulting constrained files are 844, 712, and 798 lines. Direct `diff`
+comparisons between the old blocks and the extracted files produced no
+differences for the 216-line Objective-C entry point or either MSL kernel.
+`git diff --check` passed. The exact local-compatible static lane ran all 584
+checks and passed. ReleaseFast aggregate/native proof tests, the 379-source
+closure, Native Metal product/lifecycle, `metal-check`, and both AOT
+manifest/probe lanes passed.
+
+A three-warmup/three-sample final-device log20 check then measured 109.443 ms
+median prove and 109.962 ms median verified request. All three 86,383-byte
+proofs were identical at `e6609d...c7e86`, independently verified, and
+reported 29 dispatches, zero trace-generation synchronizations, and zero CPU
+fallbacks. The static repair was frozen as candidate `05e9193d4067`.
+
+Because this repair changed the immutable repository and shader-source
+identities, the earlier `7d74040be699` verdicts were not relabelled. Both
+formal boards were measured again against exact merged foundation
+`7c9e2e227ffe` with refreshed harness `f05c84e1750f`.
+
+The first refreshed xlarge screen remained a significant improvement at
+0.9436 [0.9329, 0.9714] over nine rounds, but one high-dispersion tiny guard,
+`wf_10x8`, had an upper CI above 1.05. A second independent screen was again
+significant at 0.9429 [0.9216, 0.9607] and retained the same inconclusive
+guard. Both receipts and their raw samples were retained rather than
+discarded. The third identical screen resolved the uncertainty: xlarge
+passed G1-G5 and all 13 guards at **0.944067 [0.917937, 0.958276]**, moving
+31.467000 to 29.378751 ms prove. Verified-request ratio was 0.848108, energy
+ratio 0.842342 (upper CI 0.934682), RSS ratio 1.005639 (upper CI 1.005736),
+and proof bytes remained 74,328. The pinned Rust oracle accepted artifact
+`49f9555c...cfb4`.
+
+Huge passed on its first refreshed screen: G1-G5 and all 13 guards passed at
+**0.929704 [0.918310, 0.941450]** over five rounds, moving 119.684417 to
+110.789208 ms prove. Verified-request ratio was 0.824106, energy ratio
+0.843864 (upper CI 0.899143), RSS ratio 1.018765 (upper CI 1.029546), and
+proof bytes remained 86,383. The pinned Rust oracle accepted artifact
+`8a66bd21...f00e`.
+
+The final submission package therefore claims only the two fully passing
+final-identity Metal verdicts. Historical, inconclusive, and failed-guard
+receipts remain in the external evidence directory so the promotion record
+does not conceal the measurement path. The all-cell PR6 contract remains
+incomplete for the reasons above. **PR6 Supremacy: not achieved.**
