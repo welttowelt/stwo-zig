@@ -14,9 +14,11 @@ const ComponentProver = prover.air.component_prover.ComponentProver;
 const Trace = prover.air.component_prover.Trace;
 const SecureColumnByCoords = prover.secure_column.SecureColumnByCoords;
 
-// Keep short/small proofs on the reference loop: their fan-out cost is a
-// meaningful fraction of the whole request. This admits trace logs >= 16.
-const min_eval_log_size: u32 = 17;
+// The recurrence plan amortizes worker fan-out from a 2^15 evaluation domain
+// onward. Narrow AIRs never reach this implementation because admission also
+// requires a structurally matched, contiguous recurrence trace.
+const min_eval_log_size: u32 = 15;
+const min_recurrence_columns: usize = 32;
 
 const RecurrenceShape = struct {
     first_column: [*]const M31,
@@ -245,7 +247,7 @@ fn recurrenceShape(components: []const ComponentProver, trace: *const Trace) ?Re
         if (tree_index != recurrence.trace_tree_index and tree.len != 0) return null;
     }
     const columns = trace.polys.items[recurrence.trace_tree_index];
-    if (columns.len < 64 or component.nConstraints() != columns.len - 2) return null;
+    if (columns.len < min_recurrence_columns or component.nConstraints() != columns.len - 2) return null;
     const eval_log_size = component.maxConstraintLogDegreeBound();
     if (eval_log_size < min_eval_log_size or eval_log_size >= @bitSizeOf(usize)) return null;
     const row_count = @as(usize, 1) << @intCast(eval_log_size);
