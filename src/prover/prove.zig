@@ -258,6 +258,11 @@ fn proveExComponentsWithRecorder(
         };
         defer trace.polys.deinitDeep(allocator);
 
+        const composition_twiddles = try scheme.twiddle_source.get(
+            allocator,
+            composition_log_size,
+        );
+
         var composition_eval = blk: {
             var composition_eval_stage = try stage_profile.StageScope.begin(
                 recorder,
@@ -271,6 +276,7 @@ fn proveExComponentsWithRecorder(
                 random_coeff,
                 &trace,
                 residency_handles,
+                composition_twiddles,
             );
         };
         defer composition_eval.deinit(allocator);
@@ -282,10 +288,6 @@ fn proveExComponentsWithRecorder(
                 "Composition interpolate and split",
             );
             defer composition_interpolate_stage.end();
-            const composition_twiddles = try scheme.twiddle_source.get(
-                allocator,
-                composition_log_size,
-            );
             break :blk try prover_circle.secure_poly.interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
                 B,
                 allocator,

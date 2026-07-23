@@ -8,6 +8,7 @@ const prover_pcs = @import("stwo_prover_impl").pcs;
 const stage_profile = @import("stwo_prover_impl").stage_profile;
 
 const ColumnEvaluation = prover_pcs.ColumnEvaluation;
+const ColumnSource = prover_pcs.ColumnSource;
 const M31 = @import("stwo_core").fields.m31.M31;
 
 pub const Error = error{
@@ -20,10 +21,12 @@ pub const Error = error{
 pub const OwnedColumns = struct {
     columns: ?[]ColumnEvaluation,
     backing_buffers: ?[][]M31 = null,
+    source: ColumnSource = .materialized,
 
     pub const Taken = struct {
         columns: []ColumnEvaluation,
         backing_buffers: ?[][]M31,
+        source: ColumnSource,
     };
 
     pub fn init(columns: []ColumnEvaluation) OwnedColumns {
@@ -37,11 +40,24 @@ pub const OwnedColumns = struct {
         return .{ .columns = columns, .backing_buffers = backing_buffers };
     }
 
+    pub fn initWithBackingAndSource(
+        columns: []ColumnEvaluation,
+        backing_buffers: [][]M31,
+        source: ColumnSource,
+    ) OwnedColumns {
+        return .{
+            .columns = columns,
+            .backing_buffers = backing_buffers,
+            .source = source,
+        };
+    }
+
     /// Transfers the allocation. The caller must consume or release it.
     pub fn take(self: *OwnedColumns) []ColumnEvaluation {
         std.debug.assert(self.backing_buffers == null);
         const columns = self.columns orelse unreachable;
         self.columns = null;
+        std.debug.assert(self.source.isMaterialized());
         return columns;
     }
 
@@ -49,9 +65,15 @@ pub const OwnedColumns = struct {
     pub fn takeWithBacking(self: *OwnedColumns) Taken {
         const columns = self.columns orelse unreachable;
         const backing_buffers = self.backing_buffers;
+        const source = self.source;
         self.columns = null;
         self.backing_buffers = null;
-        return .{ .columns = columns, .backing_buffers = backing_buffers };
+        self.source = .materialized;
+        return .{
+            .columns = columns,
+            .backing_buffers = backing_buffers,
+            .source = source,
+        };
     }
 
     pub fn deinit(self: *OwnedColumns, allocator: std.mem.Allocator) void {
@@ -261,11 +283,12 @@ pub fn provePreparedEx(
         );
         defer stage.end();
         const owned = prepared.trace.preprocessed.takeWithBacking();
-        try Engine.commitWithBacking(
+        try Engine.commitPreparedWithBacking(
             &scheme,
             allocator,
             owned.columns,
             owned.backing_buffers,
+            owned.source,
             options.recorder,
             &channel,
         );
@@ -278,11 +301,12 @@ pub fn provePreparedEx(
         );
         defer stage.end();
         const owned = prepared.trace.main.takeWithBacking();
-        try Engine.commitWithBacking(
+        try Engine.commitPreparedWithBacking(
             &scheme,
             allocator,
             owned.columns,
             owned.backing_buffers,
+            owned.source,
             options.recorder,
             &channel,
         );

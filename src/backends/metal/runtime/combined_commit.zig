@@ -34,7 +34,9 @@ pub fn prepareAndCommitOwned(
     retention_policy: anytype,
     twiddle_source: anytype,
     source_backing_buffers: ?[][]M31,
+    source: prover.pcs.ColumnSource,
 ) !?PreparedCommitment(H) {
+    _ = source;
     if (retention_policy != .always or log_blowup_factor != 1 or
         owned_columns.len < min_columns or owned_columns.len > max_columns)
         return null;

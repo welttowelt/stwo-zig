@@ -46,8 +46,10 @@ pub const CpuBackend = struct {
         random_coeff: QM31,
         trace: *const @import("stwo_prover_impl").air.component_prover.Trace,
         residency_handles: []const ?*anyopaque,
+        composition_twiddles: ?@import("stwo_prover_impl").poly.twiddles.TwiddleTree([]const M31),
     ) !?@import("stwo_prover_impl").secure_column.SecureColumnByCoords {
         _ = residency_handles;
+        _ = composition_twiddles;
         return secure_composition.evaluateLargeRecurrenceComposition(
             allocator,
             components,
@@ -61,13 +63,12 @@ pub const CpuBackend = struct {
     /// them serially; owned composition evaluations need neither cost.
     pub fn interpolateSecureComposition(
         allocator: std.mem.Allocator,
-        values: []const []M31,
+        values: *prover_impl.secure_column.SecureColumnByCoords,
         domain: core_poly.circle.domain.CircleDomain,
         twiddle_tree: prover_impl.poly.twiddles.TwiddleTree([]const M31),
     ) !bool {
         _ = allocator;
-        if (values.len != qm31_mod.SECURE_EXTENSION_DEGREE) return false;
-        for (values) |coordinate| {
+        for (values.columns) |coordinate| {
             if (coordinate.len != domain.size()) return false;
         }
 
@@ -90,7 +91,7 @@ pub const CpuBackend = struct {
         };
 
         var jobs: [qm31_mod.SECURE_EXTENSION_DEGREE]Job = undefined;
-        for (values, &jobs) |coordinate, *job| {
+        for (values.columns, &jobs) |coordinate, *job| {
             job.* = .{
                 .values = coordinate,
                 .domain = domain,

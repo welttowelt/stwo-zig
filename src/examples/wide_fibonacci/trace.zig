@@ -202,10 +202,12 @@ pub fn prepareForBackend(
             prover_transaction.OwnedColumns{
                 .columns = preprocessed_taken.columns,
                 .backing_buffers = preprocessed_taken.backing_buffers,
+                .source = preprocessed_taken.source,
             },
             prover_transaction.OwnedColumns{
                 .columns = main_taken.columns,
                 .backing_buffers = main_taken.backing_buffers,
+                .source = main_taken.source,
             },
         ),
     };
@@ -244,12 +246,31 @@ fn generateContiguousOwnedForBackend(
         column.* = .{ .log_size = statement.log_n_rows, .values = values };
         view.* = values;
     }
-    try Backend.fillQuadraticRecurrenceTrace(
-        views,
-        statement.log_n_rows,
-        quadratic_recurrence_recipe,
+    const defer_generation = if (comptime @hasDecl(Backend, "preferDeferredQuadraticRecurrenceTrace") and
+        @hasDecl(Backend, "admitsDeferredQuadraticRecurrenceTrace"))
+        Backend.preferDeferredQuadraticRecurrenceTrace and
+            Backend.admitsDeferredQuadraticRecurrenceTrace(row_count, column_count)
+    else
+        false;
+    if (!defer_generation) {
+        try Backend.fillQuadraticRecurrenceTrace(
+            views,
+            statement.log_n_rows,
+            quadratic_recurrence_recipe,
+        );
+    }
+    const source: prover_pcs.ColumnSource = if (defer_generation)
+        .{ .quadratic_recurrence = .{
+            .log_n_rows = statement.log_n_rows,
+            .recipe = quadratic_recurrence_recipe,
+        } }
+    else
+        .materialized;
+    return prover_transaction.OwnedColumns.initWithBackingAndSource(
+        columns,
+        backing_buffers,
+        source,
     );
-    return prover_transaction.OwnedColumns.initWithBacking(columns, backing_buffers);
 }
 
 fn checkedPow2(log_size: u32) Error!usize {
