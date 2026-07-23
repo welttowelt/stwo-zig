@@ -1,6 +1,17 @@
 {
   "excluded_runs": [
     {
+      "captured_at": "2026-07-23T10:48:58.593553+00:00",
+      "git_commit": "9ed6df6be99110c6ba40d2366bbb5401ab96331e",
+      "id": "2026-07-23-104858-matrix-v6-9ed6df6b",
+      "reasons": [
+        "publication status is superseded: Superseded by a current-main capture after PR #97 merged a CPU wide-recurrence optimization during publication; this run remains the compatible baseline for the recorded delta."
+      ],
+      "source_sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82",
+      "status": "superseded",
+      "superseded_by": "2026-07-23-110359-matrix-v6-e58b4d1e"
+    },
+    {
       "captured_at": "2026-07-23T07:25:42.433730+00:00",
       "git_commit": "a01299b4c42ce8bb2a201a28dab4bf4ddd6ec180",
       "id": "2026-07-23-072542-matrix-v6-a01299b4",
@@ -9,7 +20,7 @@
       ],
       "source_sha256": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120",
       "status": "superseded",
-      "superseded_by": "2026-07-23-104858-matrix-v6-9ed6df6b"
+      "superseded_by": "2026-07-23-110359-matrix-v6-e58b4d1e"
     },
     {
       "captured_at": "2026-07-17T23:28:33.155528+00:00",
@@ -78,7 +89,7 @@
       "superseded_by": null
     }
   ],
-  "latest_run_id": "2026-07-23-104858-matrix-v6-9ed6df6b",
+  "latest_run_id": "2026-07-23-110359-matrix-v6-e58b4d1e",
   "publication_policy": {
     "formal_rows_require_cpu_metal_proof_parity": true,
     "formal_rows_require_pinned_rust_oracle": true,
@@ -89,8 +100,8 @@
   },
   "runs": [
     {
-      "captured_at": "2026-07-23T10:48:58.593553+00:00",
-      "id": "2026-07-23-104858-matrix-v6-9ed6df6b",
+      "captured_at": "2026-07-23T11:03:59.096697+00:00",
+      "id": "2026-07-23-110359-matrix-v6-e58b4d1e",
       "machine": {
         "chip": "Apple M5 Max",
         "gpu": {
@@ -111,7 +122,7 @@
         }
       },
       "revision": {
-        "git_commit": "9ed6df6be99110c6ba40d2366bbb5401ab96331e",
+        "git_commit": "e58b4d1eccaefb1f593d81490136b9decc886df8",
         "git_dirty": false,
         "optimization": "ReleaseFast",
         "simd_pack_width": 4,
@@ -121,10 +132,8 @@
       "rows": [
         {
           "descriptor_sha256": "8586bce9ae8c0673453803b3b65ca8d4fc677638d53e5933e7692af4dd38586f",
-          "headline_blockers": [
-            "metal_ordered_prove_time_drift"
-          ],
-          "headline_eligible": false,
+          "headline_blockers": [],
+          "headline_eligible": true,
           "id": "8586bce9ae8c",
           "index": 0,
           "lanes": {
@@ -133,49 +142,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.14541906032269925,
-                  "max": 8.064976618262369,
-                  "median": 7.64238988875994,
-                  "min": 6.922327463607503
+                  "mad": 0.07717342982404674,
+                  "max": 7.937023131888094,
+                  "median": 7.721017907634307,
+                  "min": 7.217888239036158
                 },
                 "native_mhz": {
-                  "mad": 0.018177382540337406,
-                  "max": 1.0081220772827961,
-                  "median": 0.9552987360949925,
-                  "min": 0.8652909329509378
+                  "mad": 0.009646678728005842,
+                  "max": 0.9921278914860118,
+                  "median": 0.9651272384542884,
+                  "min": 0.9022360298795198
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 14224.0,
-                  "median": 14224.0,
-                  "min": 14224.0
+                  "max": 14208.0,
+                  "median": 14208.0,
+                  "min": 14208.0
                 },
                 "prove_seconds": {
-                  "mad": 2.0791999999999946e-05,
-                  "max": 0.001183417,
-                  "median": 0.001071916,
-                  "min": 0.00101575
+                  "mad": 1.0500000000000093e-05,
+                  "max": 0.001134958,
+                  "median": 0.001061,
+                  "min": 0.001032125
                 },
                 "request_native_mhz": {
-                  "mad": 0.011672903653602407,
-                  "max": 0.8710882904126696,
-                  "median": 0.8286184082758262,
-                  "min": 0.7634908231981915
+                  "mad": 0.007370539840848789,
+                  "max": 0.8539859209078937,
+                  "median": 0.8391434181327092,
+                  "min": 0.7861049803281835
                 },
                 "request_seconds": {
-                  "mad": 1.7167000000000007e-05,
-                  "max": 0.001341208,
-                  "median": 0.001235792,
-                  "min": 0.001175541
+                  "mad": 1.0625e-05,
+                  "max": 0.001302625,
+                  "median": 0.001220292,
+                  "min": 0.001199083
                 },
                 "verify_seconds": {
-                  "mad": 7.909999999999997e-07,
-                  "max": 0.000119334,
-                  "median": 0.000106375,
-                  "min": 0.000105542
+                  "mad": 2.500000000000061e-07,
+                  "max": 0.000119083,
+                  "median": 0.000105875,
+                  "min": 0.0001055
                 }
               },
-              "process_wall_seconds": 0.13119762495625764,
+              "process_wall_seconds": 0.13204420800320804,
               "proof": {
                 "byte_identical": true,
                 "bytes": 24965,
@@ -185,10 +194,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 24965,
                 "complete": true,
-                "cycles": 584081986,
-                "energy_nj": 489428825,
-                "instructions": 1240406444,
-                "lifetime_peak_physical_footprint_bytes": 13796192,
+                "cycles": 580821952,
+                "energy_nj": 484792988,
+                "instructions": 1243288540,
+                "lifetime_peak_physical_footprint_bytes": 13779784,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -199,7 +208,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 14224
+                "peak_rss_kib": 14208
               }
             },
             "metal": {
@@ -207,49 +216,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.07471834023237811,
-                  "max": 3.526538146621678,
-                  "median": 3.2196511913534756,
-                  "min": 2.8829427412801714
+                  "mad": 0.05413285479017249,
+                  "max": 3.5630946555754908,
+                  "median": 3.299178990931285,
+                  "min": 3.1074937941163974
                 },
                 "native_mhz": {
-                  "mad": 0.009339792529047264,
-                  "max": 0.44081726832770973,
-                  "median": 0.40245639891918444,
-                  "min": 0.3603678426600214
+                  "mad": 0.006766606848771561,
+                  "max": 0.44538683194693635,
+                  "median": 0.4123973738664106,
+                  "min": 0.38843672426454967
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 34032.0,
-                  "median": 34032.0,
-                  "min": 34032.0
+                  "max": 34256.0,
+                  "median": 34256.0,
+                  "min": 34256.0
                 },
                 "prove_seconds": {
-                  "mad": 5.7708000000000065e-05,
-                  "max": 0.002841541,
-                  "median": 0.002544375,
-                  "min": 0.002322958
+                  "mad": 4.0084000000000126e-05,
+                  "max": 0.002636208,
+                  "median": 0.002483042,
+                  "min": 0.002299125
                 },
                 "request_native_mhz": {
-                  "mad": 0.00848606020523407,
-                  "max": 0.4139812463261186,
-                  "median": 0.3773897820979407,
-                  "min": 0.32476573417036625
+                  "mad": 0.005711618175798738,
+                  "max": 0.4180943390679763,
+                  "median": 0.3890392743505723,
+                  "min": 0.3676289761999729
                 },
                 "request_seconds": {
-                  "mad": 6.241699999999994e-05,
-                  "max": 0.003153042,
-                  "median": 0.002713375,
-                  "min": 0.002473542
+                  "mad": 3.808399999999986e-05,
+                  "max": 0.002785417,
+                  "median": 0.002632125,
+                  "min": 0.002449208
                 },
                 "verify_seconds": {
-                  "mad": 7.079999999999939e-07,
-                  "max": 0.000121583,
-                  "median": 0.000107042,
-                  "min": 0.000106042
+                  "mad": 1.2600000000000523e-07,
+                  "max": 0.000114334,
+                  "median": 0.000106292,
+                  "min": 0.000106084
                 }
               },
-              "process_wall_seconds": 0.2425382500514388,
+              "process_wall_seconds": 0.23333604203071445,
               "proof": {
                 "byte_identical": true,
                 "bytes": 24965,
@@ -259,10 +268,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 24965,
                 "complete": true,
-                "cycles": 603329617,
-                "energy_nj": 365458400,
-                "instructions": 1048318841,
-                "lifetime_peak_physical_footprint_bytes": 157271096,
+                "cycles": 661203698,
+                "energy_nj": 420887214,
+                "instructions": 1047937538,
+                "lifetime_peak_physical_footprint_bytes": 157533264,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -273,7 +282,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 34032
+                "peak_rss_kib": 34256
               }
             }
           },
@@ -285,13 +294,13 @@
             "sha256": "91741aec956846d52e50f7b8fef3ac93195dbcd76cdb89e25ed33a148bea5700"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 0.4212885286170474,
-            "metal_native_mhz_speedup": 0.4212885286170474,
-            "metal_prove_time_speedup": 0.4212885286170474,
-            "metal_request_native_mhz_speedup": 0.45544460312341645,
-            "metal_request_time_speedup": 0.45544460312341645,
-            "metal_request_trace_row_mhz_speedup": 0.45544460312341645,
-            "metal_trace_row_mhz_speedup": 0.4212885286170474
+            "metal_committed_mcells_speedup": 0.42729845085181806,
+            "metal_native_mhz_speedup": 0.42729845085181806,
+            "metal_prove_time_speedup": 0.4272984508518181,
+            "metal_request_native_mhz_speedup": 0.46361475993731305,
+            "metal_request_time_speedup": 0.463614759937313,
+            "metal_request_trace_row_mhz_speedup": 0.46361475993731305,
+            "metal_trace_row_mhz_speedup": 0.42729845085181806
           },
           "workload": {
             "committed_columns": 8,
@@ -319,49 +328,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 1.5867171766354318,
-                  "max": 88.61892617703772,
-                  "median": 83.5291233033107,
-                  "min": 79.1965781703072
+                  "mad": 1.4997889158384652,
+                  "max": 108.53046633563737,
+                  "median": 105.37746920658375,
+                  "min": 101.57996006070526
                 },
                 "native_mhz": {
-                  "mad": 0.04958491176985724,
-                  "max": 2.769341443032429,
-                  "median": 2.6102851032284593,
-                  "min": 2.4748930678221
+                  "mad": 0.04686840361995204,
+                  "max": 3.391577072988668,
+                  "median": 3.2930459127057423,
+                  "min": 3.1743737518970394
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 35728.0,
-                  "median": 35728.0,
-                  "min": 35728.0
+                  "max": 35184.0,
+                  "median": 35184.0,
+                  "min": 35184.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00012154100000000018,
-                  "max": 0.006620084,
-                  "median": 0.006276709,
-                  "min": 0.005916208
+                  "mad": 7.04579999999998e-05,
+                  "max": 0.005161333,
+                  "median": 0.004975333,
+                  "min": 0.004830791
                 },
                 "request_native_mhz": {
-                  "mad": 0.044048977860748906,
-                  "max": 2.5722079400278663,
-                  "median": 2.4395019449459325,
-                  "min": 2.3167420814479636
+                  "mad": 0.03342273107969529,
+                  "max": 3.111452439064225,
+                  "median": 3.017033422336801,
+                  "min": 2.926323588089949
                 },
                 "request_seconds": {
-                  "mad": 0.00012350000000000035,
-                  "max": 0.007072,
-                  "median": 0.006716125,
-                  "min": 0.006369625
+                  "mad": 5.9500000000000525e-05,
+                  "max": 0.005598834,
+                  "median": 0.0054305,
+                  "min": 0.005265708
                 },
                 "verify_seconds": {
-                  "mad": 1.541999999999993e-06,
-                  "max": 0.00017975,
-                  "median": 0.000164666,
-                  "min": 0.000161583
+                  "mad": 2.4179999999999894e-06,
+                  "max": 0.000184667,
+                  "median": 0.000165791,
+                  "min": 0.000161083
                 }
               },
-              "process_wall_seconds": 0.4076839169720188,
+              "process_wall_seconds": 0.3523063329048455,
               "proof": {
                 "byte_identical": true,
                 "bytes": 41840,
@@ -371,10 +380,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 41840,
                 "complete": true,
-                "cycles": 5613014323,
-                "energy_nj": 5282026264,
-                "instructions": 14524082521,
-                "lifetime_peak_physical_footprint_bytes": 36210080,
+                "cycles": 5452538305,
+                "energy_nj": 4949458506,
+                "instructions": 13452296177,
+                "lifetime_peak_physical_footprint_bytes": 35603848,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -385,7 +394,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 35728
+                "peak_rss_kib": 35184
               }
             },
             "metal": {
@@ -393,49 +402,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 2.407343166174968,
-                  "max": 115.82847978876008,
-                  "median": 112.26723768736618,
-                  "min": 98.66937268706019
+                  "mad": 2.275431223724837,
+                  "max": 117.97768611276567,
+                  "median": 113.50067651675056,
+                  "min": 65.88394960887186
                 },
                 "native_mhz": {
-                  "mad": 0.07522947394296775,
-                  "max": 3.6196399933987524,
-                  "median": 3.508351177730193,
-                  "min": 3.083417896470631
+                  "mad": 0.07110722574140116,
+                  "max": 3.686802691023927,
+                  "median": 3.546896141148455,
+                  "min": 2.0588734252772456
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 42144.0,
-                  "median": 42144.0,
-                  "min": 42144.0
+                  "max": 42336.0,
+                  "median": 42336.0,
+                  "min": 42336.0
                 },
                 "prove_seconds": {
-                  "mad": 9.924999999999951e-05,
-                  "max": 0.005313584,
-                  "median": 0.00467,
-                  "min": 0.004526417
+                  "mad": 9.449999999999997e-05,
+                  "max": 0.00795775,
+                  "median": 0.00461925,
+                  "min": 0.004443959
                 },
                 "request_native_mhz": {
-                  "mad": 0.056291879042007054,
-                  "max": 3.3036147804499563,
-                  "median": 3.200182510408797,
-                  "min": 2.845844639532715
+                  "mad": 0.06693526867834221,
+                  "max": 3.3567462835364745,
+                  "median": 3.237011943989262,
+                  "min": 1.9483017465626162
                 },
                 "request_seconds": {
-                  "mad": 9.041700000000062e-05,
-                  "max": 0.005757166,
-                  "median": 0.005119708,
-                  "min": 0.004959416
+                  "mad": 0.0001025409999999994,
+                  "max": 0.008409375,
+                  "median": 0.005061458,
+                  "min": 0.004880917
                 },
                 "verify_seconds": {
-                  "mad": 2.2489999999999847e-06,
-                  "max": 0.000185625,
-                  "median": 0.000165041,
-                  "min": 0.000161834
+                  "mad": 1.9579999999999836e-06,
+                  "max": 0.000188833,
+                  "median": 0.000166333,
+                  "min": 0.000162291
                 }
               },
-              "process_wall_seconds": 0.3484912500716746,
+              "process_wall_seconds": 0.3518837089650333,
               "proof": {
                 "byte_identical": true,
                 "bytes": 41840,
@@ -445,10 +454,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 41840,
                 "complete": true,
-                "cycles": 1081173761,
-                "energy_nj": 943497131,
-                "instructions": 2135476847,
-                "lifetime_peak_physical_footprint_bytes": 172639360,
+                "cycles": 1088800611,
+                "energy_nj": 910016553,
+                "instructions": 2137132394,
+                "lifetime_peak_physical_footprint_bytes": 172852376,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -459,7 +468,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 42144
+                "peak_rss_kib": 42336
               }
             }
           },
@@ -471,13 +480,13 @@
             "sha256": "57a7d291eb8a103d0e4395c23fd7dc9ab7e9ed2d0f95558835cc6482630f3374"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.3440490364025697,
-            "metal_native_mhz_speedup": 1.3440490364025697,
-            "metal_prove_time_speedup": 1.3440490364025697,
-            "metal_request_native_mhz_speedup": 1.3118179786815967,
-            "metal_request_time_speedup": 1.3118179786815967,
-            "metal_request_trace_row_mhz_speedup": 1.3118179786815967,
-            "metal_trace_row_mhz_speedup": 1.3440490364025697
+            "metal_committed_mcells_speedup": 1.0770867565080913,
+            "metal_native_mhz_speedup": 1.0770867565080913,
+            "metal_prove_time_speedup": 1.0770867565080913,
+            "metal_request_native_mhz_speedup": 1.072912192494732,
+            "metal_request_time_speedup": 1.072912192494732,
+            "metal_request_trace_row_mhz_speedup": 1.072912192494732,
+            "metal_trace_row_mhz_speedup": 1.0770867565080913
           },
           "workload": {
             "committed_columns": 32,
@@ -505,49 +514,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 3.603706422320755,
-                  "max": 261.95845155428344,
-                  "median": 251.339661951683,
-                  "min": 242.34025711396794
+                  "mad": 4.064271827796574,
+                  "max": 261.65204509546203,
+                  "median": 249.8871597574757,
+                  "min": 240.2792215700794
                 },
                 "native_mhz": {
-                  "mad": 0.0563079128487618,
-                  "max": 4.093100805535679,
-                  "median": 3.927182217995047,
-                  "min": 3.786566517405749
+                  "mad": 0.06350424730932147,
+                  "max": 4.088313204616594,
+                  "median": 3.904486871210558,
+                  "min": 3.7543628370324904
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 116272.0,
-                  "median": 116272.0,
-                  "min": 116272.0
+                  "max": 116176.0,
+                  "median": 116176.0,
+                  "min": 116176.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0002427499999999999,
-                  "max": 0.0173075,
-                  "median": 0.016687792,
-                  "min": 0.016011333
+                  "mad": 0.000268626000000001,
+                  "max": 0.017455958,
+                  "median": 0.016784792,
+                  "min": 0.016030083
                 },
                 "request_native_mhz": {
-                  "mad": 0.052919916241340736,
-                  "max": 3.857252238670072,
-                  "median": 3.7093486271515985,
-                  "min": 3.56821136164102
+                  "mad": 0.053448400251964845,
+                  "max": 3.8529433309969687,
+                  "median": 3.692125748610946,
+                  "min": 3.5496177645110043
                 },
                 "request_seconds": {
-                  "mad": 0.00025570799999999685,
-                  "max": 0.018366625,
-                  "median": 0.017667792,
-                  "min": 0.016990333
+                  "mad": 0.00025329099999999924,
+                  "max": 0.018462833,
+                  "median": 0.017750208,
+                  "min": 0.017009334
                 },
                 "verify_seconds": {
-                  "mad": 4.501000000000017e-06,
-                  "max": 0.0002495,
-                  "median": 0.000235458,
-                  "min": 0.000228125
+                  "mad": 3.5830000000000096e-06,
+                  "max": 0.000247834,
+                  "median": 0.000235958,
+                  "min": 0.000229791
                 }
               },
-              "process_wall_seconds": 0.9659193330444396,
+              "process_wall_seconds": 0.997053167084232,
               "proof": {
                 "byte_identical": true,
                 "bytes": 60249,
@@ -557,10 +566,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 60249,
                 "complete": true,
-                "cycles": 30539812464,
-                "energy_nj": 25175110555,
-                "instructions": 75430452544,
-                "lifetime_peak_physical_footprint_bytes": 119441904,
+                "cycles": 30557009049,
+                "energy_nj": 25014834681,
+                "instructions": 75442011545,
+                "lifetime_peak_physical_footprint_bytes": 119278064,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -571,7 +580,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 116272
+                "peak_rss_kib": 116176
               }
             },
             "metal": {
@@ -579,49 +588,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 2.8623969838433823,
-                  "max": 313.1362872820934,
-                  "median": 300.15593523570976,
-                  "min": 290.00902807206995
+                  "mad": 4.870475738048981,
+                  "max": 319.1779230115549,
+                  "median": 304.91278192755755,
+                  "min": 207.79568733821324
                 },
                 "native_mhz": {
-                  "mad": 0.04472495287255285,
-                  "max": 4.8927544887827095,
-                  "median": 4.689936488057965,
-                  "min": 4.531391063626093
+                  "mad": 0.07610118340701533,
+                  "max": 4.987155047055546,
+                  "median": 4.764262217618087,
+                  "min": 3.246807614659582
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 137728.0,
-                  "median": 137728.0,
-                  "min": 137728.0
+                  "max": 137904.0,
+                  "median": 137904.0,
+                  "min": 137904.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00013404199999999915,
-                  "max": 0.014462667,
-                  "median": 0.01397375,
-                  "min": 0.0133945
+                  "mad": 0.00022329199999999993,
+                  "max": 0.02018475,
+                  "median": 0.01375575,
+                  "min": 0.013140959
                 },
                 "request_native_mhz": {
-                  "mad": 0.033740029046823494,
-                  "max": 4.563656094642383,
-                  "median": 4.393118993154186,
-                  "min": 4.2608529325676585
+                  "mad": 0.07050147343568103,
+                  "max": 4.661042113030414,
+                  "median": 4.459305469433147,
+                  "min": 3.096134074850893
                 },
                 "request_seconds": {
-                  "mad": 0.00011545900000000005,
-                  "max": 0.015380958,
-                  "median": 0.014917875,
-                  "min": 0.014360416
+                  "mad": 0.00023608299999999978,
+                  "max": 0.021167042,
+                  "median": 0.014696459,
+                  "min": 0.014060375
                 },
                 "verify_seconds": {
-                  "mad": 2.4180000000000165e-06,
-                  "max": 0.000238916,
-                  "median": 0.000230959,
-                  "min": 0.000225666
+                  "mad": 3.3330000000000035e-06,
+                  "max": 0.000239458,
+                  "median": 0.000229916,
+                  "min": 0.000225125
                 }
               },
-              "process_wall_seconds": 0.866755332914181,
+              "process_wall_seconds": 0.8401010419474915,
               "proof": {
                 "byte_identical": true,
                 "bytes": 60249,
@@ -631,10 +640,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 60249,
                 "complete": true,
-                "cycles": 2719355913,
-                "energy_nj": 2644527626,
-                "instructions": 6076553292,
-                "lifetime_peak_physical_footprint_bytes": 292423264,
+                "cycles": 2724861534,
+                "energy_nj": 2606003465,
+                "instructions": 6075671026,
+                "lifetime_peak_physical_footprint_bytes": 292669048,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -645,7 +654,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 137728
+                "peak_rss_kib": 137904
               }
             }
           },
@@ -657,13 +666,13 @@
             "sha256": "42086545b7a170c5868afcc390f83d964e06d528e2d1039420fc6bfd7a6aac74"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.1942243134448518,
-            "metal_native_mhz_speedup": 1.1942243134448518,
-            "metal_prove_time_speedup": 1.194224313444852,
-            "metal_request_native_mhz_speedup": 1.1843370453231443,
-            "metal_request_time_speedup": 1.1843370453231443,
-            "metal_request_trace_row_mhz_speedup": 1.1843370453231443,
-            "metal_trace_row_mhz_speedup": 1.1942243134448518
+            "metal_committed_mcells_speedup": 1.2202018792141467,
+            "metal_native_mhz_speedup": 1.2202018792141467,
+            "metal_prove_time_speedup": 1.2202018792141467,
+            "metal_request_native_mhz_speedup": 1.2077880801082763,
+            "metal_request_time_speedup": 1.2077880801082763,
+            "metal_request_trace_row_mhz_speedup": 1.2077880801082763,
+            "metal_trace_row_mhz_speedup": 1.2202018792141467
           },
           "workload": {
             "committed_columns": 64,
@@ -691,49 +700,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.173974466748831,
-                  "max": 12.261432541041698,
-                  "median": 11.827467966071106,
-                  "min": 11.359261130351868
+                  "mad": 0.19388017720400796,
+                  "max": 12.093991216404248,
+                  "median": 11.651996179533478,
+                  "min": 11.39800660106722
                 },
                 "native_mhz": {
-                  "mad": 0.05799148891627759,
-                  "max": 4.0871441803472335,
-                  "median": 3.9424893220237025,
-                  "min": 3.7864203767839557
+                  "mad": 0.06462672573466977,
+                  "max": 4.031330405468083,
+                  "median": 3.8839987265111593,
+                  "min": 3.7993355336890726
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 42128.0,
-                  "median": 42128.0,
-                  "min": 42128.0
+                  "max": 43216.0,
+                  "median": 43216.0,
+                  "min": 43216.0
                 },
                 "prove_seconds": {
-                  "mad": 6.204100000000053e-05,
-                  "max": 0.004327042,
-                  "median": 0.00415575,
-                  "min": 0.004008667
+                  "mad": 6.904100000000059e-05,
+                  "max": 0.004312333,
+                  "median": 0.004218333,
+                  "min": 0.004064167
                 },
                 "request_native_mhz": {
-                  "mad": 0.049956071517168965,
-                  "max": 3.820412625083303,
-                  "median": 3.6993935649879854,
-                  "min": 3.5590953415691
+                  "mad": 0.0538564456013888,
+                  "max": 3.7775453702012904,
+                  "median": 3.643554351316563,
+                  "min": 3.5627723344117617
                 },
                 "request_seconds": {
-                  "mad": 6.0624999999999915e-05,
-                  "max": 0.004603417,
-                  "median": 0.004428834,
-                  "min": 0.004288542
+                  "mad": 6.549900000000011e-05,
+                  "max": 0.004598666,
+                  "median": 0.004496708,
+                  "min": 0.004337208
                 },
                 "verify_seconds": {
-                  "mad": 2.2500000000000005e-06,
-                  "max": 0.00019075,
-                  "median": 0.000182042,
-                  "min": 0.000178583
+                  "mad": 1.6249999999999988e-06,
+                  "max": 0.000190416,
+                  "median": 0.000181333,
+                  "min": 0.000178833
                 }
               },
-              "process_wall_seconds": 0.25413716689217836,
+              "process_wall_seconds": 0.29732208396308124,
               "proof": {
                 "byte_identical": true,
                 "bytes": 46446,
@@ -743,10 +752,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 46446,
                 "complete": true,
-                "cycles": 3792275423,
-                "energy_nj": 3412130348,
-                "instructions": 9067370761,
-                "lifetime_peak_physical_footprint_bytes": 42714456,
+                "cycles": 3858173883,
+                "energy_nj": 3439672583,
+                "instructions": 9067286269,
+                "lifetime_peak_physical_footprint_bytes": 43828568,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -757,7 +766,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 42128
+                "peak_rss_kib": 43216
               }
             },
             "metal": {
@@ -765,49 +774,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.25744401082810775,
-                  "max": 13.690251377882356,
-                  "median": 13.037807572973605,
-                  "min": 12.096595568322435
+                  "mad": 0.2523331478499564,
+                  "max": 13.560418101855978,
+                  "median": 12.919013043335415,
+                  "min": 12.193878500325614
                 },
                 "native_mhz": {
-                  "mad": 0.08581467027603651,
-                  "max": 4.563417125960785,
-                  "median": 4.345935857657868,
-                  "min": 4.032198522774145
+                  "mad": 0.0841110492833197,
+                  "max": 4.520139367285326,
+                  "median": 4.306337681111805,
+                  "min": 4.064626166775204
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 30720.0,
-                  "median": 30720.0,
-                  "min": 30720.0
+                  "max": 30944.0,
+                  "median": 30944.0,
+                  "min": 30944.0
                 },
                 "prove_seconds": {
-                  "mad": 7.299999999999971e-05,
-                  "max": 0.004063292,
-                  "median": 0.003769959,
-                  "min": 0.003590292
+                  "mad": 7.579200000000031e-05,
+                  "max": 0.004030875,
+                  "median": 0.003804625,
+                  "min": 0.003624667
                 },
                 "request_native_mhz": {
-                  "mad": 0.08407724642298797,
-                  "max": 4.235917655043144,
-                  "median": 4.041565169128303,
-                  "min": 3.762040815295598
+                  "mad": 0.07475157237481511,
+                  "max": 4.201160293599154,
+                  "median": 4.016055397248522,
+                  "min": 3.797610361097487
                 },
                 "request_seconds": {
-                  "mad": 8.61249999999994e-05,
-                  "max": 0.004355083,
-                  "median": 0.004053875,
-                  "min": 0.003867875
+                  "mad": 7.512499999999967e-05,
+                  "max": 0.004314292,
+                  "median": 0.004079625,
+                  "min": 0.003899875
                 },
                 "verify_seconds": {
-                  "mad": 1.7909999999999834e-06,
-                  "max": 0.000196416,
-                  "median": 0.00018125,
-                  "min": 0.000178834
+                  "mad": 8.740000000000191e-07,
+                  "max": 0.000203666,
+                  "median": 0.000181042,
+                  "min": 0.000179166
                 }
               },
-              "process_wall_seconds": 0.3276787910144776,
+              "process_wall_seconds": 0.2941027079941705,
               "proof": {
                 "byte_identical": true,
                 "bytes": 46446,
@@ -817,10 +826,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 46446,
                 "complete": true,
-                "cycles": 838287860,
-                "energy_nj": 670450344,
-                "instructions": 1713206477,
-                "lifetime_peak_physical_footprint_bytes": 164103176,
+                "cycles": 848456577,
+                "energy_nj": 706171618,
+                "instructions": 1707541920,
+                "lifetime_peak_physical_footprint_bytes": 164316192,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -831,7 +840,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 30720
+                "peak_rss_kib": 30944
               }
             }
           },
@@ -843,13 +852,13 @@
             "sha256": "35bb35714e10888c786a71ccdfe31d2b9b4651c567fac5ba4c9543bc247cad80"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.1023329431434135,
-            "metal_native_mhz_speedup": 1.1023329431434132,
-            "metal_prove_time_speedup": 1.1023329431434135,
-            "metal_request_native_mhz_speedup": 1.0924939718170885,
-            "metal_request_time_speedup": 1.0924939718170887,
-            "metal_request_trace_row_mhz_speedup": 1.0924939718170885,
-            "metal_trace_row_mhz_speedup": 1.1023329431434132
+            "metal_committed_mcells_speedup": 1.108738180503992,
+            "metal_native_mhz_speedup": 1.1087381805039922,
+            "metal_prove_time_speedup": 1.108738180503992,
+            "metal_request_native_mhz_speedup": 1.1022356221466434,
+            "metal_request_time_speedup": 1.1022356221466434,
+            "metal_request_trace_row_mhz_speedup": 1.1022356221466434,
+            "metal_trace_row_mhz_speedup": 1.1087381805039922
           },
           "workload": {
             "committed_columns": 3,
@@ -878,49 +887,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.24524547522686646,
-                  "max": 17.43996518535596,
-                  "median": 16.698546342823175,
-                  "min": 16.203176599938836
+                  "mad": 0.34755701583101484,
+                  "max": 18.14654687848714,
+                  "median": 17.154772506084637,
+                  "min": 16.64359430121462
                 },
                 "native_mhz": {
-                  "mad": 0.08174849174228971,
-                  "max": 5.813321728451985,
-                  "median": 5.566182114274391,
-                  "min": 5.401058866646277
+                  "mad": 0.11585233861033828,
+                  "max": 6.048848959495713,
+                  "median": 5.718257502028212,
+                  "min": 5.547864767071539
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 73760.0,
-                  "median": 73760.0,
-                  "min": 73760.0
+                  "max": 74912.0,
+                  "median": 74912.0,
+                  "min": 74912.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00017041700000000083,
-                  "max": 0.012133917,
-                  "median": 0.011773959,
-                  "min": 0.011273417
+                  "mad": 0.0002369989999999999,
+                  "max": 0.011812833,
+                  "median": 0.011460834,
+                  "min": 0.010834458
                 },
                 "request_native_mhz": {
-                  "mad": 0.06198207688757762,
-                  "max": 5.557528595798002,
-                  "median": 5.332537879074517,
-                  "min": 5.17460992240296
+                  "mad": 0.10992875443651329,
+                  "max": 5.771575729298163,
+                  "median": 5.469613872935802,
+                  "min": 5.308654225858386
                 },
                 "request_seconds": {
-                  "mad": 0.0001412080000000003,
-                  "max": 0.012664916,
-                  "median": 0.012289833,
-                  "min": 0.011792292
+                  "mad": 0.0002457509999999989,
+                  "max": 0.012345125,
+                  "median": 0.011981833,
+                  "min": 0.011354958
                 },
                 "verify_seconds": {
-                  "mad": 9.999999999999972e-07,
-                  "max": 0.000227917,
-                  "median": 0.000209541,
-                  "min": 0.000208375
+                  "mad": 3.6240000000000046e-06,
+                  "max": 0.000228375,
+                  "median": 0.000212708,
+                  "min": 0.000208
                 }
               },
-              "process_wall_seconds": 0.6697013749508187,
+              "process_wall_seconds": 0.6816503750160336,
               "proof": {
                 "byte_identical": true,
                 "bytes": 54848,
@@ -930,10 +939,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 54848,
                 "complete": true,
-                "cycles": 13574033482,
-                "energy_nj": 11919427585,
-                "instructions": 33698371128,
-                "lifetime_peak_physical_footprint_bytes": 75105648,
+                "cycles": 13672991918,
+                "energy_nj": 11700928050,
+                "instructions": 33708509097,
+                "lifetime_peak_physical_footprint_bytes": 76268888,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -944,7 +953,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 73760
+                "peak_rss_kib": 74912
               }
             },
             "metal": {
@@ -952,49 +961,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.46870105993575706,
-                  "max": 31.982218219817888,
-                  "median": 31.301194714484538,
-                  "min": 18.545664056796095
+                  "mad": 0.5329860500529477,
+                  "max": 31.717787066154706,
+                  "median": 30.849945755888633,
+                  "min": 26.23101297488409
                 },
                 "native_mhz": {
-                  "mad": 0.15623368664525294,
-                  "max": 10.660739406605963,
-                  "median": 10.433731571494846,
-                  "min": 6.181888018932033
+                  "mad": 0.17766201668431592,
+                  "max": 10.572595688718238,
+                  "median": 10.283315251962877,
+                  "min": 8.743670991628031
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 44480.0,
-                  "median": 44480.0,
-                  "min": 44480.0
+                  "max": 44672.0,
+                  "median": 44672.0,
+                  "min": 44672.0
                 },
                 "prove_seconds": {
-                  "mad": 9.266599999999993e-05,
-                  "max": 0.010601292,
-                  "median": 0.006281166,
-                  "min": 0.006147416
+                  "mad": 0.00011204100000000022,
+                  "max": 0.00749525,
+                  "median": 0.006373042,
+                  "min": 0.006198667
                 },
                 "request_native_mhz": {
-                  "mad": 0.12259366426460971,
-                  "max": 9.829846579637566,
-                  "median": 9.611438926386315,
-                  "min": 5.888472319885222
+                  "mad": 0.15082279431018542,
+                  "max": 9.751352126687825,
+                  "median": 9.508708965254675,
+                  "min": 7.920835158858455
                 },
                 "request_seconds": {
-                  "mad": 8.587500000000001e-05,
-                  "max": 0.011129542,
-                  "median": 0.006818542,
-                  "min": 0.006667042
+                  "mad": 0.00011108299999999967,
+                  "max": 0.008273875,
+                  "median": 0.006892208,
+                  "min": 0.006720709
                 },
                 "verify_seconds": {
-                  "mad": 2.5830000000000124e-06,
-                  "max": 0.000243333,
-                  "median": 0.000210792,
-                  "min": 0.000207583
+                  "mad": 1.875000000000005e-06,
+                  "max": 0.000309333,
+                  "median": 0.0002105,
+                  "min": 0.000206791
                 }
               },
-              "process_wall_seconds": 0.44717933400534093,
+              "process_wall_seconds": 0.4579961249837652,
               "proof": {
                 "byte_identical": true,
                 "bytes": 54848,
@@ -1004,10 +1013,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 54848,
                 "complete": true,
-                "cycles": 1432980672,
-                "energy_nj": 1404525027,
-                "instructions": 3300025115,
-                "lifetime_peak_physical_footprint_bytes": 209699992,
+                "cycles": 1450999279,
+                "energy_nj": 1372653264,
+                "instructions": 3301232091,
+                "lifetime_peak_physical_footprint_bytes": 209978544,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1018,7 +1027,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 44480
+                "peak_rss_kib": 44672
               }
             }
           },
@@ -1030,13 +1039,13 @@
             "sha256": "56163b8ea3d877b3b9bf15753b7c0175d4a6ead493640eef8210c59ba7e5215c"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.8744862020841353,
-            "metal_native_mhz_speedup": 1.8744862020841353,
-            "metal_prove_time_speedup": 1.8744862020841353,
-            "metal_request_native_mhz_speedup": 1.8024136244962632,
-            "metal_request_time_speedup": 1.8024136244962632,
-            "metal_request_trace_row_mhz_speedup": 1.8024136244962632,
-            "metal_trace_row_mhz_speedup": 1.8744862020841353
+            "metal_committed_mcells_speedup": 1.7983302165590624,
+            "metal_native_mhz_speedup": 1.7983302165590622,
+            "metal_prove_time_speedup": 1.7983302165590624,
+            "metal_request_native_mhz_speedup": 1.7384607371106617,
+            "metal_request_time_speedup": 1.7384607371106617,
+            "metal_request_trace_row_mhz_speedup": 1.7384607371106617,
+            "metal_trace_row_mhz_speedup": 1.7983302165590622
           },
           "workload": {
             "committed_columns": 3,
@@ -1065,49 +1074,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.4672126420133118,
-                  "max": 31.418632568450203,
-                  "median": 30.280865935920225,
-                  "min": 29.168971826679268
+                  "mad": 0.4395703997106395,
+                  "max": 31.8709599609394,
+                  "median": 30.224132957407154,
+                  "min": 29.009994539821125
                 },
                 "native_mhz": {
-                  "mad": 0.058401580251663976,
-                  "max": 3.9273290710562754,
-                  "median": 3.785108241990028,
-                  "min": 3.6461214783349085
+                  "mad": 0.054946299963829937,
+                  "max": 3.983869995117425,
+                  "median": 3.778016619675894,
+                  "min": 3.6262493174776407
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 29952.0,
-                  "median": 29952.0,
-                  "min": 29952.0
+                  "max": 31776.0,
+                  "median": 31776.0,
+                  "min": 31776.0
                 },
                 "prove_seconds": {
-                  "mad": 6.783299999999978e-05,
-                  "max": 0.004493542,
-                  "median": 0.004328542,
-                  "min": 0.004171792
+                  "mad": 6.216700000000012e-05,
+                  "max": 0.004518167,
+                  "median": 0.004336667,
+                  "min": 0.004112584
                 },
                 "request_native_mhz": {
-                  "mad": 0.05990023476323447,
-                  "max": 3.6486255967654078,
-                  "median": 3.518963830103464,
-                  "min": 3.3995813186532726
+                  "mad": 0.05149272672173444,
+                  "max": 3.6955001691665728,
+                  "median": 3.5129902807411844,
+                  "min": 3.3787246345609465
                 },
                 "request_seconds": {
-                  "mad": 8.062599999999944e-05,
-                  "max": 0.004819417,
-                  "median": 0.004655916,
-                  "min": 0.004490458
+                  "mad": 6.737400000000025e-05,
+                  "max": 0.004849167,
+                  "median": 0.004663833,
+                  "min": 0.0044335
                 },
                 "verify_seconds": {
                   "mad": 2.2079999999999897e-06,
-                  "max": 0.0001895,
-                  "median": 0.000178209,
-                  "min": 0.000173458
+                  "max": 0.000186583,
+                  "median": 0.000179958,
+                  "min": 0.000173958
                 }
               },
-              "process_wall_seconds": 0.3187591669848189,
+              "process_wall_seconds": 0.2974464170401916,
               "proof": {
                 "byte_identical": true,
                 "bytes": 45200,
@@ -1117,10 +1126,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 45200,
                 "complete": true,
-                "cycles": 4129432845,
-                "energy_nj": 3590637734,
-                "instructions": 9723323034,
-                "lifetime_peak_physical_footprint_bytes": 30147832,
+                "cycles": 4110977622,
+                "energy_nj": 3746819184,
+                "instructions": 9720965806,
+                "lifetime_peak_physical_footprint_bytes": 31966408,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1131,7 +1140,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 29952
+                "peak_rss_kib": 31776
               }
             },
             "metal": {
@@ -1139,49 +1148,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.3250001736493857,
-                  "max": 33.939621177772594,
-                  "median": 32.72913415319309,
-                  "min": 31.626794558546678
+                  "mad": 0.8020228117441945,
+                  "max": 34.058307493986554,
+                  "median": 32.564132250048566,
+                  "min": 30.109289517064198
                 },
                 "native_mhz": {
-                  "mad": 0.040625021706173214,
-                  "max": 4.242452647221574,
-                  "median": 4.091141769149136,
-                  "min": 3.9533493198183347
+                  "mad": 0.10025285146802432,
+                  "max": 4.257288436748319,
+                  "median": 4.070516531256071,
+                  "min": 3.7636611896330248
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 32400.0,
-                  "median": 32400.0,
-                  "min": 32400.0
+                  "max": 32560.0,
+                  "median": 32560.0,
+                  "min": 32560.0
                 },
                 "prove_seconds": {
-                  "mad": 4.016600000000033e-05,
-                  "max": 0.004144334,
-                  "median": 0.00400475,
-                  "min": 0.003861917
+                  "mad": 9.749900000000002e-05,
+                  "max": 0.004353208,
+                  "median": 0.004025042,
+                  "min": 0.003848459
                 },
                 "request_native_mhz": {
-                  "mad": 0.04252884679749114,
-                  "max": 3.919382812032773,
-                  "median": 3.787222976682366,
-                  "min": 3.673610966302736
+                  "mad": 0.08596554121061484,
+                  "max": 3.9215714433771667,
+                  "median": 3.74991388518681,
+                  "min": 3.4989855846235987
                 },
                 "request_seconds": {
-                  "mad": 4.80410000000004e-05,
-                  "max": 0.004459917,
-                  "median": 0.004326125,
-                  "min": 0.00418025
+                  "mad": 9.791700000000032e-05,
+                  "max": 0.0046825,
+                  "median": 0.004369167,
+                  "min": 0.004177917
                 },
                 "verify_seconds": {
-                  "mad": 1.7080000000000047e-06,
-                  "max": 0.000193375,
-                  "median": 0.000176125,
-                  "min": 0.000174041
+                  "mad": 2.7910000000000077e-06,
+                  "max": 0.000199167,
+                  "median": 0.000178125,
+                  "min": 0.000174541
                 }
               },
-              "process_wall_seconds": 0.33002604194916785,
+              "process_wall_seconds": 0.2926517090527341,
               "proof": {
                 "byte_identical": true,
                 "bytes": 45200,
@@ -1191,10 +1200,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 45200,
                 "complete": true,
-                "cycles": 999305637,
-                "energy_nj": 846652443,
-                "instructions": 2046725583,
-                "lifetime_peak_physical_footprint_bytes": 165479480,
+                "cycles": 1029118837,
+                "energy_nj": 853084809,
+                "instructions": 2049040849,
+                "lifetime_peak_physical_footprint_bytes": 165561376,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1205,7 +1214,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 32400
+                "peak_rss_kib": 32560
               }
             }
           },
@@ -1217,13 +1226,13 @@
             "sha256": "d63a2c92846148edc075fbb46fe63f5cf0fc6fe05ae1d5d54d09bda33b69dbaf"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.0808519882639367,
-            "metal_native_mhz_speedup": 1.0808519882639367,
-            "metal_prove_time_speedup": 1.0808519882639367,
-            "metal_request_native_mhz_speedup": 1.0762324250917392,
-            "metal_request_time_speedup": 1.0762324250917392,
-            "metal_request_trace_row_mhz_speedup": 1.0762324250917392,
-            "metal_trace_row_mhz_speedup": 1.0808519882639367
+            "metal_committed_mcells_speedup": 1.0774215523713788,
+            "metal_native_mhz_speedup": 1.0774215523713788,
+            "metal_prove_time_speedup": 1.0774215523713788,
+            "metal_request_native_mhz_speedup": 1.0674421462947055,
+            "metal_request_time_speedup": 1.0674421462947055,
+            "metal_request_trace_row_mhz_speedup": 1.0674421462947055,
+            "metal_trace_row_mhz_speedup": 1.0774215523713788
           },
           "workload": {
             "committed_columns": 8,
@@ -1250,49 +1259,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.660876923522757,
-                  "max": 46.607694686032254,
-                  "median": 44.10908916221689,
-                  "min": 42.14703163310423
+                  "mad": 0.7847439078482026,
+                  "max": 47.45188926287509,
+                  "median": 45.10764049549162,
+                  "min": 43.68945064362376
                 },
                 "native_mhz": {
-                  "mad": 0.08260961544034462,
-                  "max": 5.825961835754032,
-                  "median": 5.513636145277111,
-                  "min": 5.268378954138028
+                  "mad": 0.09809298848102532,
+                  "max": 5.9314861578593865,
+                  "median": 5.638455061936453,
+                  "min": 5.46118133045297
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 83088.0,
-                  "median": 83088.0,
-                  "min": 83088.0
+                  "max": 96752.0,
+                  "median": 96752.0,
+                  "min": 96752.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00017545899999999934,
-                  "max": 0.0124395,
-                  "median": 0.011886167,
-                  "min": 0.011248958
+                  "mad": 0.00019874999999999927,
+                  "max": 0.012000334,
+                  "median": 0.011623042,
+                  "min": 0.011048833
                 },
                 "request_native_mhz": {
-                  "mad": 0.07836691791145078,
-                  "max": 5.5494700161295025,
-                  "median": 5.263125771166462,
-                  "min": 5.04192539141354
+                  "mad": 0.08887489974463136,
+                  "max": 5.652070945495497,
+                  "median": 5.376026103126743,
+                  "min": 5.218561503394183
                 },
                 "request_seconds": {
-                  "mad": 0.00018820899999999995,
-                  "max": 0.012998209,
-                  "median": 0.012451916,
-                  "min": 0.011809416
+                  "mad": 0.00019825099999999998,
+                  "max": 0.01255825,
+                  "median": 0.012190417,
+                  "min": 0.011595042
                 },
                 "verify_seconds": {
-                  "mad": 2.0830000000000002e-06,
-                  "max": 0.00023625,
-                  "median": 0.000214167,
-                  "min": 0.000209791
+                  "mad": 1.4579999999999986e-06,
+                  "max": 0.00021925,
+                  "median": 0.000213125,
+                  "min": 0.0002105
                 }
               },
-              "process_wall_seconds": 0.6757532079936936,
+              "process_wall_seconds": 0.6827844160143286,
               "proof": {
                 "byte_identical": true,
                 "bytes": 55401,
@@ -1302,10 +1311,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 55401,
                 "complete": true,
-                "cycles": 14143706809,
-                "energy_nj": 12369265307,
-                "instructions": 35540670719,
-                "lifetime_peak_physical_footprint_bytes": 85051336,
+                "cycles": 14230637361,
+                "energy_nj": 12286619369,
+                "instructions": 35540058026,
+                "lifetime_peak_physical_footprint_bytes": 99010456,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1316,7 +1325,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 83088
+                "peak_rss_kib": 96752
               }
             },
             "metal": {
@@ -1324,49 +1333,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.618316878712335,
-                  "max": 78.57150350305348,
-                  "median": 76.82250284153058,
-                  "min": 74.64811854102088
+                  "mad": 0.7559471114901726,
+                  "max": 78.59456568275552,
+                  "median": 76.77469209246503,
+                  "min": 71.55195414456064
                 },
                 "native_mhz": {
-                  "mad": 0.07728960983904187,
-                  "max": 9.821437937881685,
-                  "median": 9.602812855191322,
-                  "min": 9.33101481762761
+                  "mad": 0.09449338893627157,
+                  "max": 9.82432071034444,
+                  "median": 9.596836511558129,
+                  "min": 8.94399426807008
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 51744.0,
-                  "median": 51744.0,
-                  "min": 51744.0
+                  "max": 51904.0,
+                  "median": 51904.0,
+                  "min": 51904.0
                 },
                 "prove_seconds": {
-                  "mad": 5.537499999999987e-05,
-                  "max": 0.007023459,
-                  "median": 0.006824667,
-                  "min": 0.00667275
+                  "mad": 6.658400000000061e-05,
+                  "max": 0.007327375,
+                  "median": 0.006828917,
+                  "min": 0.006670792
                 },
                 "request_native_mhz": {
-                  "mad": 0.07892690761763,
-                  "max": 9.074023434119663,
-                  "median": 8.870100320542276,
-                  "min": 8.628598453129921
+                  "mad": 0.08810656034548181,
+                  "max": 9.079785064462929,
+                  "median": 8.867600297679452,
+                  "min": 8.307833000082779
                 },
                 "request_seconds": {
-                  "mad": 6.633299999999915e-05,
-                  "max": 0.007595208,
-                  "median": 0.007388417,
-                  "min": 0.007222375
+                  "mad": 7.270800000000032e-05,
+                  "max": 0.007888459,
+                  "median": 0.0073905,
+                  "min": 0.007217792
                 },
                 "verify_seconds": {
-                  "mad": 1.7089999999999933e-06,
-                  "max": 0.00021925,
-                  "median": 0.000212375,
-                  "min": 0.000209333
+                  "mad": 1.9990000000000058e-06,
+                  "max": 0.000241208,
+                  "median": 0.000212541,
+                  "min": 0.000209459
                 }
               },
-              "process_wall_seconds": 0.4500937080010772,
+              "process_wall_seconds": 0.46232499997131526,
               "proof": {
                 "byte_identical": true,
                 "bytes": 55401,
@@ -1376,10 +1385,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 55401,
                 "complete": true,
-                "cycles": 1610464534,
-                "energy_nj": 1564637394,
-                "instructions": 3736446443,
-                "lifetime_peak_physical_footprint_bytes": 213370224,
+                "cycles": 1577320248,
+                "energy_nj": 1552918943,
+                "instructions": 3709400829,
+                "lifetime_peak_physical_footprint_bytes": 213517656,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1390,7 +1399,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 51744
+                "peak_rss_kib": 51904
               }
             }
           },
@@ -1402,13 +1411,13 @@
             "sha256": "cfb36bf17fb3526bf1bdd9401fb885fd91ca46b9982fee1ca5fad33a1d574b72"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.7416479075096263,
-            "metal_native_mhz_speedup": 1.7416479075096263,
-            "metal_prove_time_speedup": 1.7416479075096263,
-            "metal_request_native_mhz_speedup": 1.6853293472742537,
-            "metal_request_time_speedup": 1.6853293472742537,
-            "metal_request_trace_row_mhz_speedup": 1.6853293472742537,
-            "metal_trace_row_mhz_speedup": 1.7416479075096263
+            "metal_committed_mcells_speedup": 1.7020329870754032,
+            "metal_native_mhz_speedup": 1.7020329870754032,
+            "metal_prove_time_speedup": 1.702032987075403,
+            "metal_request_native_mhz_speedup": 1.649471213043772,
+            "metal_request_time_speedup": 1.6494712130437723,
+            "metal_request_trace_row_mhz_speedup": 1.649471213043772,
+            "metal_trace_row_mhz_speedup": 1.7020329870754032
           },
           "workload": {
             "committed_columns": 8,
@@ -1435,49 +1444,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.31336854561793537,
-                  "max": 11.9066161998486,
-                  "median": 11.392392740872666,
-                  "min": 10.517171284904247
+                  "mad": 0.19356961593946487,
+                  "max": 12.057523453565949,
+                  "median": 11.579254119066638,
+                  "min": 11.077650380591393
                 },
                 "native_mhz": {
-                  "mad": 0.10445618187264527,
-                  "max": 3.9688720666162,
-                  "median": 3.797464246957555,
-                  "min": 3.505723761634749
+                  "mad": 0.0645232053131557,
+                  "max": 4.019174484521983,
+                  "median": 3.8597513730222133,
+                  "min": 3.6925501268637975
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 45376.0,
-                  "median": 45376.0,
-                  "min": 45376.0
+                  "max": 29168.0,
+                  "median": 29168.0,
+                  "min": 29168.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00011937499999999969,
-                  "max": 0.0046735,
-                  "median": 0.004314458,
-                  "min": 0.004128125
+                  "mad": 7.216699999999972e-05,
+                  "max": 0.004437042,
+                  "median": 0.004244833,
+                  "min": 0.004076459
                 },
                 "request_native_mhz": {
-                  "mad": 0.09244734522229958,
-                  "max": 3.738114761765912,
-                  "median": 3.5815286333202394,
-                  "min": 3.3152288062302993
+                  "mad": 0.055617778070109924,
+                  "max": 3.7809957883805456,
+                  "median": 3.6337892721598157,
+                  "min": 3.488957207675791
                 },
                 "request_seconds": {
-                  "mad": 0.00012120899999999973,
-                  "max": 0.004942042,
-                  "median": 0.004574583,
-                  "min": 0.004382958
+                  "mad": 7.008299999999943e-05,
+                  "max": 0.004695959,
+                  "median": 0.004508792,
+                  "min": 0.00433325
                 },
                 "verify_seconds": {
-                  "mad": 2.9590000000000237e-06,
-                  "max": 0.000185916,
-                  "median": 0.00016325,
+                  "mad": 1.916e-06,
+                  "max": 0.000187875,
+                  "median": 0.000161584,
                   "min": 0.000157208
                 }
               },
-              "process_wall_seconds": 0.2700497910846025,
+              "process_wall_seconds": 0.29423545801546425,
               "proof": {
                 "byte_identical": true,
                 "bytes": 40082,
@@ -1487,10 +1496,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 40082,
                 "complete": true,
-                "cycles": 3773929128,
-                "energy_nj": 3455654251,
-                "instructions": 8976836397,
-                "lifetime_peak_physical_footprint_bytes": 46007640,
+                "cycles": 3753888173,
+                "energy_nj": 3312516092,
+                "instructions": 8958641336,
+                "lifetime_peak_physical_footprint_bytes": 29476184,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1501,7 +1510,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 45376
+                "peak_rss_kib": 29168
               }
             },
             "metal": {
@@ -1509,49 +1518,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.19003326952450905,
-                  "max": 14.018227803046639,
-                  "median": 13.242271165892099,
-                  "min": 12.486748453446392
+                  "mad": 0.2601597020838966,
+                  "max": 13.751857754221353,
+                  "median": 13.136099418721187,
+                  "min": 12.232443300639321
                 },
                 "native_mhz": {
-                  "mad": 0.06334442317483635,
-                  "max": 4.672742601015546,
-                  "median": 4.414090388630699,
-                  "min": 4.162249484482131
+                  "mad": 0.0867199006946322,
+                  "max": 4.583952584740452,
+                  "median": 4.3786998062403955,
+                  "min": 4.077481100213108
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 29728.0,
-                  "median": 29728.0,
-                  "min": 29728.0
+                  "max": 29920.0,
+                  "median": 29920.0,
+                  "min": 29920.0
                 },
                 "prove_seconds": {
-                  "mad": 5.40409999999999e-05,
-                  "max": 0.003936333,
-                  "median": 0.00371175,
-                  "min": 0.003506292
+                  "mad": 7.266599999999988e-05,
+                  "max": 0.004018167,
+                  "median": 0.00374175,
+                  "min": 0.003574208
                 },
                 "request_native_mhz": {
-                  "mad": 0.054661156398593924,
-                  "max": 4.358992163977282,
-                  "median": 4.133241539582018,
-                  "min": 3.903973312682433
+                  "mad": 0.07618866575551309,
+                  "max": 4.271394121097568,
+                  "median": 4.1008276994091295,
+                  "min": 3.835654922158492
                 },
                 "request_seconds": {
-                  "mad": 5.312499999999935e-05,
-                  "max": 0.00419675,
-                  "median": 0.003963959,
-                  "min": 0.003758667
+                  "mad": 7.287399999999968e-05,
+                  "max": 0.0042715,
+                  "median": 0.003995291,
+                  "min": 0.00383575
                 },
                 "verify_seconds": {
-                  "mad": 4.1699999999997924e-07,
-                  "max": 0.000166167,
-                  "median": 0.000158583,
-                  "min": 0.000157708
+                  "mad": 7.089999999999961e-07,
+                  "max": 0.00016575,
+                  "median": 0.000158792,
+                  "min": 0.000157584
                 }
               },
-              "process_wall_seconds": 0.2652890000026673,
+              "process_wall_seconds": 0.2957481669727713,
               "proof": {
                 "byte_identical": true,
                 "bytes": 40082,
@@ -1561,10 +1570,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 40082,
                 "complete": true,
-                "cycles": 720218484,
-                "energy_nj": 707930009,
-                "instructions": 1586878695,
-                "lifetime_peak_physical_footprint_bytes": 163218392,
+                "cycles": 718817889,
+                "energy_nj": 675512446,
+                "instructions": 1589189876,
+                "lifetime_peak_physical_footprint_bytes": 163464200,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1575,7 +1584,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 29728
+                "peak_rss_kib": 29920
               }
             }
           },
@@ -1587,13 +1596,13 @@
             "sha256": "488fadeeb4e5d76b6fc0a9c10ab258bab6673de8e912ae5de927561650920b37"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.162378392941335,
-            "metal_native_mhz_speedup": 1.1623783929413347,
-            "metal_prove_time_speedup": 1.162378392941335,
-            "metal_request_native_mhz_speedup": 1.1540439747232498,
-            "metal_request_time_speedup": 1.15404397472325,
-            "metal_request_trace_row_mhz_speedup": 1.1540439747232498,
-            "metal_trace_row_mhz_speedup": 1.1623783929413347
+            "metal_committed_mcells_speedup": 1.1344512594374292,
+            "metal_native_mhz_speedup": 1.134451259437429,
+            "metal_prove_time_speedup": 1.134451259437429,
+            "metal_request_native_mhz_speedup": 1.1285265578902763,
+            "metal_request_time_speedup": 1.1285265578902763,
+            "metal_request_trace_row_mhz_speedup": 1.1285265578902763,
+            "metal_trace_row_mhz_speedup": 1.134451259437429
           },
           "workload": {
             "committed_columns": 3,
@@ -1622,49 +1631,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.14220138224418832,
-                  "max": 17.571020542511338,
-                  "median": 16.708896130815642,
-                  "min": 16.31776618704678
+                  "mad": 0.2362705768821627,
+                  "max": 18.113040674374684,
+                  "median": 16.74696678008882,
+                  "min": 16.041229667691624
                 },
                 "native_mhz": {
-                  "mad": 0.04740046074806337,
-                  "max": 5.857006847503779,
-                  "median": 5.569632043605215,
-                  "min": 5.43925539568226
+                  "mad": 0.07875685896072149,
+                  "max": 6.037680224791561,
+                  "median": 5.582322260029606,
+                  "min": 5.347076555897209
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 84144.0,
-                  "median": 84144.0,
-                  "min": 84144.0
+                  "max": 83360.0,
+                  "median": 83360.0,
+                  "min": 83360.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0001010000000000004,
-                  "max": 0.012048708,
-                  "median": 0.011766666,
-                  "min": 0.011189333
+                  "mad": 0.00016799999999999975,
+                  "max": 0.012256417,
+                  "median": 0.011739917,
+                  "min": 0.0108545
                 },
                 "request_native_mhz": {
-                  "mad": 0.03806893819283186,
-                  "max": 5.53885795875302,
-                  "median": 5.279289358159054,
-                  "min": 5.169983236367222
+                  "mad": 0.07489172990356519,
+                  "max": 5.7025844969859465,
+                  "median": 5.29551744338727,
+                  "min": 5.0877871526232115
                 },
                 "request_seconds": {
-                  "mad": 9.01660000000009e-05,
-                  "max": 0.01267625,
-                  "median": 0.012413792,
-                  "min": 0.011832042
+                  "mad": 0.00017258300000000046,
+                  "max": 0.012881042,
+                  "median": 0.01237575,
+                  "min": 0.011492333
                 },
                 "verify_seconds": {
-                  "mad": 2.9999999999999916e-06,
-                  "max": 0.000268292,
-                  "median": 0.000232208,
-                  "min": 0.000228375
+                  "mad": 2.166000000000006e-06,
+                  "max": 0.000261041,
+                  "median": 0.000231292,
+                  "min": 0.000227959
                 }
               },
-              "process_wall_seconds": 0.6596318338997662,
+              "process_wall_seconds": 0.67442104103975,
               "proof": {
                 "byte_identical": true,
                 "bytes": 60502,
@@ -1674,10 +1683,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 60502,
                 "complete": true,
-                "cycles": 13661302833,
-                "energy_nj": 11826725889,
-                "instructions": 33729200456,
-                "lifetime_peak_physical_footprint_bytes": 85952288,
+                "cycles": 13693392920,
+                "energy_nj": 11748489762,
+                "instructions": 33751606134,
+                "lifetime_peak_physical_footprint_bytes": 85100152,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1688,7 +1697,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 84144
+                "peak_rss_kib": 83360
               }
             },
             "metal": {
@@ -1696,49 +1705,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.5068995670132885,
-                  "max": 32.2830812175448,
-                  "median": 31.03826344351258,
-                  "min": 29.96140530645796
+                  "mad": 0.5656337867888226,
+                  "max": 32.044765661404924,
+                  "median": 30.614561536657654,
+                  "min": 23.129672656686566
                 },
                 "native_mhz": {
-                  "mad": 0.16896652233776166,
-                  "max": 10.761027072514933,
-                  "median": 10.346087814504193,
-                  "min": 9.987135102152653
+                  "mad": 0.1885445955962748,
+                  "max": 10.68158855380164,
+                  "median": 10.20485384555255,
+                  "min": 7.709890885562189
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 43776.0,
-                  "median": 43776.0,
-                  "min": 43776.0
+                  "max": 43968.0,
+                  "median": 43968.0,
+                  "min": 43968.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0001038749999999998,
-                  "max": 0.006562042,
-                  "median": 0.006334375,
-                  "min": 0.006090125
+                  "mad": 0.0001195829999999995,
+                  "max": 0.00850025,
+                  "median": 0.006422042,
+                  "min": 0.006135417
                 },
                 "request_native_mhz": {
-                  "mad": 0.1263877071594468,
-                  "max": 9.768675160695867,
-                  "median": 9.404157051833499,
-                  "min": 9.115357198741242
+                  "mad": 0.16020168008005875,
+                  "max": 9.653143192807748,
+                  "median": 9.299074590536925,
+                  "min": 7.188099273336863
                 },
                 "request_seconds": {
-                  "mad": 9.241599999999968e-05,
-                  "max": 0.007189625,
-                  "median": 0.006968833,
-                  "min": 0.006708791
+                  "mad": 0.0001235420000000008,
+                  "max": 0.009117292,
+                  "median": 0.007047583,
+                  "min": 0.006789084
                 },
                 "verify_seconds": {
-                  "mad": 9.999999999999972e-07,
-                  "max": 0.000259333,
-                  "median": 0.000228583,
-                  "min": 0.000227125
+                  "mad": 1.7499999999999883e-06,
+                  "max": 0.00026775,
+                  "median": 0.0002305,
+                  "min": 0.000226917
                 }
               },
-              "process_wall_seconds": 0.4324877499602735,
+              "process_wall_seconds": 0.4607415000209585,
               "proof": {
                 "byte_identical": true,
                 "bytes": 60502,
@@ -1748,10 +1757,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 60502,
                 "complete": true,
-                "cycles": 1431310705,
-                "energy_nj": 1439065599,
-                "instructions": 3339989275,
-                "lifetime_peak_physical_footprint_bytes": 209061064,
+                "cycles": 1446230981,
+                "energy_nj": 1435378972,
+                "instructions": 3341703860,
+                "lifetime_peak_physical_footprint_bytes": 209356144,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1762,7 +1771,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 43776
+                "peak_rss_kib": 43968
               }
             }
           },
@@ -1774,13 +1783,13 @@
             "sha256": "88ec35ee88a05ce0a5db4b6cb063f4cf7824ee65284db0908a62a9362879af73"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.857589107054761,
-            "metal_native_mhz_speedup": 1.8575891070547605,
-            "metal_prove_time_speedup": 1.8575891070547608,
-            "metal_request_native_mhz_speedup": 1.7813301021849712,
-            "metal_request_time_speedup": 1.7813301021849712,
-            "metal_request_trace_row_mhz_speedup": 1.7813301021849712,
-            "metal_trace_row_mhz_speedup": 1.8575891070547605
+            "metal_committed_mcells_speedup": 1.8280660574938625,
+            "metal_native_mhz_speedup": 1.8280660574938625,
+            "metal_prove_time_speedup": 1.8280660574938625,
+            "metal_request_native_mhz_speedup": 1.756027562924764,
+            "metal_request_time_speedup": 1.7560275629247644,
+            "metal_request_trace_row_mhz_speedup": 1.756027562924764,
+            "metal_trace_row_mhz_speedup": 1.8280660574938625
           },
           "workload": {
             "committed_columns": 3,
@@ -1809,49 +1818,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.496138518634325,
-                  "max": 102.0249414366416,
-                  "median": 100.74453639414823,
-                  "min": 97.84575895707633
+                  "mad": 0.7430029495455557,
+                  "max": 102.64324310214309,
+                  "median": 100.87764081119563,
+                  "min": 99.81959079288562
                 },
                 "native_mhz": {
-                  "mad": 0.005168109569107404,
-                  "max": 1.0627598066316835,
-                  "median": 1.0494222541057106,
-                  "min": 1.0192266558028784
+                  "mad": 0.007739614057766353,
+                  "max": 1.0692004489806572,
+                  "median": 1.0508087584499544,
+                  "min": 1.0397874040925585
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 40064.0,
-                  "median": 40064.0,
-                  "min": 40064.0
+                  "max": 40048.0,
+                  "median": 40048.0,
+                  "min": 40048.0
                 },
                 "prove_seconds": {
-                  "mad": 4.829199999999839e-05,
-                  "max": 0.010046833,
-                  "median": 0.00975775,
-                  "min": 0.009635291
+                  "mad": 7.125000000000013e-05,
+                  "max": 0.009848167,
+                  "median": 0.009744875,
+                  "min": 0.00957725
                 },
                 "request_native_mhz": {
-                  "mad": 0.003857092777379334,
-                  "max": 0.7756669637531737,
-                  "median": 0.7666344515490395,
-                  "min": 0.7416527848192945
+                  "mad": 0.0054526943778165915,
+                  "max": 0.7787170545270762,
+                  "median": 0.767201592482743,
+                  "min": 0.7500503940108475
                 },
                 "request_seconds": {
-                  "mad": 6.75420000000003e-05,
-                  "max": 0.013807,
-                  "median": 0.013357083,
-                  "min": 0.013201542
+                  "mad": 9.554099999999933e-05,
+                  "max": 0.013652416,
+                  "median": 0.013347209,
+                  "min": 0.013149834
                 },
                 "verify_seconds": {
-                  "mad": 1.9579999999999836e-06,
-                  "max": 0.000310542,
-                  "median": 0.000287583,
-                  "min": 0.000277958
+                  "mad": 4.665999999999958e-06,
+                  "max": 0.000306833,
+                  "median": 0.000289833,
+                  "min": 0.000280334
                 }
               },
-              "process_wall_seconds": 0.7184860419947654,
+              "process_wall_seconds": 0.7292661670362577,
               "proof": {
                 "byte_identical": true,
                 "bytes": 97973,
@@ -1861,10 +1870,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 97973,
                 "complete": true,
-                "cycles": 4333899435,
-                "energy_nj": 5174428618,
-                "instructions": 14489484300,
-                "lifetime_peak_physical_footprint_bytes": 40272832,
+                "cycles": 4329189979,
+                "energy_nj": 5285536180,
+                "instructions": 14489994384,
+                "lifetime_peak_physical_footprint_bytes": 40207296,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1875,7 +1884,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 40064
+                "peak_rss_kib": 40048
               }
             },
             "metal": {
@@ -1883,49 +1892,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 3.5840340710201986,
-                  "max": 149.65973966659055,
-                  "median": 135.79228465988112,
-                  "min": 125.70241196873553
+                  "mad": 3.4358781710519395,
+                  "max": 144.650687953045,
+                  "median": 135.04456083111532,
+                  "min": 117.24258101126735
                 },
                 "native_mhz": {
-                  "mad": 0.037333688239794105,
-                  "max": 1.5589556215269849,
-                  "median": 1.414502965207095,
-                  "min": 1.3094001246743283
+                  "mad": 0.03579039761512415,
+                  "max": 1.5067779995108856,
+                  "median": 1.4067141753241177,
+                  "min": 1.2212768855340348
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 72176.0,
-                  "median": 72176.0,
-                  "min": 72176.0
+                  "max": 72400.0,
+                  "median": 72400.0,
+                  "min": 72400.0
                 },
                 "prove_seconds": {
-                  "mad": 0.00019625000000000024,
-                  "max": 0.007820375,
-                  "median": 0.007239292,
-                  "min": 0.0065685
+                  "mad": 0.00019004100000000017,
+                  "max": 0.008384667,
+                  "median": 0.007279375,
+                  "min": 0.006795958
                 },
                 "request_native_mhz": {
-                  "mad": 0.02015217700912275,
-                  "max": 1.0029301426834631,
-                  "median": 0.9426746995316453,
-                  "min": 0.8945216576010449
+                  "mad": 0.01737083438459286,
+                  "max": 0.9859347359346154,
+                  "median": 0.9380582030304228,
+                  "min": 0.8414910992182927
                 },
                 "request_seconds": {
-                  "mad": 0.00023729200000000006,
-                  "max": 0.011447459,
-                  "median": 0.010862708,
-                  "min": 0.010210083
+                  "mad": 0.00020595800000000088,
+                  "max": 0.012168875,
+                  "median": 0.010916167,
+                  "min": 0.010386083
                 },
                 "verify_seconds": {
-                  "mad": 1.582999999999988e-06,
-                  "max": 0.000290792,
-                  "median": 0.000277333,
-                  "min": 0.000274417
+                  "mad": 1.6670000000000096e-06,
+                  "max": 0.000308542,
+                  "median": 0.000279333,
+                  "min": 0.000275458
                 }
               },
-              "process_wall_seconds": 0.6581562079954892,
+              "process_wall_seconds": 0.6225767079740763,
               "proof": {
                 "byte_identical": true,
                 "bytes": 97973,
@@ -1935,10 +1944,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 97973,
                 "complete": true,
-                "cycles": 2203816457,
-                "energy_nj": 2124408454,
-                "instructions": 4301986320,
-                "lifetime_peak_physical_footprint_bytes": 196691168,
+                "cycles": 2162030147,
+                "energy_nj": 2088229935,
+                "instructions": 4308270998,
+                "lifetime_peak_physical_footprint_bytes": 196904136,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -1949,7 +1958,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 72176
+                "peak_rss_kib": 72400
               }
             }
           },
@@ -1961,13 +1970,13 @@
             "sha256": "4153acd6e32a98b9d240730062f7fa35e2e31eca915f01c179337f04d409cbd2"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.3478873348388216,
-            "metal_native_mhz_speedup": 1.3478873348388218,
-            "metal_prove_time_speedup": 1.3478873348388214,
-            "metal_request_native_mhz_speedup": 1.2296273636371335,
-            "metal_request_time_speedup": 1.2296273636371335,
-            "metal_request_trace_row_mhz_speedup": 1.2296273636371335,
-            "metal_trace_row_mhz_speedup": 1.3478873348388216
+            "metal_committed_mcells_speedup": 1.338696660084142,
+            "metal_native_mhz_speedup": 1.338696660084142,
+            "metal_prove_time_speedup": 1.338696660084142,
+            "metal_request_native_mhz_speedup": 1.2227010634776843,
+            "metal_request_time_speedup": 1.2227010634776843,
+            "metal_request_trace_row_mhz_speedup": 1.222701063477684,
+            "metal_trace_row_mhz_speedup": 1.3386966600841417
           },
           "workload": {
             "committed_columns": 960,
@@ -1985,10 +1994,8 @@
         },
         {
           "descriptor_sha256": "ead85d573c365d66c4b558e0ef9c650613eab08159750e1c91d505410d34c565",
-          "headline_blockers": [
-            "metal_ordered_prove_time_drift"
-          ],
-          "headline_eligible": false,
+          "headline_blockers": [],
+          "headline_eligible": true,
           "id": "ead85d573c36",
           "index": 10,
           "lanes": {
@@ -1997,49 +2004,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 6.052805230387605,
-                  "max": 415.5450537474613,
-                  "median": 407.92686247811713,
-                  "min": 377.9011542058323
+                  "mad": 7.046163544842443,
+                  "max": 417.1845564709978,
+                  "median": 406.5988189389839,
+                  "min": 373.49100623330366
                 },
                 "native_mhz": {
-                  "mad": 0.06305005448320422,
-                  "max": 4.328594309869388,
-                  "median": 4.24923815081372,
-                  "min": 3.9364703563107537
+                  "mad": 0.07339753692544182,
+                  "max": 4.34567246323956,
+                  "median": 4.235404363947749,
+                  "min": 3.8905313149302465
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 282080.0,
-                  "median": 282080.0,
-                  "min": 282080.0
+                  "max": 282112.0,
+                  "median": 282112.0,
+                  "min": 282112.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0002255,
-                  "max": 0.016648417,
-                  "median": 0.015423,
-                  "min": 0.01514025
+                  "mad": 0.00027287500000000055,
+                  "max": 0.016845,
+                  "median": 0.015473375,
+                  "min": 0.01508075
                 },
                 "request_native_mhz": {
-                  "mad": 0.007591762223172482,
-                  "max": 1.5055565756830607,
-                  "median": 1.4861711879808808,
-                  "min": 1.4401300898762828
+                  "mad": 0.009770375876622106,
+                  "max": 1.4976733342183417,
+                  "median": 1.4839277576978924,
+                  "min": 1.4371798398247104
                 },
                 "request_seconds": {
-                  "mad": 0.0002264169999999996,
-                  "max": 0.045507,
-                  "median": 0.044097208,
-                  "min": 0.043529417
+                  "mad": 0.0002911659999999955,
+                  "max": 0.045600417,
+                  "median": 0.044163875,
+                  "min": 0.043758541
                 },
                 "verify_seconds": {
-                  "mad": 6.666000000000007e-06,
-                  "max": 0.000479708,
-                  "median": 0.00045725,
-                  "min": 0.0004425
+                  "mad": 5.4990000000000095e-06,
+                  "max": 0.000477417,
+                  "median": 0.000451958,
+                  "min": 0.00044125
                 }
               },
-              "process_wall_seconds": 2.2974978339625522,
+              "process_wall_seconds": 2.328012124984525,
               "proof": {
                 "byte_identical": true,
                 "bytes": 152455,
@@ -2049,10 +2056,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 152455,
                 "complete": true,
-                "cycles": 27918083246,
-                "energy_nj": 25573051888,
-                "instructions": 61013371308,
-                "lifetime_peak_physical_footprint_bytes": 288687880,
+                "cycles": 27913573840,
+                "energy_nj": 25352439292,
+                "instructions": 60996292251,
+                "lifetime_peak_physical_footprint_bytes": 288720648,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2063,7 +2070,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 282080
+                "peak_rss_kib": 282112
               }
             },
             "metal": {
@@ -2071,49 +2078,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 13.01425580086618,
-                  "max": 246.37995355814067,
-                  "median": 223.18833587569623,
-                  "min": 197.1895551333033
+                  "mad": 14.505370309071708,
+                  "max": 255.10729056848595,
+                  "median": 223.54023192705534,
+                  "min": 194.4816170077937
                 },
                 "native_mhz": {
-                  "mad": 0.13556516459235546,
-                  "max": 2.566457849563965,
-                  "median": 2.3248784987051687,
-                  "min": 2.0540578659719095
+                  "mad": 0.15109760738616407,
+                  "max": 2.657367610088395,
+                  "median": 2.328544082573493,
+                  "min": 2.0258501771645174
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 219232.0,
-                  "median": 219232.0,
-                  "min": 219232.0
+                  "max": 219376.0,
+                  "median": 219376.0,
+                  "min": 219376.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0015736669999999973,
-                  "max": 0.031905625,
-                  "median": 0.028189,
-                  "min": 0.025535584
+                  "mad": 0.0017149999999999978,
+                  "max": 0.032349875,
+                  "median": 0.028144625,
+                  "min": 0.024662
                 },
                 "request_native_mhz": {
-                  "mad": 0.03181515790162415,
-                  "max": 1.2112361373011271,
-                  "median": 1.1524510202601264,
-                  "min": 1.0811369563266102
+                  "mad": 0.033854831251087125,
+                  "max": 1.2321528110140503,
+                  "median": 1.1472820334383627,
+                  "min": 1.0706390092328566
                 },
                 "request_seconds": {
-                  "mad": 0.0016144590000000056,
-                  "max": 0.060617667,
-                  "median": 0.056866625,
-                  "min": 0.054106708
+                  "mad": 0.0017368749999999988,
+                  "max": 0.061212042,
+                  "median": 0.057122833,
+                  "min": 0.053188208
                 },
                 "verify_seconds": {
-                  "mad": 7.833000000000004e-06,
-                  "max": 0.000491042,
-                  "median": 0.000442,
-                  "min": 0.000426209
+                  "mad": 3.457999999999966e-06,
+                  "max": 0.00046975,
+                  "median": 0.000435625,
+                  "min": 0.000425834
                 }
               },
-              "process_wall_seconds": 2.99904412496835,
+              "process_wall_seconds": 3.024340374977328,
               "proof": {
                 "byte_identical": true,
                 "bytes": 152455,
@@ -2123,10 +2130,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 152455,
                 "complete": true,
-                "cycles": 10907203650,
-                "energy_nj": 10009701353,
-                "instructions": 16237120930,
-                "lifetime_peak_physical_footprint_bytes": 348931584,
+                "cycles": 10983813194,
+                "energy_nj": 9952002194,
+                "instructions": 16284826007,
+                "lifetime_peak_physical_footprint_bytes": 349111856,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2137,7 +2144,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 219232
+                "peak_rss_kib": 219376
               }
             }
           },
@@ -2149,13 +2156,13 @@
             "sha256": "70e516957d2d38ed78214bfda5b0b2bdfe41f1c93439fb68e124bfef096fbc9f"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 0.547128312462308,
-            "metal_native_mhz_speedup": 0.547128312462308,
-            "metal_prove_time_speedup": 0.547128312462308,
-            "metal_request_native_mhz_speedup": 0.775449712375229,
-            "metal_request_time_speedup": 0.7754497123752289,
-            "metal_request_trace_row_mhz_speedup": 0.775449712375229,
-            "metal_trace_row_mhz_speedup": 0.547128312462308
+            "metal_committed_mcells_speedup": 0.549780819605875,
+            "metal_native_mhz_speedup": 0.5497808196058749,
+            "metal_prove_time_speedup": 0.549780819605875,
+            "metal_request_native_mhz_speedup": 0.773138737709315,
+            "metal_request_time_speedup": 0.773138737709315,
+            "metal_request_trace_row_mhz_speedup": 0.773138737709315,
+            "metal_trace_row_mhz_speedup": 0.5497808196058749
           },
           "workload": {
             "committed_columns": 1536,
@@ -2173,10 +2180,8 @@
         },
         {
           "descriptor_sha256": "6987ad00bd422a2a9409dcc1c607be05a62e61aa4598cbe979c966f2960d4559",
-          "headline_blockers": [
-            "metal_ordered_prove_time_drift"
-          ],
-          "headline_eligible": false,
+          "headline_blockers": [],
+          "headline_eligible": true,
           "id": "6987ad00bd42",
           "index": 11,
           "lanes": {
@@ -2185,49 +2190,49 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 1.4581385674441165,
-                  "max": 59.43227251154542,
-                  "median": 55.34504621950356,
-                  "min": 51.44759971406694
+                  "mad": 1.1857840512998123,
+                  "max": 59.468688260969444,
+                  "median": 55.65280563517678,
+                  "min": 53.11039432970909
                 },
                 "native_mhz": {
-                  "mad": 0.009228725110405844,
-                  "max": 0.3761536234907938,
-                  "median": 0.3502851026550858,
-                  "min": 0.32561771970928444
+                  "mad": 0.007504962349998923,
+                  "max": 0.3763841029175281,
+                  "median": 0.35223294705808095,
+                  "min": 0.3361417362639815
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 32704.0,
-                  "median": 32704.0,
-                  "min": 32704.0
+                  "max": 32688.0,
+                  "median": 32688.0,
+                  "min": 32688.0
                 },
                 "prove_seconds": {
-                  "mad": 7.504199999999999e-05,
-                  "max": 0.003144792,
-                  "median": 0.002923333,
-                  "min": 0.002722292
+                  "mad": 6.329100000000004e-05,
+                  "max": 0.003046334,
+                  "median": 0.002907167,
+                  "min": 0.002720625
                 },
                 "request_native_mhz": {
-                  "mad": 0.0060916792725648206,
-                  "max": 0.2638070395774965,
-                  "median": 0.25376370732916176,
-                  "min": 0.23998355737657662
+                  "mad": 0.0038752234627194015,
+                  "max": 0.26762202152893716,
+                  "median": 0.2526887040499534,
+                  "min": 0.24452271506178738
                 },
                 "request_seconds": {
-                  "mad": 9.925000000000038e-05,
-                  "max": 0.004266959,
-                  "median": 0.00403525,
-                  "min": 0.003881625
+                  "mad": 6.120899999999957e-05,
+                  "max": 0.00418775,
+                  "median": 0.004052417,
+                  "min": 0.003826292
                 },
                 "verify_seconds": {
-                  "mad": 6.165999999999995e-06,
-                  "max": 0.0003455,
-                  "median": 0.00031,
-                  "min": 0.000298
+                  "mad": 5.416999999999965e-06,
+                  "max": 0.000324125,
+                  "median": 0.000305667,
+                  "min": 0.000297209
                 }
               },
-              "process_wall_seconds": 0.2683651669649407,
+              "process_wall_seconds": 0.24142137507442385,
               "proof": {
                 "byte_identical": true,
                 "bytes": 112834,
@@ -2237,10 +2242,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 112834,
                 "complete": true,
-                "cycles": 1233983529,
-                "energy_nj": 1367906309,
-                "instructions": 3519492987,
-                "lifetime_peak_physical_footprint_bytes": 32621288,
+                "cycles": 1218738173,
+                "energy_nj": 1320161992,
+                "instructions": 3515749981,
+                "lifetime_peak_physical_footprint_bytes": 32604904,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2251,7 +2256,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 32704
+                "peak_rss_kib": 32688
               }
             },
             "metal": {
@@ -2259,49 +2264,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 2.609020774760534,
-                  "max": 38.04856252572168,
-                  "median": 34.41193204477175,
-                  "min": 25.985293652352578
+                  "mad": 3.1524596008739394,
+                  "max": 40.66999717960487,
+                  "median": 33.89349041026558,
+                  "min": 26.245936585838272
                 },
                 "native_mhz": {
-                  "mad": 0.016512789713674286,
-                  "max": 0.2408136868716562,
-                  "median": 0.21779703825804908,
-                  "min": 0.16446388387564925
+                  "mad": 0.019952275954898374,
+                  "max": 0.25740504544053716,
+                  "median": 0.21451576209028847,
+                  "min": 0.16611352269517893
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 62224.0,
-                  "median": 62224.0,
-                  "min": 62224.0
+                  "max": 62384.0,
+                  "median": 62384.0,
+                  "min": 62384.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0003364580000000004,
-                  "max": 0.006226291,
-                  "median": 0.004701625,
-                  "min": 0.00425225
+                  "mad": 0.000438,
+                  "max": 0.006164459,
+                  "median": 0.004773542,
+                  "min": 0.003978166
                 },
                 "request_native_mhz": {
-                  "mad": 0.009773922755934306,
-                  "max": 0.18834781808985146,
-                  "median": 0.17533369906847124,
-                  "min": 0.13917141093036495
+                  "mad": 0.013292163980663796,
+                  "max": 0.19951776711561411,
+                  "median": 0.1728938857022835,
+                  "min": 0.14070363911275363
                 },
                 "request_seconds": {
-                  "mad": 0.0003083750000000005,
-                  "max": 0.007357833,
-                  "median": 0.005840292,
-                  "min": 0.00543675
+                  "mad": 0.00043862500000000065,
+                  "max": 0.007277708,
+                  "median": 0.005922708,
+                  "min": 0.005132375
                 },
                 "verify_seconds": {
-                  "mad": 3.957999999999978e-06,
-                  "max": 0.000334333,
-                  "median": 0.000309666,
-                  "min": 0.000304208
+                  "mad": 4.8749999999999965e-06,
+                  "max": 0.000340542,
+                  "median": 0.000309875,
+                  "min": 0.000298833
                 }
               },
-              "process_wall_seconds": 0.3901229160837829,
+              "process_wall_seconds": 0.4075478339800611,
               "proof": {
                 "byte_identical": true,
                 "bytes": 112834,
@@ -2311,10 +2316,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 112834,
                 "complete": true,
-                "cycles": 1032509114,
-                "energy_nj": 1040298332,
-                "instructions": 2534613538,
-                "lifetime_peak_physical_footprint_bytes": 186041280,
+                "cycles": 1022655320,
+                "energy_nj": 1060257328,
+                "instructions": 2528278189,
+                "lifetime_peak_physical_footprint_bytes": 186205120,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2325,7 +2330,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 62224
+                "peak_rss_kib": 62384
               }
             }
           },
@@ -2337,13 +2342,13 @@
             "sha256": "af33240da8e7947362fdf7e78d306f2e11cb2e3df7e1b6f498a6e86ac3ae7b1b"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 0.6217707707441575,
-            "metal_native_mhz_speedup": 0.6217707707441577,
-            "metal_prove_time_speedup": 0.6217707707441577,
-            "metal_request_native_mhz_speedup": 0.6909329191074693,
-            "metal_request_time_speedup": 0.6909329191074692,
-            "metal_request_trace_row_mhz_speedup": 0.6909329191074693,
-            "metal_trace_row_mhz_speedup": 0.6217707707441577
+            "metal_committed_mcells_speedup": 0.6090167427038454,
+            "metal_native_mhz_speedup": 0.6090167427038453,
+            "metal_prove_time_speedup": 0.6090167427038454,
+            "metal_request_native_mhz_speedup": 0.6842169156406158,
+            "metal_request_time_speedup": 0.6842169156406158,
+            "metal_request_trace_row_mhz_speedup": 0.6842169156406158,
+            "metal_trace_row_mhz_speedup": 0.6090167427038453
           },
           "workload": {
             "committed_columns": 1264,
@@ -2370,16 +2375,16 @@
               "display_name": "Zig CPU/SIMD",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 0.5766409995485446,
-                  "max": 104.82823323297056,
-                  "median": 102.19181651303712,
-                  "min": 101.01641871128237
+                  "mad": 0.6677838863054006,
+                  "max": 103.8539387093456,
+                  "median": 101.408181453153,
+                  "min": 99.53942283659855
                 },
                 "native_mhz": {
-                  "mad": 0.00364962657942125,
-                  "max": 0.6634698305884213,
-                  "median": 0.6467836488166907,
-                  "min": 0.6393444222233061
+                  "mad": 0.0042264802930721546,
+                  "max": 0.6573034095528203,
+                  "median": 0.6418239332478038,
+                  "min": 0.6299963470670794
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
@@ -2388,31 +2393,31 @@
                   "min": 41792.0
                 },
                 "prove_seconds": {
-                  "mad": 7.187500000000076e-05,
-                  "max": 0.012813125,
-                  "median": 0.01266575,
-                  "min": 0.012347208
+                  "mad": 8.350000000000024e-05,
+                  "max": 0.01300325,
+                  "median": 0.012763625,
+                  "min": 0.012463042
                 },
                 "request_native_mhz": {
-                  "mad": 0.0018546410751966724,
-                  "max": 0.44598188666779287,
-                  "median": 0.4353654728926268,
-                  "min": 0.4301410413151731
+                  "mad": 0.0017007762580075747,
+                  "max": 0.44522344053587687,
+                  "median": 0.4355265237620071,
+                  "min": 0.4260638307278358
                 },
                 "request_seconds": {
-                  "mad": 8.050000000000071e-05,
-                  "max": 0.019044916,
-                  "median": 0.018816375,
-                  "min": 0.018368459
+                  "mad": 7.316699999999898e-05,
+                  "max": 0.019227166,
+                  "median": 0.018809417,
+                  "min": 0.01839975
                 },
                 "verify_seconds": {
-                  "mad": 6.833999999999996e-06,
-                  "max": 0.000382959,
-                  "median": 0.000355959,
-                  "min": 0.000345833
+                  "mad": 6.165999999999995e-06,
+                  "max": 0.000388583,
+                  "median": 0.000358625,
+                  "min": 0.000348084
                 }
               },
-              "process_wall_seconds": 1.0365591670852154,
+              "process_wall_seconds": 1.0124399580527097,
               "proof": {
                 "byte_identical": true,
                 "bytes": 124194,
@@ -2422,10 +2427,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 124194,
                 "complete": true,
-                "cycles": 6037681367,
-                "energy_nj": 7337994542,
-                "instructions": 20952041527,
-                "lifetime_peak_physical_footprint_bytes": 41993128,
+                "cycles": 6048338350,
+                "energy_nj": 7531829513,
+                "instructions": 20968634094,
+                "lifetime_peak_physical_footprint_bytes": 42009512,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2444,49 +2449,49 @@
               "display_name": "Zig Metal",
               "metrics": {
                 "committed_mcells_per_second": {
-                  "mad": 4.701923935233168,
-                  "max": 160.61415616255144,
-                  "median": 149.06839737675483,
-                  "min": 136.72201837197898
+                  "mad": 5.353790607704241,
+                  "max": 154.29886153662753,
+                  "median": 146.75011337868483,
+                  "min": 95.25465025964505
                 },
                 "native_mhz": {
-                  "mad": 0.029759012248311234,
-                  "max": 1.0165452921680471,
-                  "median": 0.9434708694731317,
-                  "min": 0.8653292302023985
+                  "mad": 0.03388475068167229,
+                  "max": 0.9765750730166299,
+                  "median": 0.9287981859410431,
+                  "min": 0.6028775332888927
                 },
                 "peak_rss_kib": {
                   "mad": 0.0,
-                  "max": 86496.0,
-                  "median": 86496.0,
-                  "min": 86496.0
+                  "max": 86672.0,
+                  "median": 86672.0,
+                  "min": 86672.0
                 },
                 "prove_seconds": {
-                  "mad": 0.0002654999999999984,
-                  "max": 0.009466917,
-                  "median": 0.008682833,
-                  "min": 0.008058667
+                  "mad": 0.00032899999999999943,
+                  "max": 0.013588166,
+                  "median": 0.00882,
+                  "min": 0.0083885
                 },
                 "request_native_mhz": {
-                  "mad": 0.010267060718809118,
-                  "max": 0.5807200517487351,
-                  "median": 0.5588216775605742,
-                  "min": 0.5282732937278831
+                  "mad": 0.012437607573988485,
+                  "max": 0.5731844686320392,
+                  "median": 0.5560416998694333,
+                  "min": 0.4121631395239143
                 },
                 "request_seconds": {
-                  "mad": 0.00027437400000000084,
-                  "max": 0.015507125,
-                  "median": 0.014659417,
-                  "min": 0.014106625
+                  "mad": 0.00032233300000000104,
+                  "max": 0.019875625,
+                  "median": 0.014732708,
+                  "min": 0.014292083
                 },
                 "verify_seconds": {
-                  "mad": 7.5420000000000305e-06,
-                  "max": 0.000383292,
-                  "median": 0.000359167,
-                  "min": 0.0003505
+                  "mad": 7.4589999999999704e-06,
+                  "max": 0.000381084,
+                  "median": 0.000358833,
+                  "min": 0.000349459
                 }
               },
-              "process_wall_seconds": 0.8623737500747666,
+              "process_wall_seconds": 0.8407369999913499,
               "proof": {
                 "byte_identical": true,
                 "bytes": 124194,
@@ -2496,10 +2501,10 @@
               "request_resources": {
                 "canonical_proof_bytes": 124194,
                 "complete": true,
-                "cycles": 3207475463,
-                "energy_nj": 3413747818,
-                "instructions": 7576888978,
-                "lifetime_peak_physical_footprint_bytes": 211486040,
+                "cycles": 3236997387,
+                "energy_nj": 3423174866,
+                "instructions": 7594361614,
+                "lifetime_peak_physical_footprint_bytes": 211682672,
                 "measured_samples": 21,
                 "measured_warmups": 30,
                 "measurement_scope": "verified_process_request_batch",
@@ -2510,7 +2515,7 @@
                 "measurement": "darwin_usr_bin_time_l_v1",
                 "measurement_locale": "C",
                 "normalized_unit": "KiB",
-                "peak_rss_kib": 86496
+                "peak_rss_kib": 86672
               }
             }
           },
@@ -2522,13 +2527,13 @@
             "sha256": "f196835da5d4a155c6311bafb44335c2863cc028879d69a7ae53b802321200f1"
           },
           "speedup": {
-            "metal_committed_mcells_speedup": 1.4587116900670556,
-            "metal_native_mhz_speedup": 1.4587116900670554,
-            "metal_prove_time_speedup": 1.4587116900670554,
-            "metal_request_native_mhz_speedup": 1.2835691214732483,
-            "metal_request_time_speedup": 1.2835691214732483,
-            "metal_request_trace_row_mhz_speedup": 1.2835691214732483,
-            "metal_trace_row_mhz_speedup": 1.4587116900670554
+            "metal_committed_mcells_speedup": 1.4471230158730162,
+            "metal_native_mhz_speedup": 1.447123015873016,
+            "metal_prove_time_speedup": 1.447123015873016,
+            "metal_request_native_mhz_speedup": 1.2767114504678974,
+            "metal_request_time_speedup": 1.2767114504678976,
+            "metal_request_trace_row_mhz_speedup": 1.2767114504678974,
+            "metal_trace_row_mhz_speedup": 1.447123015873016
           },
           "workload": {
             "committed_columns": 1264,
@@ -2554,21 +2559,21 @@
         "warmups_per_lane": 30
       },
       "source": {
-        "bytes": 2871945,
-        "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/report.json",
+        "bytes": 2871560,
+        "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json",
         "protocol": "native_proof_cross_backend_matrix_v6",
         "schema_version": 6,
-        "sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82"
+        "sha256": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
       },
       "summary": {
-        "diagnostic_rows": 3,
-        "headline_rows": 10,
-        "median_cpu_mhz": 3.8623232324763013,
-        "median_metal_mhz": 4.380013123144284,
-        "median_metal_speedup": 1.3459681856206958,
+        "diagnostic_rows": 0,
+        "headline_rows": 13,
+        "median_cpu_mhz": 3.8597513730222133,
+        "median_metal_mhz": 4.070516531256071,
+        "median_metal_speedup": 1.134451259437429,
         "metal_wins": 10,
-        "peak_cpu_mhz": 5.569632043605215,
-        "peak_metal_mhz": 10.433731571494846,
+        "peak_cpu_mhz": 5.718257502028212,
+        "peak_metal_mhz": 10.283315251962877,
         "rows": 13,
         "verified_proofs": 546
       },
@@ -36309,6 +36314,6 @@
   "source": {
     "index_path": "vectors/reports/benchmark_history/index.json",
     "index_schema_version": 2,
-    "index_sha256": "219e354cccc1992f3efa15b30a9fb209281b76c00a618bb7ed00a5836b657a10"
+    "index_sha256": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0"
   }
 }
