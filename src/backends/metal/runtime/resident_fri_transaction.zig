@@ -1,7 +1,7 @@
 const std = @import("std");
-const commit_policy = @import("commit_policy.zig");
-const shared_runtime = @import("shared_runtime.zig");
-const telemetry = @import("telemetry.zig");
+const commit_policy = @import("../commit_policy.zig");
+const shared_runtime = @import("../shared_runtime.zig");
+const telemetry = @import("../telemetry.zig");
 
 const fri_inverse_cache_min_values: usize = 1 << 13;
 

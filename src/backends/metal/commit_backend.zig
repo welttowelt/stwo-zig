@@ -9,7 +9,7 @@ const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const ownership_testing = @import("runtime/ownership_testing.zig");
 const quadratic_trace = @import("runtime/quadratic_trace_backend.zig");
-const resident_fri_transaction = @import("resident_fri_transaction.zig");
+const resident_fri_transaction = @import("runtime/resident_fri_transaction.zig");
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 
