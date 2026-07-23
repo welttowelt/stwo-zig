@@ -105,6 +105,11 @@
       "path": "runs/2026-07-17-192118-matrix-v3-e2613ba5/report.json",
       "run": "2026-07-17-192118-matrix-v3-e2613ba5"
     },
+    "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3": {
+      "bytes": 2871560,
+      "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json",
+      "run": "2026-07-23-110359-matrix-v6-e58b4d1e"
+    },
     "eb669a6d66ed4b556a4df3fe9b8381ecd7f990d26e4fdb5153131bbfbdb9028c": {
       "bytes": 1160541,
       "path": "runs/2026-07-21-083039-matrix-v6-51f07230/report.json",
@@ -206,6 +211,15 @@
       "path": "runs/2026-07-21-084128-matrix-v6-ffbcefca/bundle",
       "report_sha256": "4b1b8a4b52f3a11d53bf3044391e52f5fada7b2a38d6fcad45dbb883cbf6ac2c",
       "run": "2026-07-21-084128-matrix-v6-ffbcefca",
+      "schema": "native_proof_matrix_bundle_v1"
+    },
+    "5375d64feb124e7e735bb0a070934941d0430d82203d35e37dcb23952f713779": {
+      "artifact_bytes": 5616455,
+      "artifact_files": 78,
+      "bundle_sha256": "5375d64feb124e7e735bb0a070934941d0430d82203d35e37dcb23952f713779",
+      "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/bundle",
+      "report_sha256": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3",
+      "run": "2026-07-23-110359-matrix-v6-e58b4d1e",
       "schema": "native_proof_matrix_bundle_v1"
     },
     "5ac02dc464a4eef4aaccd8a723d8c12d59833e62b562009d49a8998770f7b53b": {
@@ -737,6 +751,19 @@
       "id": "af8eb07a60654665d2b0a768b71523302bbd507fea0bb939385fbed4418532fb",
       "report_kind": "native_proof_cross_backend_matrix_v6",
       "status": "incomparable"
+    },
+    {
+      "archived_at": "2026-07-23T11:04:23Z",
+      "baseline_run": "2026-07-23-104858-matrix-v6-9ed6df6b",
+      "baseline_sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82",
+      "comparison_identity_sha256": "6dcc31bd0182f51c3049839223a31a6e48492caeb4bb83275651be81825e04ad",
+      "current_run": "2026-07-23-110359-matrix-v6-e58b4d1e",
+      "current_sha256": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3",
+      "delta_path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/delta-from-2026-07-23-104858-matrix-v6-9ed6df6b.json",
+      "delta_sha256": "ad6105d789656d46a7b3176a2e221dd4347923abc9bf5240cb46b5c3be292e5e",
+      "id": "399237d254f45b7e7fda0513ec79f3f03ae226c9b820caf51239ee6d714dac19",
+      "report_kind": "native_proof_cross_backend_matrix_v6",
+      "status": "comparable"
     }
   ],
   "deltas": {
@@ -853,6 +880,12 @@
       "bytes": 229626,
       "path": "runs/2026-07-21-082920-matrix-v6-303292ce/delta-from-2026-07-21-082838-matrix-v6-9e16ec8e-a9a6a5.json",
       "run": "2026-07-21-082920-matrix-v6-303292ce"
+    },
+    "ad6105d789656d46a7b3176a2e221dd4347923abc9bf5240cb46b5c3be292e5e": {
+      "baseline_run": "2026-07-23-104858-matrix-v6-9ed6df6b",
+      "bytes": 245479,
+      "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/delta-from-2026-07-23-104858-matrix-v6-9ed6df6b.json",
+      "run": "2026-07-23-110359-matrix-v6-e58b4d1e"
     },
     "bd2559786af0f67db2334281105d03e27ca708b4534c2cacd9a84f24ae7e0786": {
       "baseline_run": "2026-07-21-192812-matrix-v6-483bca66",
@@ -1387,7 +1420,7 @@
       },
       "status": "superseded",
       "status_reason": "Controlled exact-binary reproduction found the Metal log16 rows on a stable but contended or underclocked plateau; the capture also omitted circle_transform_wide.metal from its advertised shader source digest.",
-      "superseded_by": "2026-07-23-104858-matrix-v6-9ed6df6b"
+      "superseded_by": "2026-07-23-110359-matrix-v6-e58b4d1e"
     },
     "2026-07-23-104858-matrix-v6-9ed6df6b": {
       "bundle": {
@@ -1407,6 +1440,29 @@
         "bytes": 2871945,
         "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/report.json",
         "sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82"
+      },
+      "status": "superseded",
+      "status_reason": "Superseded by a current-main capture after PR #97 merged a CPU wide-recurrence optimization during publication; this run remains the compatible baseline for the recorded delta.",
+      "superseded_by": "2026-07-23-110359-matrix-v6-e58b4d1e"
+    },
+    "2026-07-23-110359-matrix-v6-e58b4d1e": {
+      "bundle": {
+        "artifact_bytes": 5616455,
+        "artifact_files": 78,
+        "bundle_sha256": "5375d64feb124e7e735bb0a070934941d0430d82203d35e37dcb23952f713779",
+        "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/bundle",
+        "report_sha256": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3",
+        "run": "2026-07-23-110359-matrix-v6-e58b4d1e",
+        "schema": "native_proof_matrix_bundle_v1"
+      },
+      "deltas": [
+        "runs/2026-07-23-110359-matrix-v6-e58b4d1e/delta-from-2026-07-23-104858-matrix-v6-9ed6df6b.json"
+      ],
+      "kind": "native_proof_cross_backend_matrix_v6",
+      "report": {
+        "bytes": 2871560,
+        "path": "runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json",
+        "sha256": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
       }
     }
   },
