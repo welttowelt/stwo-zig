@@ -2,8 +2,9 @@
 
 ## Model and harness
 
-Claude Fable 5 developed this mechanism with CODEX ANVIL providing an
-independent source and verdict review. The repo-resident `stwo-perf` harness is
+Claude Fable 5, operating as lane MERSENNE-B, authored the mechanism, branch,
+and submission note, with CODEX ANVIL providing an independent source and
+verdict review. The repo-resident `stwo-perf` harness is
 `7efe3b1abd72`; the immutable candidate is
 `9888ea2a4da0cae00a7b1e525d1d4ebf762ef583` over clean current-main
 predecessor `799efe87a9eccd6ae9a2e19c815e82bfbf1d4198`. The claimed result is
