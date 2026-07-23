@@ -9,26 +9,27 @@ constant uint circle_fused_wide_tile_size = 1u << circle_fused_wide_tile_log;
 
 constant uint circle_high_fused_values = 4096u;
 constant uint circle_high_fused_threads = 256u;
+constant uint circle_high_fused_mode = 0x80000000u;
 
 // Fuses the remaining high circle-transform layers cooperatively. Threads
 // share multiple independent low-lane tuples in 16 KiB of threadgroup memory,
 // replacing several complete device-arena read/write passes with one.
-kernel void stwo_zig_circle_rfft_high_fused_sparse(
-    device uint *arena [[buffer(0)]],
-    device const uint *destination_offsets [[buffer(1)]],
-    device const uint *twiddles [[buffer(2)]],
-    constant uint &log_size [[buffer(3)]],
-    constant uint &lowest_stage [[buffer(4)]],
-    constant uint &layer_count [[buffer(5)]],
-    constant uint &column_count [[buffer(6)]],
-    constant uint &inverse_mode [[buffer(7)]],
-    uint lane [[thread_index_in_threadgroup]],
-    uint2 group_position [[threadgroup_position_in_grid]]
+inline void circle_rfft_high_fused_sparse(
+    device uint *arena,
+    device const uint *destination_offsets,
+    device const uint *twiddles,
+    uint log_size,
+    uint lowest_stage,
+    uint layer_count,
+    uint column_count,
+    uint inverse_mode,
+    uint lane,
+    uint2 group_position,
+    threadgroup uint *tile
 ) {
     if (group_position.y >= column_count || layer_count < 2u || layer_count > 12u ||
         lowest_stage + layer_count > log_size) return;
 
-    threadgroup uint tile[circle_high_fused_values];
     uint lanes_log = 12u - layer_count;
     if (lowest_stage < lanes_log) return;
     uint lanes_per_group = 1u << lanes_log;
@@ -158,12 +159,24 @@ kernel void stwo_zig_circle_rfft_fused_tail_sparse_wide(
     device const uint *destination_offsets [[buffer(1)]],
     device const uint *twiddles [[buffer(2)]],
     constant uint &log_size [[buffer(3)]],
-    constant uint &column_count [[buffer(4)]],
+    constant uint &column_config [[buffer(4)]],
     uint lane [[thread_index_in_threadgroup]],
     uint2 group [[threadgroup_position_in_grid]]
 ) {
-    if (group.y >= column_count) return;
     threadgroup uint tile[circle_fused_wide_tile_size];
+    if ((column_config & circle_high_fused_mode) != 0u) {
+        uint column_count = column_config & 0x1ffu;
+        uint inverse_mode = (column_config >> 9u) & 1u;
+        uint layer_count = (column_config >> 10u) & 15u;
+        uint lowest_stage = (column_config >> 14u) & 31u;
+        circle_rfft_high_fused_sparse(
+            arena, destination_offsets, twiddles, log_size, lowest_stage,
+            layer_count, column_count, inverse_mode, lane, group, tile
+        );
+        return;
+    }
+    uint column_count = column_config;
+    if (group.y >= column_count) return;
     uint value_len = 1u << log_size;
     uint tile_offset = group.x << circle_fused_wide_tile_log;
     uint column_offset = destination_offsets[group.y];

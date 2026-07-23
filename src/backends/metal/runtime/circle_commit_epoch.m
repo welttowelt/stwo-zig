@@ -287,16 +287,16 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                 uint32_t outer_groups = 1u <<
                     (base_log_size - inverse_layer - fused_count);
                 uint32_t group_count = lane_batches * outer_groups;
+                uint32_t column_config = 0x80000000u | column_count |
+                    (inverse_mode << 9u) | (fused_count << 10u) |
+                    (inverse_layer << 14u);
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-                [encoder setComputePipelineState:runtime.circleRfftHighFusedSparse];
+                [encoder setComputePipelineState:runtime.circleRfftFusedSparseWide];
                 [encoder setBuffer:coefficients offset:0u atIndex:0];
                 [encoder setBuffer:base_offsets offset:0u atIndex:1];
                 [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
                 [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-                [encoder setBytes:&inverse_layer length:sizeof(inverse_layer) atIndex:4];
-                [encoder setBytes:&fused_count length:sizeof(fused_count) atIndex:5];
-                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-                [encoder setBytes:&inverse_mode length:sizeof(inverse_mode) atIndex:7];
+                [encoder setBytes:&column_config length:sizeof(column_config) atIndex:4];
                 [encoder dispatchThreadgroups:MTLSizeMake(group_count, column_count, 1u)
                     threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
                 [encoder endEncoding];
@@ -402,16 +402,16 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             uint32_t lane_batches = (1u << lowest_stage) / lanes_per_group;
             uint32_t outer_groups = 1u <<
                 (extended_log_size - lowest_stage - fused_count);
+            uint32_t column_config = 0x80000000u | column_count |
+                (inverse_mode << 9u) | (fused_count << 10u) |
+                (lowest_stage << 14u);
             id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.circleRfftHighFusedSparse];
+            [encoder setComputePipelineState:runtime.circleRfftFusedSparseWide];
             [encoder setBuffer:extended offset:0u atIndex:0];
             [encoder setBuffer:extended_offsets offset:0u atIndex:1];
             [encoder setBuffer:forward_buffer offset:0u atIndex:2];
             [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
-            [encoder setBytes:&lowest_stage length:sizeof(lowest_stage) atIndex:4];
-            [encoder setBytes:&fused_count length:sizeof(fused_count) atIndex:5];
-            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
-            [encoder setBytes:&inverse_mode length:sizeof(inverse_mode) atIndex:7];
+            [encoder setBytes:&column_config length:sizeof(column_config) atIndex:4];
             [encoder dispatchThreadgroups:MTLSizeMake(lane_batches * outer_groups, column_count, 1u)
                 threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
             [encoder endEncoding];
