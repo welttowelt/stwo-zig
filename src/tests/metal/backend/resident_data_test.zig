@@ -609,15 +609,15 @@ test "metal: resident FRI folds and coordinate conversion match CPU" {
     for (expected, 0..) |value, index| try std.testing.expect(value.eql(coordinates.at(index)));
 
     const telemetry_before = resident_telemetry_after;
-    var policy_coordinates = try MetalBackend.secureColumnForMerkle(allocator, resident_line);
-    defer policy_coordinates.deinit(allocator);
+    var host_coordinates = try MetalBackend.secureColumnForMerkle(allocator, resident_line);
+    defer host_coordinates.deinit(allocator);
     const telemetry_after = try MetalBackend.telemetrySnapshot();
     const telemetry_delta = telemetry_after.delta(telemetry_before);
-    try std.testing.expect(metal_commit_policy.secureColumnUsesResidentMerkle(resident_line.len()));
-    try std.testing.expect(policy_coordinates.resident_storage != null);
-    try std.testing.expect(policy_coordinates.contiguous);
-    try std.testing.expectEqual(@as(u64, 1), telemetry_delta.counters.metal_qm31_coordinate_dispatches);
-    for (expected, 0..) |value, index| try std.testing.expect(value.eql(policy_coordinates.at(index)));
+    try std.testing.expect(!metal_commit_policy.secureColumnUsesResidentMerkle(resident_line.len()));
+    try std.testing.expect(host_coordinates.resident_storage == null);
+    try std.testing.expect(host_coordinates.contiguous);
+    try std.testing.expectEqual(@as(u64, 0), telemetry_delta.counters.metal_qm31_coordinate_dispatches);
+    for (expected, 0..) |value, index| try std.testing.expect(value.eql(host_coordinates.at(index)));
 
     var cpu_line_workspace = try core_fri.FoldLineWorkspace.init(allocator, expected.len / 2);
     defer cpu_line_workspace.deinit(allocator);
