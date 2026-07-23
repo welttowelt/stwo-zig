@@ -2286,6 +2286,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "core_cpu",
+     "ci_high": 0.8021,
+     "ci_low": 0.784577,
+     "commit": "632c3d62643663a5f4905603565ed4c5243427fd",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 1.283553,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:aa8a8551572da52322146939a457adb3c5a521be24234105aff89987180e198d",
+     "gates": "G1..G5:pass",
+     "harness_commit": "8b24d0b2eb96",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T10:58:22Z",
+     "judged_r": 0.791173,
+     "measurement_rounds": 7,
+     "measurement_seconds": 20.249045,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:6891b86ebccafc18efd29bbee73a638464bd8b00417fd49f6475f34601a99e7d",
+     "outcome": "promoted",
+     "peak_rss_mib": 21.71962,
+     "predecessor": "4259c8486593",
+     "proof_bytes": 41840,
+     "prove_ms": 4.960083,
+     "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -2293,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2617,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2805,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3023,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3033,9 +3068,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.934954,
+      "effective_score": 0.7499266034,
       "evidence_share": {
-       "claimed": 2,
+       "claimed": 3,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -3053,10 +3088,11 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 2,
+       "count": 3,
        "observation_ids": [
         "sha256:7a96c714a551215824edfa5efdd23c439e9538bcb69fd953164a98cb96ba5b76",
-        "sha256:d99adc5fd9c033aaea174b417324e4613acd7bd352dbfbfe0785e02f093cc3be"
+        "sha256:d99adc5fd9c033aaea174b417324e4613acd7bd352dbfbfe0785e02f093cc3be",
+        "sha256:6891b86ebccafc18efd29bbee73a638464bd8b00417fd49f6475f34601a99e7d"
        ]
       }
      },
@@ -3340,38 +3376,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "wide"
+      },
+      {
+       "board": "core_cpu",
+       "ci_high": 0.8021,
+       "ci_low": 0.784577,
+       "commit": "632c3d62643663a5f4905603565ed4c5243427fd",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 1.283553,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:aa8a8551572da52322146939a457adb3c5a521be24234105aff89987180e198d",
+       "gates": "G1..G5:pass",
+       "harness_commit": "8b24d0b2eb96",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T10:58:22Z",
+       "judged_r": 0.791173,
+       "measurement_rounds": 7,
+       "measurement_seconds": 20.249045,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:6891b86ebccafc18efd29bbee73a638464bd8b00417fd49f6475f34601a99e7d",
+       "outcome": "promoted",
+       "peak_rss_mib": 21.71962,
+       "predecessor": "4259c8486593",
+       "proof_bytes": 41840,
+       "prove_ms": 4.960083,
+       "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "wide"
       }
      ],
      "head": {
       "board": "core_cpu",
-      "ci_high": 0.934954,
-      "ci_low": 0.91363,
-      "commit": "179d83f56ca1b74292bcc9dab7fbd2206c10ef31",
+      "ci_high": 0.8021,
+      "ci_low": 0.784577,
+      "commit": "632c3d62643663a5f4905603565ed4c5243427fd",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 1.424281,
+      "energy_j": 1.283553,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:7dca760809f7b5599ebfae9eea02fc34addaa882c11678fab9ba4410223b4884",
+      "evidence_sha256": "sha256:aa8a8551572da52322146939a457adb3c5a521be24234105aff89987180e198d",
       "gates": "G1..G5:pass",
-      "harness_commit": "083877c03a81",
+      "harness_commit": "8b24d0b2eb96",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T09:30:38Z",
-      "judged_r": 0.924344,
-      "measurement_rounds": 20,
-      "measurement_seconds": 7.394022,
+      "judged_at_utc": "2026-07-23T10:58:22Z",
+      "judged_r": 0.791173,
+      "measurement_rounds": 7,
+      "measurement_seconds": 20.249045,
       "native_mhz": 0.0,
-      "observation_id": "sha256:d99adc5fd9c033aaea174b417324e4613acd7bd352dbfbfe0785e02f093cc3be",
+      "observation_id": "sha256:6891b86ebccafc18efd29bbee73a638464bd8b00417fd49f6475f34601a99e7d",
       "outcome": "promoted",
-      "peak_rss_mib": 21.344551,
-      "predecessor": "e363cadb75b4",
+      "peak_rss_mib": 21.71962,
+      "predecessor": "4259c8486593",
       "proof_bytes": 41840,
-      "prove_ms": 7.061833,
-      "row_id": "sha256:a03269ed2afdecc8034e1847df18469836a292c3d88efa97dea08e68eacff49d",
+      "prove_ms": 4.960083,
+      "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+      "submission_id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -3382,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3540,7 +3611,7 @@
      "deep": 1,
      "huge": 6,
      "small": 0,
-     "wide": 1,
+     "wide": 2,
      "xlarge": 2
     },
     "audited_class_ratios": {
@@ -3555,7 +3626,7 @@
      "deep": 0.966256,
      "huge": 0.37258144407254723,
      "small": 1.0,
-     "wide": 0.934954,
+     "wide": 0.7499266034,
      "xlarge": 0.6884909126969999
     },
     "classes": [
@@ -3566,10 +3637,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 74.64494052688818,
+    "index": 71.42431428904034,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.7464494052688818,
-    "speedup": 1.3396755264876734
+    "ratio_geomean": 0.7142431428904034,
+    "speedup": 1.400083444908122
    }
   },
   "core_hybrid": {
@@ -5826,8 +5897,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6287,8 +6358,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6409,8 +6480,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6695,8 +6766,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7194,8 +7265,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7552,8 +7623,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7703,8 +7774,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7744,8 +7815,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 270,
-       "seconds": 147056
+       "commits": 279,
+       "seconds": 151855
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -9063,7 +9134,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "d92bd6dd8928ffc19abbc3545a670452c1a741624edb90ec5307288ba88333c9",
+   "autoresearch/ledger/promotions.tsv": "d75391b2b114951d435c88e77241803d715d205a26a56ab95b3b27e84b1af176",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9198,6 +9269,7 @@
    "autoresearch/submissions/2026-07-22-pr83-resident-pipeline-retro/verdict.json": "308018396c3b0485997830bc31a767152a8bbb0c0ce8922d265cf70e7b093d31",
    "autoresearch/submissions/2026-07-22-riscv-direct-column-streaming-simd/verdict.json": "c33fe8919a27126a831a739389341547221f97e85067763014cfe3d9dfd7ebd9",
    "autoresearch/submissions/2026-07-22-riscv-register-grouped-quotients/verdict.json": "2ed91769c3537a1049a0c6dc2541feaedbad25f9b7a09eb7f3e2b7d80d4bf3e4",
+   "autoresearch/submissions/2026-07-23-2026-07-23-cpu-latency-recurrence-plan/verdict.json": "cd372f8aeb34cf89d036c5446671fa80f3820834b27ef0505be65a2c68d21d45",
    "autoresearch/submissions/2026-07-23-metal-cooperative-high-circle-layers/verdict.json": "9405e9b0b4662724db508454dcdb6d89e168206132d7395cb2bd668c3f87cd0d",
    "autoresearch/submissions/2026-07-23-metal-paired-expansion-high-transform/verdict.json": "ad61a5985508275aa84106ef957914a60a43266f783c233c18b91fa21ab939d0",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
@@ -9206,8 +9278,8 @@
    "vectors/reports/benchmark_history/index.json": "a7cb1b2c5cb6fc645066dccbc430e552a16d558022cb2412a037db5832d036a1",
    "vectors/reports/benchmark_history/runs/2026-07-23-072542-matrix-v6-a01299b4/report.json": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120"
   },
-  "repo_commit": "b96783d8a4d3",
-  "repo_commit_time": "2026-07-23T09:38:23Z"
+  "repo_commit": "0e7a306e0f28",
+  "repo_commit_time": "2026-07-23T10:58:22Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -16403,7 +16475,7 @@
      },
      "wide": {
       "available": true,
-      "available_points": 2,
+      "available_points": 3,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 0.0,
@@ -16416,24 +16488,30 @@
         "judged_at_utc": "2026-07-23T09:30:38Z",
         "points": 2,
         "row_id": "sha256:a03269ed2afdecc8034e1847df18469836a292c3d88efa97dea08e68eacff49d"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 10.06618436225398,
+        "judged_at_utc": "2026-07-23T10:58:22Z",
+        "points": 3,
+        "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8"
        }
       ],
       "latest": {
-       "actual_rounds": 20,
+       "actual_rounds": 7,
        "actual_rounds_per_workload": {
-        "wf_log14x32": 20
+        "wf_log14x32": 7
        },
-       "auto_boost_reason": "trailing_median_below_threshold",
-       "auto_boost_target_rounds": 20,
+       "auto_boost_reason": "trailing_median_at_or_above_threshold",
+       "auto_boost_target_rounds": 15,
        "available": true,
        "configured_rounds": 15,
-       "credited_ln_improvement": 0.06725794876466713,
-       "credited_ln_improvement_per_measurement_hour": 32.74653707441953,
-       "gradient_snr": 5.8930825740846355,
-       "judged_at_utc": "2026-07-23T09:30:38Z",
-       "measurement_wall_hours": 0.0020538950000061756,
-       "row_id": "sha256:a03269ed2afdecc8034e1847df18469836a292c3d88efa97dea08e68eacff49d",
-       "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
+       "credited_ln_improvement": 0.22052199060925814,
+       "credited_ln_improvement_per_measurement_hour": 39.20575751795112,
+       "gradient_snr": 16.076975604508174,
+       "judged_at_utc": "2026-07-23T10:58:22Z",
+       "measurement_wall_hours": 0.005624734849423273,
+       "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8",
+       "submission_id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -16584,14 +16662,32 @@
         "row_id": "sha256:a03269ed2afdecc8034e1847df18469836a292c3d88efa97dea08e68eacff49d",
         "submission_id": "2026-07-22-pr83-resident-pipeline-retro",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 7,
+        "actual_rounds_per_workload": {
+         "wf_log14x32": 7
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 15,
+        "available": true,
+        "configured_rounds": 15,
+        "credited_ln_improvement": 0.22052199060925814,
+        "credited_ln_improvement_per_measurement_hour": 39.20575751795112,
+        "gradient_snr": 16.076975604508174,
+        "judged_at_utc": "2026-07-23T10:58:22Z",
+        "measurement_wall_hours": 0.005624734849423273,
+        "row_id": "sha256:d4a26861fa09d61a38c814b4222da84064ebaa930c6c28718a29f4469b0e8fa8",
+        "submission_id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 0.06725794876466713,
-       "credited_ln_improvement_per_measurement_hour": 2.928837042701103,
-       "measurement_wall_hours": 0.022964046064727073,
-       "median_gradient_snr": 2.9465412870423178,
-       "points": 2
+       "credited_ln_improvement": 0.28777993937392526,
+       "credited_ln_improvement_per_measurement_hour": 10.06618436225398,
+       "measurement_wall_hours": 0.028588780914150347,
+       "median_gradient_snr": 5.8930825740846355,
+       "points": 3
       },
       "trailing_window": 8,
       "unavailable_points": 14
@@ -18685,6 +18781,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-23-2026-07-23-cpu-latency-recurrence-plan",
+   "judged_r": 0.791173,
+   "note": "# Admit packed recurrence composition in the latency regime\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repository-resident `stwo-perf` at identity\n`8b24d0b2eb96`, Zig 0.15.2 ReleaseFast, on the same arm64 macOS M5 Max host.\nThe clean candidate is `932aa7d2458b`; the paired predecessor is current main\n`4259c8486593`. The claimed board is Native CPU `wide/time` at S3. The final\ndiff changes only `src/backends/cpu_scalar/secure_composition.zig`.\n\nThe session began by measuring the fixed-protocol width-100 series at logs 14,\n16, 18, 20, and 22, then profiling CPU logs 14/18/22 and Metal logs\n14/16/18/22. The final scored experiment used seven ABBA rounds, retained all\nsamples, independently verified every proof, and passed the pinned Rust Stwo\noracle.\n\n## Hypothesis\n\nThe CPU backend already has a proof-wide execution plan for structurally\nidentified quadratic sum-of-squares recurrence AIRs. It traverses contiguous\ntrace columns directly, evaluates two independent packed row groups, reuses\nsquares across adjacent recurrence constraints, pre-packs secure powers, and\npartitions rows across the persistent worker pool. Its old admission threshold\nexcluded the latency regime even though profiling showed generic component\nevaluation consuming about 4.18 ms at width 100, log14.\n\nThe hypothesis was that a 2^15 evaluation domain and at least 32 contiguous\nrecurrence columns are sufficient to amortize worker fan-out. Admission remains\nstructural: one declared recurrence capability, one trace tree, exact\nconstraint/column relationship, uniform domains, contiguous storage, and\npower-of-two packed rows. It does not inspect a workload name, benchmark size,\ninput, or digest.\n\n## Changes\n\nLower the packed recurrence plan's evaluation-domain threshold from log17 to\nlog15 and express a minimum of 32 structurally matched columns. No arithmetic,\nstatement, trace, transcript, PCS, FRI, security parameter, proof encoding, or\nfallback behavior changes.\n\nSeveral broader experiments were deliberately removed before submission. A\nCPU commitment-input ownership transfer screened favorably for request time\nand some RSS points but produced a clean paired xlarge prove ratio of 1.0147\nwith CI [1.0003, 1.0294]. Metal combined/deferred admission at log14/16,\nsmaller transform tiles, and a split recurrence/IFFT command all lost to the\nexisting small-shape plan. Static contiguous CPU column ranges improved log14\nbut regressed log16 because heterogeneous-core load balancing was worse. The\nsubmitted diff contains none of those rejected mechanisms.\n\n## Results\n\nThe scored `wf_log14x32` prove median falls from 6.286708 ms to 4.960083 ms:\nratio **0.791173**, 95% CI **[0.783665, 0.801629]**. Verified-request ratio is\n0.807709. Energy ratio is 0.943872 with upper CI 0.948983; RSS ratio is\n0.998743 with upper CI 1.000721. Proof size is exactly unchanged at 41,840\nbytes.\n\nAll G1-G5 checks pass. Every timed proof verified, cross-arm proof digests\nwere byte-identical in every round, and the pinned Rust oracle accepted the\nscored proof. All 13 impact-mapped guards pass, covering wide Fibonacci,\nBlake, Plonk, Poseidon, state machine, and XOR. The separate holistic smoke\nalso produced identical CPU/Metal canonical bytes for all 13 rows. Native CPU\nproduct closure, prover closure, and source-conformance checks pass.\n\nFor the task's width-100 log14 point, the clean candidate records 7.436208 ms\nverified request versus the frozen 10.876250 ms baseline, ratio 0.683711,\nwith seven identical verified 48,180-byte proofs. This is useful portfolio\nevidence, but it is not substituted for the manifest-owned scored verdict.\n\n## Caveats\n\nThis submission advances one latency/wide cell; it does not by itself satisfy\nthe system-level 2x contract. The diagnostic best-backend envelope across the\nfive fixed-protocol sizes reaches ratio 0.497667, but log16 remains at\n0.937481 and therefore fails the per-cell ceiling. Cold-process ABBA evidence\nand an automatic backend execution plan are also still outstanding.\n\nThe packed plan intentionally stays off traces with fewer than 32 columns or\nwithout the exact recurrence capability and layout. A future change should\nderive the crossover from measured plan cost or a more general compiled\ncomponent plan rather than repeatedly lowering this constant. PR6's full\nexact workload and cold-process matrix is still incomplete.\n\n**PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Admit packed recurrence composition in the latency regime",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# System-level 2x session transcript\n\n## Research request and operating contract\n\nThe requested objective was a fixed-protocol, system-level 2x acceleration\nagainst frozen commit `0cca924`, scored by geometric mean over width-100 logs\n14, 16, 18, 20, and 22. Promotion requires at least 1.5x, every point must\nimprove, no point may exceed ratio 0.80, and correctness, proof identity,\nsecurity parameters, trace work, and request boundaries must remain fixed.\nThe user explicitly requested profiling before implementation, structural\nrather than benchmark-specific work, broad guards, complete notes and\ntranscripts, and immediate submission once a significant result existed.\n\nI updated the canonical",
+     "label": "session.md",
+     "sha256": "a0afea822670ad98a9bd98f6d66c25cbe7ce7f138ca5fedff01494ac17bc7a86"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   },
   {
    "id": "2026-07-23-metal-cooperative-high-circle-layers",
