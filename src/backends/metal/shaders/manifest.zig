@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 9;
+pub const core_shader_abi: u32 = 10;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
@@ -423,8 +423,8 @@ test "metal shader manifest exactly covers source and runtime exports" {
     }
 }
 
-test "commitment shader bindings match core ABI version 5" {
-    try std.testing.expectEqual(@as(u32, 9), core_shader_abi);
+test "commitment shader bindings match core ABI version 10" {
+    try std.testing.expectEqual(@as(u32, 10), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
         .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
@@ -590,6 +590,17 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
     const declaration = try kernelDeclaration(circle_transform_source, "stwo_zig_circle_rfft_fused_tail_sparse");
     try std.testing.expect(std.mem.indexOf(u8, declaration, "uint lane [[thread_index_in_threadgroup]]") != null);
     try std.testing.expect(std.mem.indexOf(u8, declaration, "uint2 group [[threadgroup_position_in_grid]]") != null);
+    const wide_declaration = try kernelDeclaration(
+        circle_transform_all_source,
+        "stwo_zig_circle_rfft_fused_tail_sparse_wide",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, wide_declaration, "column_count [[buffer(4)]]") != null);
+    const high_declaration = try kernelDeclaration(
+        circle_transform_source,
+        "stwo_zig_circle_rfft_last_sparse",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "column_config [[buffer(4)]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "tile [[threadgroup(0)]]") != null);
 }
 
 test "polynomial evaluation declares standalone field and ABI dependencies" {
