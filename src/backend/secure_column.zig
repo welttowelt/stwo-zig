@@ -13,7 +13,10 @@ pub const SecureColumnByCoords = struct {
 
     const Self = @This();
 
+    pub const Representation = enum { evaluations, coefficients };
+
     columns: [qm31.SECURE_EXTENSION_DEGREE]ColumnSlice,
+    representation: Representation = .evaluations,
     owns_columns: bool = true,
     /// When true, all 4 column slices point into a single contiguous
     /// allocation starting at columns[0].ptr with total length
@@ -140,7 +143,12 @@ pub const SecureColumnByCoords = struct {
         for (0..DEGREE) |i| {
             columns[i] = buffer[i * column_len .. (i + 1) * column_len];
         }
-        return .{ .columns = columns, .owns_columns = true, .contiguous = true };
+        return .{
+            .columns = columns,
+            .representation = self.representation,
+            .owns_columns = true,
+            .contiguous = true,
+        };
     }
 
     pub fn set(self: *Self, index: usize, value: QM31) void {

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 8;
+pub const core_shader_abi: u32 = 10;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
@@ -89,8 +89,11 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_composition_random_powers", .owner = .composition },
     .{ .name = "stwo_zig_composition_ext_params", .owner = .composition },
     .{ .name = "stwo_zig_circle_ifft_fused_tail", .owner = .circle_transform },
+    .{ .name = "stwo_zig_circle_ifft_fused_tail_wide", .owner = .circle_transform },
+    .{ .name = "stwo_zig_quadratic_recurrence_ifft_fused_wide", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_rfft_fused_tail", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_rfft_fused_tail_sparse", .owner = .circle_transform },
+    .{ .name = "stwo_zig_circle_rfft_fused_tail_sparse_wide", .owner = .circle_transform },
     .{ .name = "stwo_zig_relation_fused", .owner = .relation },
     .{ .name = "stwo_zig_relation_block_scan", .owner = .relation },
     .{ .name = "stwo_zig_relation_scan_blocks", .owner = .relation },
@@ -190,6 +193,8 @@ const cairo_witness_feed_source = @embedFile("cairo/witness_feed.metal");
 const cairo_fixed_tables_source = @embedFile("cairo/fixed_tables.metal");
 const cairo_ec_op_source = @embedFile("cairo/ec_op.metal");
 const circle_transform_source = @embedFile("core/circle_transform.metal");
+const circle_transform_wide_source = @embedFile("core/circle_transform_wide.metal");
+const circle_transform_all_source = circle_transform_source ++ circle_transform_wide_source;
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -219,6 +224,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform_wide.metal", .source = circle_transform_wide_source },
     .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
     .{ .path = "src/backends/metal/shaders/cairo/witness_feed.metal", .source = cairo_witness_feed_source },
     .{ .path = "src/backends/metal/shaders/cairo/fixed_tables.metal", .source = cairo_fixed_tables_source },
@@ -235,6 +241,7 @@ pub const native_translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform_wide.metal", .source = circle_transform_wide_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
@@ -255,6 +262,7 @@ pub const native_amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATE
     "\n#line 1 \"src/backends/metal/shaders/core/commitments.metal\"\n" ++ commitments_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++ legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++ circle_transform_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform_wide.metal\"\n" ++ circle_transform_wide_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++ arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++ transcript_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n" ++ composition_source ++
@@ -308,6 +316,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++
     circle_transform_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform_wide.metal\"\n" ++
+    circle_transform_wide_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/trace.metal\"\n" ++
     cairo_trace_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/witness_feed.metal\"\n" ++
@@ -363,7 +373,7 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
 }
 
 test "Native core source exactly covers its non-Cairo export ABI" {
-    try std.testing.expectEqual(@as(usize, 79), native_exports.len);
+    try std.testing.expectEqual(@as(usize, 82), native_exports.len);
     try std.testing.expectEqual(native_exports.len, std.mem.count(u8, native_amalgamated_source, "kernel void "));
     try std.testing.expect(std.mem.indexOf(u8, native_amalgamated_source, "shaders/cairo/") == null);
     for (native_support_headers) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
@@ -413,8 +423,8 @@ test "metal shader manifest exactly covers source and runtime exports" {
     }
 }
 
-test "commitment shader bindings match core ABI version 5" {
-    try std.testing.expectEqual(@as(u32, 8), core_shader_abi);
+test "commitment shader bindings match core ABI version 10" {
+    try std.testing.expectEqual(@as(u32, 10), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
         .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
@@ -569,10 +579,10 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
         if (entry.owner != .circle_transform) continue;
         owned += 1;
         try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, entry.name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_all_source, entry.name));
         try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, entry.name));
     }
-    try std.testing.expectEqual(@as(usize, 19), owned);
+    try std.testing.expectEqual(@as(usize, 22), owned);
     const dependencies = [_][]const u8{ "base.metal", "m31.metal", "circle.metal" };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, circle_transform_source, dependency) != null);
@@ -580,6 +590,17 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
     const declaration = try kernelDeclaration(circle_transform_source, "stwo_zig_circle_rfft_fused_tail_sparse");
     try std.testing.expect(std.mem.indexOf(u8, declaration, "uint lane [[thread_index_in_threadgroup]]") != null);
     try std.testing.expect(std.mem.indexOf(u8, declaration, "uint2 group [[threadgroup_position_in_grid]]") != null);
+    const wide_declaration = try kernelDeclaration(
+        circle_transform_all_source,
+        "stwo_zig_circle_rfft_fused_tail_sparse_wide",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, wide_declaration, "column_count [[buffer(4)]]") != null);
+    const high_declaration = try kernelDeclaration(
+        circle_transform_source,
+        "stwo_zig_circle_rfft_last_sparse",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "column_config [[buffer(4)]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, high_declaration, "tile [[threadgroup(0)]]") != null);
 }
 
 test "polynomial evaluation declares standalone field and ABI dependencies" {

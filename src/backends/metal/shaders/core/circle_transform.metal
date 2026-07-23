@@ -116,10 +116,18 @@ kernel void stwo_zig_circle_expand_coefficients(
     if (fuse_top_two != 0u) {
         uint half_len = base_len >> 1u;
         if (position.x >= half_len) return;
-        uint lhs = m31_mul(coefficients[coefficient_base + position.x], scale_factor);
-        uint rhs = m31_mul(coefficients[coefficient_base + half_len + position.x], scale_factor);
-        coefficients[coefficient_base + position.x] = lhs;
-        coefficients[coefficient_base + half_len + position.x] = rhs;
+        uint lhs_value = coefficients[coefficient_base + position.x];
+        uint rhs_value = coefficients[coefficient_base + half_len + position.x];
+        uint lhs = scale_factor == 1u
+            ? lhs_value
+            : m31_mul_pow2(lhs_value, 31u - base_log_size);
+        uint rhs = scale_factor == 1u
+            ? rhs_value
+            : m31_mul_pow2(rhs_value, 31u - base_log_size);
+        if (scale_factor != 1u) {
+            coefficients[coefficient_base + position.x] = lhs;
+            coefficients[coefficient_base + half_len + position.x] = rhs;
+        }
 
         uint pair_count = extended_len >> 1u;
         uint twiddle_offset = pair_count - 4u;
@@ -442,14 +450,43 @@ kernel void stwo_zig_circle_rfft_radix4_sparse(
     arena[idx3] = m31_sub(ac_diff, lower);
 }
 
+inline void circle_rfft_high_fused_sparse(
+    device uint *arena,
+    device const uint *destination_offsets,
+    device const uint *twiddles,
+    uint log_size,
+    uint lowest_stage,
+    uint layer_count,
+    uint column_count,
+    uint inverse_mode,
+    uint lane,
+    uint2 group_position,
+    threadgroup uint *tile
+);
+
 kernel void stwo_zig_circle_rfft_last_sparse(
     device uint *arena [[buffer(0)]],
     device const uint *destination_offsets [[buffer(1)]],
     device const uint *twiddles [[buffer(2)]],
     constant uint &log_size [[buffer(3)]],
-    constant uint &column_count [[buffer(4)]],
-    uint2 position [[thread_position_in_grid]]
+    constant uint &column_config [[buffer(4)]],
+    uint2 position [[thread_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]],
+    threadgroup uint *tile [[threadgroup(0)]]
 ) {
+    if ((column_config & 0x80000000u) != 0u) {
+        uint column_count = column_config & 0x1ffu;
+        uint inverse_mode = (column_config >> 9u) & 1u;
+        uint layer_count = (column_config >> 10u) & 15u;
+        uint lowest_stage = (column_config >> 14u) & 31u;
+        circle_rfft_high_fused_sparse(
+            arena, destination_offsets, twiddles, log_size, lowest_stage,
+            layer_count, column_count, inverse_mode, lane, group, tile
+        );
+        return;
+    }
+    uint column_count = column_config;
     uint pair_count = 1u << (log_size - 1u);
     if (position.x >= pair_count || position.y >= column_count) return;
     uint idx0 = destination_offsets[position.y] + (position.x << 1u), idx1 = idx0 + 1u;
@@ -560,6 +597,129 @@ kernel void stwo_zig_circle_ifft_fused_tail(
         destination[destination_column_offset + tile_offset + item] = tile[item];
     }
 }
+
+// Large uniform commitments trade some threadgroup occupancy for one fewer
+// full-arena transform pass. A 4,096-element tile consumes 16 KiB, leaving two
+// resident threadgroups on Apple GPUs with 32 KiB of threadgroup memory.
+constant uint circle_fused_wide_tile_log = 12u;
+constant uint circle_fused_wide_tile_size = 1u << circle_fused_wide_tile_log;
+
+// Generates a structurally declared quadratic-recurrence trace directly into
+// IFFT tiles, so evaluation values never make a round trip through device
+// memory. This tile is tuned independently from the ordinary wide IFFT: the
+// recurrence loop benefits from many more resident threadgroups.
+constant uint quadratic_ifft_tile_log = 12u;
+constant uint quadratic_ifft_tile_size = 1u << quadratic_ifft_tile_log;
+kernel void stwo_zig_quadratic_recurrence_ifft_fused_wide(
+    device uint *destination [[buffer(0)]],
+    device const uint *twiddles [[buffer(1)]],
+    constant uint &log_size [[buffer(2)]],
+    constant uint &column_count [[buffer(3)]],
+    constant uint *recipe [[buffer(4)]],
+    constant uint &scale_factor [[buffer(5)]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint group [[threadgroup_position_in_grid]]
+) {
+    threadgroup uint tile[quadratic_ifft_tile_size];
+    constexpr uint items_per_lane =
+        quadratic_ifft_tile_size / circle_fused_threads;
+    uint previous[items_per_lane];
+    uint current[items_per_lane];
+    uint value_len = 1u << log_size;
+    uint half_count = value_len >> 1u;
+    uint tile_offset = group << quadratic_ifft_tile_log;
+    bool unit_sum_of_squares = recipe[0] == 1u && recipe[1] == 0u &&
+        recipe[2] == 0u && recipe[3] == 1u && recipe[4] == 1u &&
+        recipe[5] == 1u && recipe[6] == 0u;
+
+    for (uint slot = 0u; slot < items_per_lane; ++slot) {
+        uint storage_index = tile_offset + lane + slot * circle_fused_threads;
+        uint circle_index = reverse_bits(storage_index) >> (32u - log_size);
+        uint logical_row = circle_index < half_count
+            ? circle_index << 1u
+            : ((value_len - 1u - circle_index) << 1u) + 1u;
+        previous[slot] = unit_sum_of_squares
+            ? 1u
+            : m31_add(recipe[0], m31_mul(recipe[1], logical_row));
+        current[slot] = unit_sum_of_squares
+            ? logical_row
+            : m31_add(recipe[2], m31_mul(recipe[3], logical_row));
+    }
+
+    uint pair_count = value_len >> 1u;
+    for (uint column = 0u; column < column_count; ++column) {
+        for (uint slot = 0u; slot < items_per_lane; ++slot) {
+            uint value = previous[slot];
+            if (column == 1u) {
+                value = current[slot];
+            } else if (column >= 2u) {
+                uint next = unit_sum_of_squares
+                    ? m31_add(
+                        m31_mul(previous[slot], previous[slot]),
+                        m31_mul(current[slot], current[slot])
+                    )
+                    : m31_add(
+                        m31_add(
+                            m31_mul(recipe[4], m31_mul(previous[slot], previous[slot])),
+                            m31_mul(recipe[5], m31_mul(current[slot], current[slot]))
+                        ),
+                        recipe[6]
+                    );
+                previous[slot] = current[slot];
+                current[slot] = next;
+                value = next;
+            }
+            tile[lane + slot * circle_fused_threads] = value;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint pair = lane; pair < quadratic_ifft_tile_size / 2u;
+             pair += circle_fused_threads) {
+            uint idx0 = pair << 1u;
+            uint idx1 = idx0 + 1u;
+            uint lhs = tile[idx0];
+            uint rhs = tile[idx1];
+            uint global_pair = (tile_offset >> 1u) + pair;
+            tile[idx0] = m31_add(lhs, rhs);
+            tile[idx1] = m31_mul(
+                m31_sub(lhs, rhs),
+                circle_twiddle(twiddles, global_pair)
+            );
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint layer = 1u; layer < quadratic_ifft_tile_log; ++layer) {
+            uint distance = 1u << layer;
+            uint stride = distance << 1u;
+            uint twiddle_offset = pair_count - (1u << (log_size - layer));
+            uint group_base = tile_offset / stride;
+            for (uint pair = lane; pair < circle_fused_wide_tile_size / 2u;
+                 pair += circle_fused_threads) {
+                uint local_group = pair / distance;
+                uint inner = pair - local_group * distance;
+                uint idx0 = local_group * stride + inner;
+                uint idx1 = idx0 + distance;
+                uint lhs = tile[idx0];
+                uint rhs = tile[idx1];
+                uint twiddle = twiddles[twiddle_offset + group_base + local_group];
+                tile[idx0] = m31_add(lhs, rhs);
+                tile[idx1] = m31_mul(m31_sub(lhs, rhs), twiddle);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+
+        uint column_offset = column << log_size;
+        for (uint item = lane; item < quadratic_ifft_tile_size;
+             item += circle_fused_threads) {
+            destination[column_offset + tile_offset + item] = scale_factor == 1u
+                ? tile[item]
+                : m31_mul_pow2(tile[item], 31u - log_size);
+        }
+        if (column + 1u < column_count)
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+}
+
 
 kernel void stwo_zig_circle_rfft_fused_tail(
     device uint *values [[buffer(0)]],

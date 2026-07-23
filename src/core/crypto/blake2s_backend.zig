@@ -1,28 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const contract = @import("blake2s_contract.zig");
+const parallel4 = @import("blake2s_parallel4.zig");
+const stream4 = @import("blake2s_stream4.zig");
 
 pub const Blake2sHash = [32]u8;
 
-pub const BackendMode = enum(u8) {
-    auto,
-    scalar,
-    simd,
-};
-
-pub const BackendSelection = struct {
-    requested: BackendMode,
-    effective: BackendMode,
-    simd_supported: bool,
-    explicit_simd_width: usize,
-};
-
-pub const SimdContract = struct {
-    pub const explicit_width = 4;
-    pub const input_alignment = @alignOf(u8);
-    pub const scalar_tail_supported = true;
-    pub const read_only_input_aliasing_supported = true;
-    pub const caller_scratch_bytes = 0;
-};
+pub const BackendMode = contract.BackendMode;
+pub const BackendSelection = contract.BackendSelection;
+pub const SimdContract = contract.SimdContract;
 
 /// Test-only dispatch evidence. Recording is compiled out of production
 /// artifacts so observing the contract cannot perturb benchmark results.
@@ -363,6 +349,52 @@ pub const Blake2sHasher = struct {
         compressParallel4(&states, &final_messages, counter, 0, 0xFFFF_FFFF);
 
         return parallelStatesToDigests(&states);
+    }
+
+    pub fn finalizeEqualTail4(
+        hashers: *const [4]Self,
+        tails: *const [4][]const u8,
+    ) [4]Blake2sHash {
+        return stream4.finalizeEqualTail4(
+            Self,
+            V4,
+            Blake2sHash,
+            hashers,
+            tails,
+            loadParallelBlock4,
+            compressParallel4,
+            parallelStatesToDigests,
+        );
+    }
+
+    pub fn updateEqual4(
+        hashers: *[4]Self,
+        data: *const [4][]const u8,
+    ) void {
+        stream4.updateEqual4(
+            Self,
+            V4,
+            hashers,
+            data,
+            loadParallelBlock4,
+            compressParallel4,
+        );
+    }
+
+    pub fn updateM31Columns4(
+        hashers: *[4]Self,
+        columns: anytype,
+        position: usize,
+    ) void {
+        stream4.updateM31Columns4(
+            Self,
+            V4,
+            hashers,
+            columns,
+            position,
+            loadParallelBlock4,
+            compressParallel4,
+        );
     }
 
     /// Hashes four equal-length M31 leaf messages directly from column-major
@@ -784,14 +816,28 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
     v[14] ^= @as(V4, @splat(f0));
 
     inline for (BLAKE2S_SIGMA) |s| {
-        g4(&v[0], &v[4], &v[8], &v[12], m[s[0]], m[s[1]]);
-        g4(&v[1], &v[5], &v[9], &v[13], m[s[2]], m[s[3]]);
-        g4(&v[2], &v[6], &v[10], &v[14], m[s[4]], m[s[5]]);
-        g4(&v[3], &v[7], &v[11], &v[15], m[s[6]], m[s[7]]);
-        g4(&v[0], &v[5], &v[10], &v[15], m[s[8]], m[s[9]]);
-        g4(&v[1], &v[6], &v[11], &v[12], m[s[10]], m[s[11]]);
-        g4(&v[2], &v[7], &v[8], &v[13], m[s[12]], m[s[13]]);
-        g4(&v[3], &v[4], &v[9], &v[14], m[s[14]], m[s[15]]);
+        parallel4.g4Interleaved(
+            V4,
+            rotr32x4,
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 4, 5, 6, 7 },
+            .{ 8, 9, 10, 11 },
+            .{ 12, 13, 14, 15 },
+            .{ m[s[0]], m[s[2]], m[s[4]], m[s[6]] },
+            .{ m[s[1]], m[s[3]], m[s[5]], m[s[7]] },
+        );
+        parallel4.g4Interleaved(
+            V4,
+            rotr32x4,
+            &v,
+            .{ 0, 1, 2, 3 },
+            .{ 5, 6, 7, 4 },
+            .{ 10, 11, 8, 9 },
+            .{ 15, 12, 13, 14 },
+            .{ m[s[8]], m[s[10]], m[s[12]], m[s[14]] },
+            .{ m[s[9]], m[s[11]], m[s[13]], m[s[15]] },
+        );
     }
 
     for (0..8) |i| h[i] ^= v[i] ^ v[i + 8];

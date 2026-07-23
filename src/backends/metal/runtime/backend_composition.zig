@@ -11,19 +11,22 @@ pub fn computeCompositionEvaluation(
     random_coeff: core.fields.qm31.QM31,
     trace: *const prover.air.component_prover.Trace,
     residency_handles: []const ?*anyopaque,
+    composition_twiddles: ?prover.poly.twiddles.TwiddleTree([]const core.fields.m31.M31),
 ) !?prover.secure_column.SecureColumnByCoords {
+    const twiddle_tree = composition_twiddles orelse return null;
     return secure_composition.evaluateLargeRecurrenceComposition(
         allocator,
         components,
         random_coeff,
         trace,
         residency_handles,
+        twiddle_tree,
     );
 }
 
 pub fn interpolateSecureComposition(
     allocator: std.mem.Allocator,
-    values: []const []core.fields.m31.M31,
+    values: *prover.secure_column.SecureColumnByCoords,
     domain: core.poly.circle.domain.CircleDomain,
     twiddle_tree: prover.poly.twiddles.TwiddleTree([]const core.fields.m31.M31),
 ) !bool {

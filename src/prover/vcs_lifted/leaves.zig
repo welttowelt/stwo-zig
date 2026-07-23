@@ -7,6 +7,7 @@ const work_pool_mod = @import("../work_pool.zig");
 const columns_mod = @import("columns.zig");
 const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
+const blake2_stream4 = @import("blake2_stream4.zig");
 
 pub fn Operations(comptime H: type) type {
     return struct {
@@ -375,6 +376,124 @@ pub fn Operations(comptime H: type) type {
             return out;
         }
 
+        pub const max_lifted_tail_columns: usize = 15;
+
+        const LiftedTailRangeCtx = struct {
+            base_hashers: []const H,
+            base_log_size: u32,
+            tail_columns: []const ColumnRef,
+            final_log_size: u32,
+            out: []H.Hash,
+            start: usize,
+            end: usize,
+        };
+
+        fn liftedTailBaseIndex(ctx: *const LiftedTailRangeCtx, position: usize) usize {
+            const base_shift: std.math.Log2Int(usize) = @intCast(
+                ctx.final_log_size - ctx.base_log_size + 1,
+            );
+            return ((position >> base_shift) << 1) + (position & 1);
+        }
+
+        fn fillLiftedTailValues(
+            ctx: *const LiftedTailRangeCtx,
+            position: usize,
+            values: *[max_lifted_tail_columns]M31,
+        ) void {
+            for (ctx.tail_columns, 0..) |column, column_index| {
+                const column_shift: std.math.Log2Int(usize) = @intCast(
+                    ctx.final_log_size - column.log_size + 1,
+                );
+                const source_index = ((position >> column_shift) << 1) + (position & 1);
+                values[column_index] = column.values[source_index];
+            }
+        }
+
+        fn finalizeLiftedTailOne(ctx: *const LiftedTailRangeCtx, position: usize) void {
+            var tail_values: [max_lifted_tail_columns]M31 = undefined;
+            fillLiftedTailValues(ctx, position, &tail_values);
+            var hasher = ctx.base_hashers[liftedTailBaseIndex(ctx, position)];
+            hasher.updateLeaf(tail_values[0..ctx.tail_columns.len]);
+            ctx.out[position] = hasher.finalize();
+        }
+
+        fn finalizeLiftedTailRange(ctx: *const LiftedTailRangeCtx) void {
+            var position = ctx.start;
+
+            if (comptime blake2_stream4.supports(H)) {
+                while (position < ctx.end and (position & 3) != 0) : (position += 1) {
+                    finalizeLiftedTailOne(ctx, position);
+                }
+                while (position + 4 <= ctx.end) : (position += 4) {
+                    var hashers: [4]H = undefined;
+                    var tail_storage: [4][max_lifted_tail_columns]M31 = undefined;
+                    var tail_views: [4][]const M31 = undefined;
+                    inline for (0..4) |lane| {
+                        const lane_position = position + lane;
+                        hashers[lane] = ctx.base_hashers[liftedTailBaseIndex(ctx, lane_position)];
+                        fillLiftedTailValues(ctx, lane_position, &tail_storage[lane]);
+                        tail_views[lane] = tail_storage[lane][0..ctx.tail_columns.len];
+                    }
+                    const hashes = blake2_stream4.finalizeTail4(&hashers, &tail_views);
+                    inline for (0..4) |lane| ctx.out[position + lane] = hashes[lane];
+                }
+            }
+
+            while (position < ctx.end) : (position += 1) {
+                finalizeLiftedTailOne(ctx, position);
+            }
+        }
+
+        /// Finalizes a lifted leaf layer without materializing intermediate
+        /// hasher arrays when the remaining M31 values fit in the current
+        /// terminal hash block. The caller proves that no compression occurs
+        /// between `base_hashers` and finalization.
+        pub fn finalizeLiftedTail(
+            base_hashers: []const H,
+            base_log_size: u32,
+            tail_columns: []const ColumnRef,
+            final_log_size: u32,
+            out: []H.Hash,
+        ) void {
+            std.debug.assert(tail_columns.len > 0);
+            std.debug.assert(tail_columns.len <= max_lifted_tail_columns);
+            std.debug.assert(out.len == @as(usize, 1) << @intCast(final_log_size));
+
+            const pool = work_pool_mod.getGlobalPool();
+            const worker_capacity = out.len / parallel_min_nodes_per_worker;
+            const worker_count = if (pool) |active_pool|
+                @max(@as(usize, 1), @min(active_pool.workerCount(), worker_capacity))
+            else
+                1;
+            var contexts: [max_parallel_workers]LiftedTailRangeCtx = undefined;
+            for (0..worker_count) |worker| {
+                const start = out.len * worker / worker_count;
+                const end = out.len * (worker + 1) / worker_count;
+                contexts[worker] = .{
+                    .base_hashers = base_hashers,
+                    .base_log_size = base_log_size,
+                    .tail_columns = tail_columns,
+                    .final_log_size = final_log_size,
+                    .out = out,
+                    .start = start,
+                    .end = end,
+                };
+            }
+
+            if (worker_count > 1) {
+                var wait_group: WaitGroup = .{};
+                for (contexts[1..worker_count]) |*ctx| {
+                    pool.?.spawnWg(&wait_group, finalizeLiftedTailRange, .{
+                        @as(*const LiftedTailRangeCtx, ctx),
+                    });
+                }
+                finalizeLiftedTailRange(&contexts[0]);
+                wait_group.wait();
+            } else {
+                finalizeLiftedTailRange(&contexts[0]);
+            }
+        }
+
         const FinalizeRangeCtx = struct {
             hashers: []H,
             out: []H.Hash,
@@ -384,6 +503,13 @@ pub fn Operations(comptime H: type) type {
 
         fn finalizeRange(ctx: *const FinalizeRangeCtx) void {
             var i = ctx.start;
+            if (comptime blake2_stream4.supports(H)) {
+                while (i + 4 <= ctx.end) : (i += 4) {
+                    const hashers: *const [4]H = @ptrCast(ctx.hashers.ptr + i);
+                    const hashes = blake2_stream4.finalize4(hashers);
+                    inline for (0..4) |lane| ctx.out[i + lane] = hashes[lane];
+                }
+            }
             while (i < ctx.end) : (i += 1) {
                 ctx.out[i] = ctx.hashers[i].finalize();
             }
@@ -477,6 +603,31 @@ pub fn Operations(comptime H: type) type {
                 while (column_start < ctx.group_columns.len) {
                     const column_end = @min(ctx.group_columns.len, column_start + max_chunk_columns);
                     const column_chunk = ctx.group_columns[column_start..column_end];
+
+                    if (comptime blake2_stream4.supports(H)) {
+                        var local_leaf: usize = 0;
+                        while (local_leaf + 4 <= tile_size) : (local_leaf += 4) {
+                            const hashers: *[4]H = @ptrCast(
+                                ctx.leaf_hashers.ptr + tile_start + local_leaf,
+                            );
+                            blake2_stream4.updateM31Columns4(
+                                hashers,
+                                column_chunk,
+                                tile_start + local_leaf,
+                            );
+                        }
+                        while (local_leaf < tile_size) : (local_leaf += 1) {
+                            const leaf_index = tile_start + local_leaf;
+                            for (column_chunk) |column| {
+                                ctx.leaf_hashers[leaf_index].updateLeaf(
+                                    column.values[leaf_index .. leaf_index + 1],
+                                );
+                            }
+                        }
+                        column_start = column_end;
+                        continue;
+                    }
+
                     const bytes_per_leaf = column_chunk.len * @sizeOf(M31);
                     const scratch_len = tile_size * bytes_per_leaf;
                     packLeafTileBytes(
@@ -486,7 +637,8 @@ pub fn Operations(comptime H: type) type {
                         tile_size,
                     );
 
-                    for (0..tile_size) |local_leaf| {
+                    var local_leaf: usize = 0;
+                    while (local_leaf < tile_size) : (local_leaf += 1) {
                         const byte_start = local_leaf * bytes_per_leaf;
                         ctx.leaf_hashers[tile_start + local_leaf].updateLeafPackedBytes(
                             ctx.scratch[byte_start .. byte_start + bytes_per_leaf],

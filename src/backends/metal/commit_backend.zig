@@ -1,6 +1,7 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const backend_composition = @import("runtime/backend_composition.zig");
+const column_source_materialization = @import("runtime/column_source_materialization.zig");
 const commit_policy = @import("commit_policy.zig");
 const combined_commit = @import("runtime/combined_commit.zig");
 const fold_inverses = @import("runtime/fold_inverses.zig");
@@ -42,10 +43,14 @@ pub const MetalCommitBackend = struct {
     pub const preferMonolithicCommit = true;
     pub const lazyFriFoldInverseWorkspace = true;
     pub const prepareAndCommitOwned = combined_commit.prepareAndCommitOwned;
+    pub const prepareAndCommitPolys = combined_commit.prepareAndCommitPolys;
     pub const preferContiguousQuadraticRecurrenceTrace = true;
+    pub const preferDeferredQuadraticRecurrenceTrace = true;
+    pub const admitsDeferredQuadraticRecurrenceTrace = combined_commit.admitsDeferredQuadraticRecurrenceTrace;
     pub const quadratic_recurrence_min_cells = quadratic_trace.min_cells;
     pub const admitsQuadraticRecurrenceTrace = quadratic_trace.admits;
     pub const fillQuadraticRecurrenceTrace = quadratic_trace.fill;
+    pub const materializeColumnSource = column_source_materialization.materialize;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();

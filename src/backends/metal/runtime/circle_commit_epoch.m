@@ -15,6 +15,8 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
     const uint32_t *inverse_twiddles,
     const uint32_t *forward_twiddles,
     uint32_t scale_factor,
+    uint32_t coefficients_ready,
+    const uint32_t *trace_recipe,
     const uint32_t *leaf_seed,
     const uint32_t *node_seed,
     uint32_t domain_prefix_bytes,
@@ -24,12 +26,28 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
 ) {
     if (runtime_ptr == NULL || source_columns == NULL || base_columns == NULL ||
         extended_words == NULL || inverse_twiddles == NULL || forward_twiddles == NULL ||
-        leaf_seed == NULL || node_seed == NULL || column_count < 64u || column_count > 256u ||
+        leaf_seed == NULL || node_seed == NULL ||
+        !(column_count == 8u || (column_count >= 64u && column_count <= 256u)) ||
+        coefficients_ready > 1u ||
         base_log_size < 16u || extended_log_size != base_log_size + 1u ||
         extended_log_size >= 31u ||
         (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u)) {
         write_error(error_message, error_message_len, @"Combined Metal commitment shape is unsupported");
         return NULL;
+    }
+    if (trace_recipe != NULL) {
+        if (coefficients_ready != 0u) {
+            write_error(error_message, error_message_len,
+                @"Deferred trace cannot also be coefficient-form input");
+            return NULL;
+        }
+        for (uint32_t word = 0u; word < 7u; ++word) {
+            if (trace_recipe[word] >= 0x7fffffffu) {
+                write_error(error_message, error_message_len,
+                    @"Combined Metal trace recipe is non-canonical");
+                return NULL;
+            }
+        }
     }
 
     @autoreleasepool {
@@ -156,63 +174,136 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                 base_columns[0] + (size_t)column * base_len;
         }
 
-        // A transferable contiguous trace already is the coefficient arena.
-        // Transform it in place and avoid a second base allocation and a full
-        // source-to-coefficient pass. Other callers retain the fused upload.
-        id<MTLComputeCommandEncoder> upload = [command computeCommandEncoder];
-        [upload setComputePipelineState:runtime.circleIfftFused];
-        uint32_t source_mode = source_is_base ? 0u : 1u;
-        [upload setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
-        if (source_is_base) {
-            [upload setBuffer:coefficients offset:0u atIndex:0];
-            [upload setBuffer:coefficients offset:0u atIndex:1];
-            [upload setBuffer:inverse_buffer offset:0u atIndex:2];
-            [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-            [upload setBytes:&column_count length:sizeof(column_count) atIndex:4];
-            [upload dispatchThreadgroups:MTLSizeMake(base_len >> 11u, column_count, 1u)
-                threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
-        } else {
-            size_t source_column = 0u;
-            size_t destination_words = 0u;
-            while (source_column < column_count) {
-                size_t run_start = source_column;
-                size_t run_words = base_len;
-                source_column += 1u;
-                while (source_column < column_count &&
-                       source_columns[source_column] == source_columns[run_start] + run_words) {
-                    run_words += base_len;
-                    source_column += 1u;
-                }
-                size_t run_bytes = run_words * sizeof(uint32_t);
-                uintptr_t address = (uintptr_t)source_columns[run_start];
-                bool no_copy = (address % page_size) == 0u && (run_bytes % page_size) == 0u;
+        if (coefficients_ready != 0u && !source_is_base) {
+            id<MTLBlitCommandEncoder> coefficient_upload = [command blitCommandEncoder];
+            size_t column_bytes = (size_t)base_len * sizeof(uint32_t);
+            for (uint32_t column = 0u; column < column_count; ++column) {
+                uintptr_t address = (uintptr_t)source_columns[column];
+                bool no_copy = (address % page_size) == 0u &&
+                    (column_bytes % page_size) == 0u;
                 id<MTLBuffer> source = no_copy
-                    ? [runtime.device newBufferWithBytesNoCopy:(void *)source_columns[run_start]
-                        length:run_bytes options:MTLResourceStorageModeShared deallocator:nil]
-                    : [runtime.device newBufferWithBytes:source_columns[run_start]
-                        length:run_bytes options:MTLResourceStorageModeShared];
+                    ? [runtime.device newBufferWithBytesNoCopy:(void *)source_columns[column]
+                        length:column_bytes options:MTLResourceStorageModeShared deallocator:nil]
+                    : [runtime.device newBufferWithBytes:source_columns[column]
+                        length:column_bytes options:MTLResourceStorageModeShared];
                 if (source == nil) {
-                    [upload endEncoding];
-                    write_error(error_message, error_message_len, @"Combined Metal source allocation failed");
+                    [coefficient_upload endEncoding];
+                    write_error(error_message, error_message_len,
+                        @"Coefficient-form Metal source allocation failed");
                     return NULL;
                 }
                 [input_sources addObject:source];
-                uint32_t destination_column = (uint32_t)(destination_words / base_len);
-                [upload setBuffer:source offset:0u atIndex:0];
-                [upload setBuffer:coefficients offset:0u atIndex:1];
-                [upload setBuffer:inverse_buffer offset:0u atIndex:2];
-                [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
-                [upload setBytes:&destination_column length:sizeof(destination_column) atIndex:4];
-                [upload dispatchThreadgroups:MTLSizeMake(base_len >> 11u, run_words / base_len, 1u)
-                    threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
-                destination_words += run_words;
+                [coefficient_upload copyFromBuffer:source sourceOffset:0u
+                    toBuffer:coefficients destinationOffset:(NSUInteger)column * column_bytes
+                    size:column_bytes];
             }
+            [coefficient_upload endEncoding];
         }
-        [upload endEncoding];
 
-        MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
-        uint32_t inverse_layer = 11u;
-        while (inverse_layer < base_log_size) {
+        if (coefficients_ready == 0u) {
+            id<MTLComputeCommandEncoder> upload = [command computeCommandEncoder];
+            if (trace_recipe != NULL) {
+            if (!source_is_base) {
+                write_error(error_message, error_message_len,
+                    @"Deferred Metal trace requires the contiguous coefficient arena");
+                return NULL;
+            }
+            [upload setComputePipelineState:runtime.quadraticRecurrenceIfftWide];
+            [upload setBuffer:coefficients offset:0u atIndex:0];
+            [upload setBuffer:inverse_buffer offset:0u atIndex:1];
+            [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:2];
+            [upload setBytes:&column_count length:sizeof(column_count) atIndex:3];
+            [upload setBytes:trace_recipe length:7u * sizeof(uint32_t) atIndex:4];
+            [upload setBytes:&scale_factor length:sizeof(scale_factor) atIndex:5];
+            [upload dispatchThreadgroups:MTLSizeMake(base_len >> 12u, 1u, 1u)
+                threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+            } else {
+                // A transferable contiguous trace already is the coefficient
+                // arena. Transform it in place; other callers retain fused upload.
+                [upload setComputePipelineState:runtime.circleIfftFusedWide];
+                uint32_t source_mode = source_is_base ? 0u : 1u;
+                [upload setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
+                if (source_is_base) {
+                    [upload setBuffer:coefficients offset:0u atIndex:0];
+                    [upload setBuffer:coefficients offset:0u atIndex:1];
+                    [upload setBuffer:inverse_buffer offset:0u atIndex:2];
+                    [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                    [upload setBytes:&column_count length:sizeof(column_count) atIndex:4];
+                    [upload dispatchThreadgroups:MTLSizeMake(base_len >> 12u, column_count, 1u)
+                        threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                } else {
+                    size_t source_column = 0u;
+                    size_t destination_words = 0u;
+                    while (source_column < column_count) {
+                        size_t run_start = source_column;
+                        size_t run_words = base_len;
+                        source_column += 1u;
+                        while (source_column < column_count &&
+                               source_columns[source_column] == source_columns[run_start] + run_words) {
+                            run_words += base_len;
+                            source_column += 1u;
+                        }
+                        size_t run_bytes = run_words * sizeof(uint32_t);
+                        uintptr_t address = (uintptr_t)source_columns[run_start];
+                        bool no_copy = (address % page_size) == 0u && (run_bytes % page_size) == 0u;
+                        id<MTLBuffer> source = no_copy
+                            ? [runtime.device newBufferWithBytesNoCopy:(void *)source_columns[run_start]
+                                length:run_bytes options:MTLResourceStorageModeShared deallocator:nil]
+                            : [runtime.device newBufferWithBytes:source_columns[run_start]
+                                length:run_bytes options:MTLResourceStorageModeShared];
+                        if (source == nil) {
+                            [upload endEncoding];
+                            write_error(error_message, error_message_len,
+                                @"Combined Metal source allocation failed");
+                            return NULL;
+                        }
+                        [input_sources addObject:source];
+                        uint32_t destination_column = (uint32_t)(destination_words / base_len);
+                        [upload setBuffer:source offset:0u atIndex:0];
+                        [upload setBuffer:coefficients offset:0u atIndex:1];
+                        [upload setBuffer:inverse_buffer offset:0u atIndex:2];
+                        [upload setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                        [upload setBytes:&destination_column length:sizeof(destination_column) atIndex:4];
+                        [upload dispatchThreadgroups:MTLSizeMake(base_len >> 12u, run_words / base_len, 1u)
+                            threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                        destination_words += run_words;
+                    }
+                }
+            }
+            [upload endEncoding];
+
+            MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
+            uint32_t inverse_layer = 12u;
+            uint32_t inverse_layer_count = base_log_size - inverse_layer;
+            if (column_count >= 64u && inverse_layer_count >= 5u) {
+                uint32_t inverse_mode = 1u;
+                // Inverse stages expose their cheapest register radix at the
+                // top. Keep at least sixteen independent tuples per group;
+                // larger cooperative tuples lose occupancy to the 2/3/4-stage
+                // register kernel used for the remainder.
+                uint32_t fused_count = inverse_layer_count > 8u ? 8u : inverse_layer_count;
+                uint32_t lanes_per_group = 4096u >> fused_count;
+                uint32_t lane_batches = (1u << inverse_layer) / lanes_per_group;
+                uint32_t outer_groups = 1u <<
+                    (base_log_size - inverse_layer - fused_count);
+                uint32_t group_count = lane_batches * outer_groups;
+                uint32_t column_config = 0x80000000u | column_count |
+                    (inverse_mode << 9u) | (fused_count << 10u) |
+                    (inverse_layer << 14u);
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftLastSparse];
+                [encoder setThreadgroupMemoryLength:4096u * sizeof(uint32_t) atIndex:0];
+                [encoder setBuffer:coefficients offset:0u atIndex:0];
+                [encoder setBuffer:base_offsets offset:0u atIndex:1];
+                [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
+                [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [encoder setBytes:&column_config length:sizeof(column_config) atIndex:4];
+                [encoder dispatchThreadgroups:MTLSizeMake(group_count, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                [encoder endEncoding];
+                inverse_layer += fused_count;
+            }
+            while (inverse_layer < base_log_size) {
             if (inverse_layer + 3u < base_log_size) {
                 uint32_t layer_mode = inverse_layer | 0xa0000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
@@ -276,9 +367,12 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                 [encoder endEncoding];
                 inverse_layer += 1u;
             }
+            }
         }
 
         uint32_t fuse_top_two = 1u;
+        uint32_t expand_scale_factor =
+            (trace_recipe != NULL || coefficients_ready != 0u) ? 1u : scale_factor;
         id<MTLComputeCommandEncoder> expand = [command computeCommandEncoder];
         [expand setComputePipelineState:runtime.circleExpand];
         [expand setBuffer:coefficients offset:0u atIndex:0];
@@ -289,7 +383,7 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         [expand setBytes:&base_log_size length:sizeof(base_log_size) atIndex:5];
         [expand setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:6];
         [expand setBytes:&column_count length:sizeof(column_count) atIndex:7];
-        [expand setBytes:&scale_factor length:sizeof(scale_factor) atIndex:8];
+        [expand setBytes:&expand_scale_factor length:sizeof(expand_scale_factor) atIndex:8];
         [expand setBytes:&fuse_top_two length:sizeof(fuse_top_two) atIndex:9];
         [expand dispatchThreads:MTLSizeMake(base_len >> 1u, column_count, 1u)
             threadsPerThreadgroup:MTLSizeMake(
@@ -297,9 +391,36 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         [expand endEncoding];
 
         MTLSize extended_grid = MTLSizeMake(extended_pairs, column_count, 1u);
+        bool use_wide_tile = column_count >= 64u;
+        uint32_t fused_layer = use_wide_tile ? 11u : 10u;
         uint32_t layer = extended_log_size - 3u;
-        while (layer > 10u) {
-            if (layer >= 14u) {
+        uint32_t high_layer_count = layer - fused_layer;
+        if (use_wide_tile && high_layer_count >= 5u) {
+            uint32_t fused_count = high_layer_count > 12u ? 12u : high_layer_count;
+            uint32_t lowest_stage = layer - fused_count + 1u;
+            uint32_t inverse_mode = 0u;
+            uint32_t lanes_per_group = 4096u >> fused_count;
+            uint32_t lane_batches = (1u << lowest_stage) / lanes_per_group;
+            uint32_t outer_groups = 1u <<
+                (extended_log_size - lowest_stage - fused_count);
+            uint32_t column_config = 0x80000000u | column_count |
+                (inverse_mode << 9u) | (fused_count << 10u) |
+                (lowest_stage << 14u);
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            [encoder setComputePipelineState:runtime.circleRfftLastSparse];
+            [encoder setThreadgroupMemoryLength:4096u * sizeof(uint32_t) atIndex:0];
+            [encoder setBuffer:extended offset:0u atIndex:0];
+            [encoder setBuffer:extended_offsets offset:0u atIndex:1];
+            [encoder setBuffer:forward_buffer offset:0u atIndex:2];
+            [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+            [encoder setBytes:&column_config length:sizeof(column_config) atIndex:4];
+            [encoder dispatchThreadgroups:MTLSizeMake(lane_batches * outer_groups, column_count, 1u)
+                threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+            [encoder endEncoding];
+            layer -= fused_count;
+        }
+        while (layer > fused_layer) {
+            if (layer >= fused_layer + 4u) {
                 uint32_t layer_mode = layer | 0x20000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
@@ -315,7 +436,7 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                     threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
                 [encoder endEncoding];
                 layer -= 4u;
-            } else if (layer >= 13u) {
+            } else if (layer >= fused_layer + 3u) {
                 uint32_t layer_mode = layer | 0x40000000u;
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
@@ -331,7 +452,7 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
                     threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
                 [encoder endEncoding];
                 layer -= 3u;
-            } else if (layer >= 12u) {
+            } else if (layer >= fused_layer + 2u) {
                 id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
                 [encoder setComputePipelineState:runtime.circleRfftRadix4Sparse];
                 [encoder setBuffer:extended offset:0u atIndex:0];
@@ -364,13 +485,16 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
             }
         }
         id<MTLComputeCommandEncoder> fused = [command computeCommandEncoder];
-        [fused setComputePipelineState:runtime.circleRfftFusedSparse];
+        [fused setComputePipelineState:use_wide_tile
+            ? runtime.circleRfftFusedSparseWide
+            : runtime.circleRfftFusedSparse];
         [fused setBuffer:extended offset:0u atIndex:0];
         [fused setBuffer:extended_offsets offset:0u atIndex:1];
         [fused setBuffer:forward_buffer offset:0u atIndex:2];
         [fused setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
         [fused setBytes:&column_count length:sizeof(column_count) atIndex:4];
-        [fused dispatchThreadgroups:MTLSizeMake(extended_len >> 11u, column_count, 1u)
+        [fused dispatchThreadgroups:MTLSizeMake(
+                extended_len >> (use_wide_tile ? 12u : 11u), column_count, 1u)
             threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
         [fused endEncoding];
 

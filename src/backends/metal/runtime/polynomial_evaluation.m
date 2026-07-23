@@ -48,18 +48,26 @@ bool stwo_zig_metal_eval_polynomials(
         id<MTLCommandBuffer> command = [runtime.queue commandBuffer];
         double total_gpu_milliseconds = 0.0;
         bool command_has_work = true;
-        NSUInteger eval_encoders_in_command = 0u;
+        NSUInteger eval_dispatches_in_command = 0u;
         NSMutableArray<id<MTLBuffer>> *coefficient_sources = [NSMutableArray array];
-        id<MTLComputeCommandEncoder> basis_encoder = [command computeCommandEncoder];
-        [basis_encoder setComputePipelineState:runtime.polynomialBasis];
-        [basis_encoder setBuffer:factor_buffer offset:0 atIndex:0];
-        [basis_encoder setBuffer:basis_task_buffer offset:0 atIndex:1];
-        [basis_encoder setBytes:&basis_task_count length:sizeof(basis_task_count) atIndex:2];
-        [basis_encoder setBuffer:basis_buffer offset:0 atIndex:3];
+        id<MTLComputeCommandEncoder> active_encoder = [command computeCommandEncoder];
+        [active_encoder setComputePipelineState:runtime.polynomialBasis];
+        [active_encoder setBuffer:factor_buffer offset:0 atIndex:0];
+        [active_encoder setBuffer:basis_task_buffer offset:0 atIndex:1];
+        [active_encoder setBytes:&basis_task_count length:sizeof(basis_task_count) atIndex:2];
+        [active_encoder setBuffer:basis_buffer offset:0 atIndex:3];
         NSUInteger basis_width = MIN((NSUInteger)256u, runtime.polynomialBasis.maxTotalThreadsPerThreadgroup);
-        [basis_encoder dispatchThreadgroups:MTLSizeMake(basis_task_count, 1, 1)
+        uint32_t max_basis_blocks = 0u;
+        const StwoZigPolynomialBasisTask *all_basis_tasks =
+            (const StwoZigPolynomialBasisTask *)basis_tasks;
+        for (uint32_t task_index = 0u; task_index < basis_task_count; ++task_index) {
+            uint32_t blocks = (all_basis_tasks[task_index].basis_length +
+                (uint32_t)basis_width - 1u) / (uint32_t)basis_width;
+            max_basis_blocks = MAX(max_basis_blocks, blocks);
+        }
+        [active_encoder dispatchThreadgroups:MTLSizeMake(max_basis_blocks, basis_task_count, 1)
                       threadsPerThreadgroup:MTLSizeMake(basis_width, 1, 1)];
-        [basis_encoder endEncoding];
+        [active_encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
         NSUInteger width = MIN((NSUInteger)256u, runtime.polynomialEval.maxTotalThreadsPerThreadgroup);
         if (gpu_coefficient_upload) {
             size_t column = 0;
@@ -110,19 +118,20 @@ bool stwo_zig_metal_eval_polynomials(
                                                                      options:MTLResourceStorageModeShared];
                 [coefficient_sources addObject:source];
                 [coefficient_sources addObject:run_tasks];
-                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-                [encoder setComputePipelineState:runtime.polynomialEval];
-                [encoder setBuffer:source offset:0 atIndex:0];
-                [encoder setBuffer:basis_buffer offset:0 atIndex:1];
-                [encoder setBuffer:run_tasks offset:0 atIndex:2];
-                [encoder setBytes:&run_task_count length:sizeof(run_task_count) atIndex:3];
-                [encoder setBuffer:output_buffer offset:0 atIndex:4];
-                [encoder dispatchThreadgroups:MTLSizeMake(run_task_count, 1, 1)
+                if (active_encoder == nil) active_encoder = [command computeCommandEncoder];
+                [active_encoder setComputePipelineState:runtime.polynomialEval];
+                [active_encoder setBuffer:source offset:0 atIndex:0];
+                [active_encoder setBuffer:basis_buffer offset:0 atIndex:1];
+                [active_encoder setBuffer:run_tasks offset:0 atIndex:2];
+                [active_encoder setBytes:&run_task_count length:sizeof(run_task_count) atIndex:3];
+                [active_encoder setBuffer:output_buffer offset:0 atIndex:4];
+                [active_encoder dispatchThreadgroups:MTLSizeMake(run_task_count, 1, 1)
                          threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
-                [encoder endEncoding];
                 command_has_work = true;
-                eval_encoders_in_command += 1u;
-                if (eval_encoders_in_command == 128u) {
+                eval_dispatches_in_command += 1u;
+                if (eval_dispatches_in_command == 128u) {
+                    [active_encoder endEncoding];
+                    active_encoder = nil;
                     [command commit];
                     [command waitUntilCompleted];
                     if (command.status == MTLCommandBufferStatusError) {
@@ -134,24 +143,23 @@ bool stwo_zig_metal_eval_polynomials(
                     [coefficient_sources removeAllObjects];
                     command = [runtime.queue commandBuffer];
                     command_has_work = false;
-                    eval_encoders_in_command = 0u;
+                    eval_dispatches_in_command = 0u;
                 }
                 flat_offset += run_words;
             }
         } else {
-            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
-            [encoder setComputePipelineState:runtime.polynomialEval];
-            [encoder setBuffer:coefficient_buffer offset:0 atIndex:0];
-            [encoder setBuffer:basis_buffer offset:0 atIndex:1];
-            [encoder setBuffer:task_buffer offset:0 atIndex:2];
-            [encoder setBytes:&task_count length:sizeof(task_count) atIndex:3];
-            [encoder setBuffer:output_buffer offset:0 atIndex:4];
-            [encoder dispatchThreadgroups:MTLSizeMake(task_count, 1, 1)
+            [active_encoder setComputePipelineState:runtime.polynomialEval];
+            [active_encoder setBuffer:coefficient_buffer offset:0 atIndex:0];
+            [active_encoder setBuffer:basis_buffer offset:0 atIndex:1];
+            [active_encoder setBuffer:task_buffer offset:0 atIndex:2];
+            [active_encoder setBytes:&task_count length:sizeof(task_count) atIndex:3];
+            [active_encoder setBuffer:output_buffer offset:0 atIndex:4];
+            [active_encoder dispatchThreadgroups:MTLSizeMake(task_count, 1, 1)
                      threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
-            [encoder endEncoding];
             command_has_work = true;
         }
         if (command_has_work) {
+            [active_encoder endEncoding];
             [command commit];
             [command waitUntilCompleted];
             if (command.status == MTLCommandBufferStatusError) {

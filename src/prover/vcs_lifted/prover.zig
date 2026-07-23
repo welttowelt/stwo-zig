@@ -535,43 +535,95 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 }
             }
 
-            /// Finalize the streaming commitment: produce leaf hashes from the
-            /// accumulated hasher state, build internal Merkle layers, and return
-            /// the completed tree.  The `StreamingCommitter` is consumed (its
-            /// hasher memory is freed).
-            pub fn finalize(self: *StreamingCommitter) !Self {
-                const allocator = self.allocator;
-                const layer_alloc = layerAllocator(allocator);
-                if (!self.initialized) {
-                    // No columns were added — replicate the empty-column path
-                    // from buildLeaves.
-                    const seed_hasher = H.defaultWithInitialState();
-                    var h = seed_hasher;
-                    const leaves = try layer_alloc.alloc(H.Hash, 1);
-                    leaves[0] = h.finalize();
-
-                    var layers_bottom_up = std.ArrayList([]H.Hash).empty;
-                    defer layers_bottom_up.deinit(allocator);
-                    errdefer {
-                        for (layers_bottom_up.items) |layer| layer_alloc.free(layer);
+            /// Commits a complete sorted column set while retaining lifted
+            /// hasher-state reuse. When the final higher-domain columns fit in
+            /// the already-open terminal BLAKE2s block, their intermediate
+            /// expanded state arrays are bypassed and finalized directly.
+            pub fn commitColumnsWithSparseTail(
+                self: *StreamingCommitter,
+                columns: []const ColumnRef,
+            ) !Self {
+                for (columns, 0..) |column, index| {
+                    if (!std.math.isPowerOfTwo(column.values.len) or column.values.len < 2) {
+                        return error.InvalidColumnSize;
                     }
-                    try layers_bottom_up.append(allocator, leaves);
-
-                    const out_layers = try allocator.alloc([]H.Hash, 1);
-                    out_layers[0] = leaves;
-                    self.* = undefined;
-                    return .{ .layers = out_layers, .layer_allocator = layer_alloc };
+                    if (index > 0 and column.log_size < columns[index - 1].log_size) {
+                        return error.InvalidColumnOrder;
+                    }
                 }
 
-                // Finalize leaf hashers into leaf hashes.
-                const leaf_count = self.leaf_hashers.len;
+                const tail_start = liftedTailStart(columns) orelse {
+                    try self.addColumns(columns);
+                    return self.finalize();
+                };
+                try self.addColumns(columns[0..tail_start]);
+                return self.finalizeLiftedTail(columns[tail_start..]);
+            }
+
+            fn liftedTailStart(columns: []const ColumnRef) ?usize {
+                if (comptime !@hasDecl(H, "domainPrefixBytes")) return null;
+                if (H.domainPrefixBytes() != 64 or columns.len < 2) return null;
+
+                const final_log_size = columns[columns.len - 1].log_size;
+                var group_start: usize = 0;
+                while (group_start < columns.len) {
+                    const log_size = columns[group_start].log_size;
+                    var group_end = group_start + 1;
+                    while (group_end < columns.len and
+                        columns[group_end].log_size == log_size)
+                    {
+                        group_end += 1;
+                    }
+                    if (group_end == columns.len) return null;
+
+                    const buffered_words = if ((group_end & 15) == 0)
+                        @as(usize, 16)
+                    else
+                        group_end & 15;
+                    const tail_columns = columns.len - group_end;
+                    if (final_log_size >= log_size + 2 and
+                        tail_columns <= 16 - buffered_words and
+                        tail_columns <= LeafOps.max_lifted_tail_columns)
+                    {
+                        return group_end;
+                    }
+                    group_start = group_end;
+                }
+                return null;
+            }
+
+            fn finalizeLiftedTail(
+                self: *StreamingCommitter,
+                tail_columns: []const ColumnRef,
+            ) !Self {
+                std.debug.assert(self.initialized);
+                std.debug.assert(tail_columns.len > 0);
+                const allocator = self.allocator;
+                const layer_alloc = layerAllocator(allocator);
+                const final_log_size = tail_columns[tail_columns.len - 1].log_size;
+                std.debug.assert(final_log_size > self.leaf_log_size);
+                const leaf_count = @as(usize, 1) << @intCast(final_log_size);
                 const leaves = try layer_alloc.alloc(H.Hash, leaf_count);
-                LeafOps.finalizeHashers(self.leaf_hashers, leaves);
-                // Free hasher state — column data is no longer needed.
+                LeafOps.finalizeLiftedTail(
+                    self.leaf_hashers,
+                    self.leaf_log_size,
+                    tail_columns,
+                    final_log_size,
+                    leaves,
+                );
                 allocator.free(self.leaf_hashers);
                 self.leaf_hashers = &[_]H{};
 
-                // Build internal tree layers — identical to commitWithOptions.
+                const tree = try finishLeaves(allocator, layer_alloc, leaves);
+                self.* = undefined;
+                return tree;
+            }
+
+            fn finishLeaves(
+                allocator: std.mem.Allocator,
+                layer_alloc: std.mem.Allocator,
+                leaves: []H.Hash,
+            ) !Self {
                 const worker_override = merkleWorkerOverride(allocator);
                 const reuse_pool = merklePoolReuseEnabled(allocator);
 
@@ -607,8 +659,38 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 while (i < out_layers.len) : (i += 1) {
                     out_layers[i] = layers_bottom_up.items[out_layers.len - 1 - i];
                 }
-                self.* = undefined;
                 return .{ .layers = out_layers, .layer_allocator = layer_alloc };
+            }
+
+            /// Finalize the streaming commitment: produce leaf hashes from the
+            /// accumulated hasher state, build internal Merkle layers, and return
+            /// the completed tree.  The `StreamingCommitter` is consumed (its
+            /// hasher memory is freed).
+            pub fn finalize(self: *StreamingCommitter) !Self {
+                const allocator = self.allocator;
+                const layer_alloc = layerAllocator(allocator);
+                if (!self.initialized) {
+                    // No columns were added — replicate the empty-column path
+                    // from buildLeaves.
+                    const seed_hasher = H.defaultWithInitialState();
+                    var h = seed_hasher;
+                    const leaves = try layer_alloc.alloc(H.Hash, 1);
+                    leaves[0] = h.finalize();
+                    const tree = try finishLeaves(allocator, layer_alloc, leaves);
+                    self.* = undefined;
+                    return tree;
+                }
+
+                // Finalize leaf hashers into leaf hashes.
+                const leaf_count = self.leaf_hashers.len;
+                const leaves = try layer_alloc.alloc(H.Hash, leaf_count);
+                LeafOps.finalizeHashers(self.leaf_hashers, leaves);
+                // Free hasher state — column data is no longer needed.
+                allocator.free(self.leaf_hashers);
+                self.leaf_hashers = &[_]H{};
+                const tree = try finishLeaves(allocator, layer_alloc, leaves);
+                self.* = undefined;
+                return tree;
             }
         };
 

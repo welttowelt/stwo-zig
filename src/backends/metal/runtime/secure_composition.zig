@@ -25,20 +25,22 @@ const min_recurrence_columns: usize = 32;
 
 pub fn interpolateLargeSecureComposition(
     allocator: std.mem.Allocator,
-    values: []const []M31,
+    values: *SecureColumnByCoords,
     domain: CircleDomain,
     twiddle_tree: TwiddleTree,
 ) !bool {
+    if (values.representation == .coefficients) return true;
     if (domain.logSize() < min_secure_ifft_log_size) return false;
     var lease = shared_runtime.acquireExisting() catch return false;
     defer lease.deinit();
     _ = try lease.runtime.transformCircle(
         allocator,
-        values,
+        values.columns[0..],
         twiddle_tree.itwiddles,
         domain.logSize(),
         true,
     );
+    values.representation = .coefficients;
     telemetry.record(.metal_circle_transform_dispatch);
     return true;
 }
@@ -49,6 +51,7 @@ pub fn evaluateLargeRecurrenceComposition(
     random_coeff: QM31,
     trace: *const Trace,
     residency_handles: []const ?*anyopaque,
+    twiddle_tree: TwiddleTree,
 ) !?SecureColumnByCoords {
     const shape = recurrenceShape(components, trace) orelse return null;
     const resident_tree = if (shape.trace_tree_index < residency_handles.len)
@@ -92,11 +95,13 @@ pub fn evaluateLargeRecurrenceComposition(
         power_words,
         denominator_inverses,
         output_values,
+        twiddle_tree.itwiddles,
     ) catch |err| {
         output.deinit(allocator);
         if (resident_tree != null) return err;
         return null;
     };
+    output.representation = .coefficients;
     std.log.debug("Metal recurrence composition: {d:.3}ms", .{gpu_ms});
     return output;
 }

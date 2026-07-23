@@ -309,6 +309,30 @@ kernel void stwo_zig_fri_fold_circle(
     destination[index] = qm_add(sum, qm_mul(alpha, difference));
 }
 
+// Runtime quotient requests precompute prx*piy - pry*pix once per sample.
+// Since domain x/y are base-field values, each row then needs only two CM31
+// by M31 products instead of two full CM31 products.
+inline Cm31Value quotient_denominator_precomputed(
+    device const uint *sample_components,
+    uint sample_base,
+    uint domain_x,
+    uint domain_y
+) {
+    Cm31Value determinant = {
+        sample_components[sample_base], sample_components[sample_base + 1u]
+    };
+    Cm31Value pix = {
+        sample_components[sample_base + 4u], sample_components[sample_base + 5u]
+    };
+    Cm31Value piy = {
+        sample_components[sample_base + 6u], sample_components[sample_base + 7u]
+    };
+    return cm_add(
+        cm_sub(determinant, cm_mul_m31(piy, domain_x)),
+        cm_mul_m31(pix, domain_y)
+    );
+}
+
 kernel void stwo_zig_quotient_rows(
     device const uint *flat_views [[buffer(0)]],
     device const QuotientView *views [[buffer(1)]],
@@ -343,13 +367,9 @@ kernel void stwo_zig_quotient_rows(
         }
 
         uint sample_base = batch * 8u;
-        Cm31Value prx = { sample_components[sample_base], sample_components[sample_base + 1u] };
-        Cm31Value pry = { sample_components[sample_base + 2u], sample_components[sample_base + 3u] };
-        Cm31Value pix = { sample_components[sample_base + 4u], sample_components[sample_base + 5u] };
-        Cm31Value piy = { sample_components[sample_base + 6u], sample_components[sample_base + 7u] };
-        Cm31Value dx = { domain_x[row], 0u };
-        Cm31Value dy = { domain_y[row], 0u };
-        Cm31Value denominator = cm_sub(cm_mul(cm_sub(prx, dx), piy), cm_mul(cm_sub(pry, dy), pix));
+        Cm31Value denominator = quotient_denominator_precomputed(
+            sample_components, sample_base, domain_x[row], domain_y[row]
+        );
         Cm31Value denominator_inverse = cm_inv(denominator);
 
         uint linear_base = batch * 8u;
@@ -397,13 +417,8 @@ kernel void stwo_zig_quotient_rows_raw(
         }
 
         uint sample_base = batch * 8u;
-        Cm31Value prx = { sample_components[sample_base], sample_components[sample_base + 1u] };
-        Cm31Value pry = { sample_components[sample_base + 2u], sample_components[sample_base + 3u] };
-        Cm31Value pix = { sample_components[sample_base + 4u], sample_components[sample_base + 5u] };
-        Cm31Value piy = { sample_components[sample_base + 6u], sample_components[sample_base + 7u] };
-        Cm31Value denominator = cm_sub(
-            cm_mul(cm_sub(prx, { domain_x[row], 0u }), piy),
-            cm_mul(cm_sub(pry, { domain_y[row], 0u }), pix)
+        Cm31Value denominator = quotient_denominator_precomputed(
+            sample_components, sample_base, domain_x[row], domain_y[row]
         );
         Cm31Value denominator_inverse = cm_inv(denominator);
         uint linear_base = batch * 8u;
@@ -463,13 +478,8 @@ kernel void stwo_zig_quotient_finalize(
     Qm31Value accumulator = { 0u, 0u, 0u, 0u };
     for (uint batch = 0; batch < batch_count; ++batch) {
         uint sample_base = batch * 8u;
-        Cm31Value prx = { sample_components[sample_base], sample_components[sample_base + 1u] };
-        Cm31Value pry = { sample_components[sample_base + 2u], sample_components[sample_base + 3u] };
-        Cm31Value pix = { sample_components[sample_base + 4u], sample_components[sample_base + 5u] };
-        Cm31Value piy = { sample_components[sample_base + 6u], sample_components[sample_base + 7u] };
-        Cm31Value denominator = cm_sub(
-            cm_mul(cm_sub(prx, { domain_x[row], 0u }), piy),
-            cm_mul(cm_sub(pry, { domain_y[row], 0u }), pix)
+        Cm31Value denominator = quotient_denominator_precomputed(
+            sample_components, sample_base, domain_x[row], domain_y[row]
         );
         uint linear_base = batch * 8u;
         Qm31Value sum_a = { linear_terms[linear_base], linear_terms[linear_base + 1u],

@@ -148,17 +148,16 @@ pub const M31 = struct {
 
 /// Reduce a 64-bit integer modulo p = 2^31 - 1.
 ///
-/// For x <= (p-1)^2 < 2^62, two Mersenne folds suffice.
-fn reduce64(x: u64) u32 {
+/// Two Mersenne folds reduce every `u64` input to at most `p + 3`. The
+/// wrapping subtraction is then smaller exactly when canonicalization is
+/// required, avoiding a compare/select chain on AArch64.
+inline fn reduce64(x: u64) u32 {
     const p: u64 = Modulus;
     var t: u64 = (x & p) + (x >> 31);
     t = (t & p) + (t >> 31);
 
     const r: u32 = @intCast(t);
-    // t is in [0, p+1].
-    if (r == Modulus) return 0;
-    if (r > Modulus) return r - Modulus;
-    return r;
+    return @min(r, r -% Modulus);
 }
 
 /// Reduce a product of two canonical M31 values. Unlike `reduce64`, the input
@@ -389,6 +388,19 @@ pub inline fn dot4Packed(
     );
 }
 
+/// Four-term scalar dot product with one final Mersenne reduction.
+///
+/// Four canonical products sum to less than `2^64`, so the accumulation is
+/// exact in `u64`. This is the scalar-gather counterpart to `dot4Packed` for
+/// reducers whose four terms come from independent borrowed columns.
+pub inline fn dot4(values: [4]M31, coefficients: [4]M31) M31 {
+    var sum: u64 = 0;
+    inline for (0..4) |term| {
+        sum += @as(u64, values[term].v) * @as(u64, coefficients[term].v);
+    }
+    return M31.fromU64(sum);
+}
+
 /// Native-width form of `reduceProduct`; every lane is a canonical product.
 inline fn reduceProductPacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
@@ -510,6 +522,30 @@ test "m31: bounded product reduction matches generic reduction" {
     }
 }
 
+test "m31: generic reduction canonicalizes the full u64 range" {
+    const p: u64 = Modulus;
+    const edge = [_]u64{
+        0,
+        1,
+        p - 1,
+        p,
+        p + 1,
+        p * p,
+        4 * (p - 1) * (p - 1),
+        std.math.maxInt(u64),
+    };
+    for (edge) |value| {
+        try std.testing.expectEqual(@as(u32, @intCast(value % p)), reduce64(value));
+    }
+
+    var prng = std.Random.DefaultPrng.init(0x243f_6a88_85a3_08d3);
+    const random = prng.random();
+    for (0..4096) |_| {
+        const value = random.int(u64);
+        try std.testing.expectEqual(@as(u32, @intCast(value % p)), reduce64(value));
+    }
+}
+
 test "m31: packed four-term dot product matches scalar accumulation" {
     var values: [4][PACK_WIDTH]u32 = undefined;
     var coefficients: [4][PACK_WIDTH]u32 = undefined;
@@ -529,15 +565,18 @@ test "m31: packed four-term dot product matches scalar accumulation" {
 
     const actual: [PACK_WIDTH]u32 = dot4Packed(packed_values, packed_coefficients);
     for (0..PACK_WIDTH) |lane| {
+        var scalar_values: [4]M31 = undefined;
+        var scalar_coefficients: [4]M31 = undefined;
         var expected = M31.zero();
         inline for (0..4) |term| {
+            scalar_values[term] = M31.fromCanonical(values[term][lane]);
+            scalar_coefficients[term] = M31.fromCanonical(coefficients[term][lane]);
             expected = expected.add(
-                M31.fromCanonical(values[term][lane]).mul(
-                    M31.fromCanonical(coefficients[term][lane]),
-                ),
+                scalar_values[term].mul(scalar_coefficients[term]),
             );
         }
         try std.testing.expectEqual(expected.v, actual[lane]);
+        try std.testing.expectEqual(expected.v, dot4(scalar_values, scalar_coefficients).v);
     }
 }
 

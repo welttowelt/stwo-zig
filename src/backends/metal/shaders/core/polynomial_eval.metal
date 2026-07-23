@@ -11,17 +11,23 @@ kernel void stwo_zig_eval_basis(
     constant uint &task_count [[buffer(2)]],
     device Qm31Value *basis [[buffer(3)]],
     uint lane [[thread_index_in_threadgroup]],
-    uint group_width [[threads_per_threadgroup]],
-    uint task_index [[threadgroup_position_in_grid]]
+    uint2 group_shape [[threads_per_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]]
 ) {
+    uint group_width = group_shape.x;
+    uint task_index = group.y;
     if (task_index >= task_count) return;
     PolynomialBasisTask task = tasks[task_index];
+    uint block = group.x;
+    uint block_start = block * group_width;
+    if (block_start >= task.basis_length) return;
 
-    // The host currently dispatches 256 lanes. Keep the generic construction
-    // for any future narrower pipeline rather than coupling correctness to that
-    // runtime choice.
+    // Keep a generic construction for any future narrower pipeline. Each
+    // threadgroup owns one contiguous basis block, exposing independent blocks
+    // across the full GPU instead of serializing them behind barriers.
     if (group_width != 256u) {
-        for (uint coefficient_index = lane; coefficient_index < task.basis_length; coefficient_index += group_width) {
+        uint coefficient_index = block_start + lane;
+        if (coefficient_index < task.basis_length) {
             Qm31Value value = { 1u, 0u, 0u, 0u };
             uint bits = coefficient_index;
             for (uint bit = 0; bit < task.log_size && bits != 0u; ++bit) {
@@ -38,9 +44,10 @@ kernel void stwo_zig_eval_basis(
         return;
     }
 
-    // Split each basis index into one lane-local low byte and one block index.
-    // The low subset product is reused for every block; only lane zero builds
-    // the high subset product, which all 256 lanes consume after the barrier.
+    // Split each basis index into a lane-local low byte and a block index. The
+    // low product is intentionally recomputed per block: the extra arithmetic
+    // buys thousands of independent threadgroups and removes two serialized
+    // barriers per 256 coefficients.
     Qm31Value low_value = { 1u, 0u, 0u, 0u };
     uint low_bits = lane;
     for (uint bit = 0; bit < min(task.log_size, 8u) && low_bits != 0u; ++bit) {
@@ -54,32 +61,26 @@ kernel void stwo_zig_eval_basis(
     }
 
     threadgroup Qm31Value high_value;
-    uint block_count = (task.basis_length + 255u) >> 8u;
-    for (uint block = 0u; block < block_count; ++block) {
-        if (lane == 0u) {
-            Qm31Value value = { 1u, 0u, 0u, 0u };
-            uint high_bits = block;
-            for (uint bit = 8u; bit < task.log_size && high_bits != 0u; ++bit) {
-                if ((high_bits & 1u) != 0u) {
-                    uint factor_base = task.factor_offset + bit * 4u;
-                    Qm31Value factor = { factors[factor_base], factors[factor_base + 1u],
-                                         factors[factor_base + 2u], factors[factor_base + 3u] };
-                    value = qm_mul(value, factor);
-                }
-                high_bits >>= 1u;
+    if (lane == 0u) {
+        Qm31Value value = { 1u, 0u, 0u, 0u };
+        uint high_bits = block;
+        for (uint bit = 8u; bit < task.log_size && high_bits != 0u; ++bit) {
+            if ((high_bits & 1u) != 0u) {
+                uint factor_base = task.factor_offset + bit * 4u;
+                Qm31Value factor = { factors[factor_base], factors[factor_base + 1u],
+                                     factors[factor_base + 2u], factors[factor_base + 3u] };
+                value = qm_mul(value, factor);
             }
-            high_value = value;
+            high_bits >>= 1u;
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        uint coefficient_index = (block << 8u) + lane;
-        if (coefficient_index < task.basis_length) {
-            basis[task.basis_offset + coefficient_index] = block == 0u
-                ? low_value
-                : qm_mul(low_value, high_value);
-        }
-        // Bound the lifetime of `high_value` before lane zero overwrites it for
-        // the next block.
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+        high_value = value;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint coefficient_index = (block << 8u) + lane;
+    if (coefficient_index < task.basis_length) {
+        basis[task.basis_offset + coefficient_index] = block == 0u
+            ? low_value
+            : qm_mul(low_value, high_value);
     }
 }
 

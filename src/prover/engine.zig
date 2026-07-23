@@ -130,10 +130,31 @@ pub fn ProverEngine(
             recorder: ?*stage_profile.Recorder,
             channel: *C,
         ) !void {
-            return scheme.commitOwnedWithRecorderAndBacking(
+            return commitPreparedWithBacking(
+                scheme,
                 allocator,
                 columns,
                 backing_buffers,
+                .materialized,
+                recorder,
+                channel,
+            );
+        }
+
+        pub fn commitPreparedWithBacking(
+            scheme: *Scheme,
+            allocator: std.mem.Allocator,
+            columns: []pcs.ColumnEvaluation,
+            backing_buffers: ?[][]@import("stwo_core").fields.m31.M31,
+            source: pcs.ColumnSource,
+            recorder: ?*stage_profile.Recorder,
+            channel: *C,
+        ) !void {
+            return scheme.commitOwnedPreparedWithRecorderAndBacking(
+                allocator,
+                columns,
+                backing_buffers,
+                source,
                 recorder,
                 channel,
             );

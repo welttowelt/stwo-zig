@@ -7,6 +7,7 @@ const qm31 = @import("stwo_core").fields.qm31;
 const pcs = @import("stwo_core").pcs;
 const accumulation = @import("accumulation.zig");
 const prover_circle = @import("../poly/circle/mod.zig");
+const prover_twiddles = @import("../poly/twiddles.zig");
 const secure_column = @import("../secure_column.zig");
 const work_pool_mod = @import("../work_pool.zig");
 
@@ -15,6 +16,7 @@ const M31 = m31.M31;
 const QM31 = qm31.QM31;
 const TreeVec = pcs.TreeVec;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
+const M31TwiddleTree = prover_twiddles.TwiddleTree([]const M31);
 
 pub const ComponentProverError = error{
     InvalidLogSize,
@@ -248,6 +250,7 @@ pub const ComponentProvers = struct {
             random_coeff,
             trace,
             &.{},
+            null,
         );
     }
 
@@ -261,6 +264,7 @@ pub const ComponentProvers = struct {
         random_coeff: QM31,
         trace: *const Trace,
         residency_handles: []const ?*anyopaque,
+        composition_twiddles: ?M31TwiddleTree,
     ) anyerror!SecureColumnByCoords {
         if (comptime B != void and @hasDecl(B, "computeCompositionEvaluation")) {
             if (try B.computeCompositionEvaluation(
@@ -269,6 +273,7 @@ pub const ComponentProvers = struct {
                 random_coeff,
                 trace,
                 residency_handles,
+                composition_twiddles,
             )) |evaluation| {
                 return evaluation;
             }

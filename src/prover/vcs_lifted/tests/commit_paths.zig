@@ -250,6 +250,42 @@ test "prover vcs_lifted: streaming committer produces identical root — many co
     try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
 }
 
+test "prover vcs_lifted: sparse terminal-block tail matches materialized commitment" {
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    var base_storage: [13][16]M31 = undefined;
+    var middle_storage: [32]M31 = undefined;
+    var final_storage: [64]M31 = undefined;
+    var columns: [15][]const M31 = undefined;
+    for (&base_storage, 0..) |*values, column_index| {
+        for (values, 0..) |*value, row| {
+            value.* = M31.fromCanonical(@intCast(1 + column_index * 97 + row * 11));
+        }
+        columns[column_index] = values;
+    }
+    for (&middle_storage, 0..) |*value, row| {
+        value.* = M31.fromCanonical(@intCast(1701 + row * 13));
+    }
+    for (&final_storage, 0..) |*value, row| {
+        value.* = M31.fromCanonical(@intCast(2903 + row * 17));
+    }
+    columns[13] = &middle_storage;
+    columns[14] = &final_storage;
+
+    var reference = try Prover.commit(alloc, &columns);
+    defer reference.deinit(alloc);
+    const sorted = try Prover.sortColumnsByLogSizeAsc(alloc, &columns);
+    defer alloc.free(sorted);
+    var sparse = Prover.StreamingCommitter.init(alloc);
+    errdefer sparse.deinit();
+    var candidate = try sparse.commitColumnsWithSparseTail(sorted);
+    defer candidate.deinit(alloc);
+
+    try std.testing.expectEqualSlices(u8, reference.root()[0..], candidate.root()[0..]);
+}
+
 test "prover vcs_lifted: streaming committer empty columns" {
     const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
     const Prover = MerkleProverLifted(Hasher);

@@ -26,6 +26,14 @@ inline uint m31_mul(uint lhs, uint rhs) {
     uint result = (uint)folded;
     return result >= 0x7fffffffu ? result - 0x7fffffffu : result;
 }
+// In F_p with p = 2^31 - 1, multiplication by 2^shift rotates the 31-bit
+// canonical representative. This is the normalization factor for every
+// power-of-two circle IFFT.
+inline uint m31_mul_pow2(uint value, uint shift) {
+    shift %= 31u;
+    if (shift == 0u) return value;
+    return ((value << shift) & 0x7fffffffu) | (value >> (31u - shift));
+}
 inline uint m31_neg(uint value) { return value == 0u ? 0u : 0x7fffffffu - value; }
 
 inline uint m31_inv(uint value) {

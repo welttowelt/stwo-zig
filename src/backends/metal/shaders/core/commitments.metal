@@ -99,22 +99,29 @@ kernel void stwo_zig_blake2s_leaves(
     else blake2s_init_seeded(state, leaf_seed);
 
     uint message[16];
-    uint in_block = 0u;
-    uint total_bytes = prefix_bytes;
-    for (uint column = 0; column < column_count; ++column) {
-        uint log_size = column_log_sizes[column];
-        uint source = lifted_index(row, lifting_log_size - log_size);
-        message[in_block++] = flat_columns[column_offsets[column] + source];
-        total_bytes += 4u;
-        if (in_block == 16u) {
-            bool last = column + 1u == column_count;
-            blake2s_compress(state, message, total_bytes, last);
-            in_block = 0u;
+    uint full_blocks = column_count >> 4u;
+    uint remainder = column_count & 15u;
+    for (uint block = 0u; block < full_blocks; ++block) {
+        uint first_column = block << 4u;
+        for (uint word = 0u; word < 16u; ++word) {
+            uint column = first_column + word;
+            uint log_size = column_log_sizes[column];
+            uint source = lifted_index(row, lifting_log_size - log_size);
+            message[word] = flat_columns[column_offsets[column] + source];
         }
+        bool last = remainder == 0u && block + 1u == full_blocks;
+        blake2s_compress(state, message, prefix_bytes + (first_column + 16u) * 4u, last);
     }
-    if (in_block != 0u) {
-        for (uint i = in_block; i < 16u; ++i) message[i] = 0u;
-        blake2s_compress(state, message, total_bytes, true);
+    if (remainder != 0u) {
+        uint first_column = full_blocks << 4u;
+        for (uint word = 0u; word < remainder; ++word) {
+            uint column = first_column + word;
+            uint log_size = column_log_sizes[column];
+            uint source = lifted_index(row, lifting_log_size - log_size);
+            message[word] = flat_columns[column_offsets[column] + source];
+        }
+        for (uint word = remainder; word < 16u; ++word) message[word] = 0u;
+        blake2s_compress(state, message, prefix_bytes + column_count * 4u, true);
     }
     uint base = row * 8u;
     for (uint i = 0; i < 8u; ++i) destination[base + i] = state[i];

@@ -117,9 +117,9 @@ fn adoptStreamingCommitment(
     @compileError("Backend-specific Merkle trees require `adoptHostMerkle` for streaming PCS commits.");
 }
 
-/// A streaming tree builder that commits columns in configurable batches,
-/// building the Merkle leaf layer incrementally and freeing each batch's
-/// extended column data before the next batch is prepared.
+/// A streaming tree builder that prepares columns in configurable batches,
+/// then incrementally hashes the complete height-sorted column set. Retaining
+/// the complete shape enables sparse high-domain tail finalization.
 ///
 /// The resulting Merkle root is bit-identical to building the tree from all
 /// columns at once.
@@ -130,7 +130,7 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
         commitment_scheme: *Scheme,
         batch_size: usize,
 
-        /// Streaming Merkle committer that accumulates leaf hashes incrementally.
+        /// Streaming Merkle committer used for the height-grouped leaf pass.
         streaming_committer: MerkleProver.StreamingCommitter,
 
         /// Columns retained for later decommitment and sampled-value evaluation.
@@ -183,8 +183,8 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
         }
 
         /// Add a batch of owned columns.  The column values are consumed:
-        /// they are interpolated, extended to the commitment domain, hashed into
-        /// the streaming Merkle leaf layer, and the *original* values freed.
+        /// they are interpolated, extended to the commitment domain, retained for
+        /// the Merkle leaf pass, and the *original* values freed.
         /// The *extended* values are retained (needed for decommitment).
         ///
         /// Columns MUST be supplied so that within each call (and across calls)
@@ -238,24 +238,12 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
             };
             errdefer prepared.deinit(self.allocator);
 
-            // Build sorted ColumnRef array for the streaming Merkle committer.
-            const col_refs = try self.allocator.alloc([]const M31, prepared.columns.len);
-            defer self.allocator.free(col_refs);
-            for (prepared.columns, 0..) |col, i| {
-                col_refs[i] = col.values;
-            }
-            const sorted = try MerkleProver.sortColumnsByLogSizeAsc(self.allocator, col_refs);
-            defer self.allocator.free(sorted);
-
             // Pre-allocate space in retained lists before any ownership transfer.
             try self.retained_columns.ensureUnusedCapacity(self.allocator, prepared.columns.len);
             try self.retained_column_indices.ensureUnusedCapacity(self.allocator, prepared.columns.len);
             if (prepared.coefficients) |coeffs| {
                 try self.retained_coefficients.ensureUnusedCapacity(self.allocator, coeffs.len);
             }
-
-            // Feed into streaming Merkle leaf layer.
-            try self.streaming_committer.addColumns(sorted);
 
             // From here, all operations are guaranteed not to fail (no try).
             // Retain extended columns (needed for decommitment and quotient evaluation).
@@ -282,8 +270,17 @@ pub fn StreamingTreeBuilder(comptime B: type, comptime H: type, comptime MC: typ
         /// the root into the channel, and append the tree to the commitment
         /// scheme.
         pub fn commit(self: *Self, channel: anytype) !void {
-            // Finalize the Merkle tree.
-            var merkle = try self.streaming_committer.finalize();
+            const col_refs = try self.allocator.alloc([]const M31, self.retained_columns.items.len);
+            defer self.allocator.free(col_refs);
+            for (self.retained_columns.items, col_refs) |column, *reference| {
+                reference.* = column.values;
+            }
+            const sorted = try MerkleProver.sortColumnsByLogSizeAsc(self.allocator, col_refs);
+            defer self.allocator.free(sorted);
+
+            // Preserve incremental lifted hashing for the dense prefix, while
+            // allowing the committer to bypass sparse high-domain expansions.
+            var merkle = try self.streaming_committer.commitColumnsWithSparseTail(sorted);
             // streaming_committer is now consumed; reinitialize to safe state for deinit.
             self.streaming_committer = MerkleProver.StreamingCommitter.init(self.allocator);
             errdefer merkle.deinit(self.allocator);

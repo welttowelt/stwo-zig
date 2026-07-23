@@ -56,6 +56,7 @@ pub const Scratch = struct {
     denominator_inverses: []CM31,
     batch_count: usize,
     prepared_rows: usize,
+    inverse_layout: enum { row_major, batch_major },
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -79,6 +80,7 @@ pub const Scratch = struct {
             .denominator_inverses = denominator_inverses,
             .batch_count = batch_count,
             .prepared_rows = 0,
+            .inverse_layout = .row_major,
         };
     }
 
@@ -109,13 +111,45 @@ pub const Scratch = struct {
             self.denominator_inverses[0..cell_count],
         );
         self.prepared_rows = row_count;
+        self.inverse_layout = .row_major;
+    }
+
+    pub fn prepareBatchMajor(
+        self: *Scratch,
+        workspace: *const quotients.RowQuotientWorkspace,
+        row_count: usize,
+    ) !void {
+        if (row_count == 0 or row_count > self.rowCapacity()) return error.InvalidChunkSize;
+        if (workspace.batch_numerators.len != self.batch_count) return error.ShapeMismatch;
+        self.prepared_rows = 0;
+        const cell_count = std.math.mul(usize, row_count, self.batch_count) catch
+            return error.ScratchSizeOverflow;
+        try workspace.prepareDenominatorInversesForRowsBatchMajor(
+            self.domain_points[0..row_count],
+            self.denominators[0..cell_count],
+            self.denominator_inverses[0..cell_count],
+        );
+        self.prepared_rows = row_count;
+        self.inverse_layout = .batch_major;
     }
 
     pub fn inversesForRow(self: Scratch, row: usize) ![]const CM31 {
-        if (row >= self.prepared_rows) return error.InvalidChunkSize;
+        if (self.inverse_layout != .row_major or row >= self.prepared_rows) {
+            return error.InvalidChunkSize;
+        }
         const start = std.math.mul(usize, row, self.batch_count) catch
             return error.ScratchSizeOverflow;
         return self.denominator_inverses[start..][0..self.batch_count];
+    }
+
+    pub inline fn batchMajorInversePtr(self: *const Scratch, batch: usize, row: usize) [*]const CM31 {
+        std.debug.assert(self.inverse_layout == .batch_major);
+        std.debug.assert(batch < self.batch_count and row < self.prepared_rows);
+        return self.denominator_inverses.ptr + batch * self.prepared_rows + row;
+    }
+
+    pub inline fn batchMajorInverse(self: *const Scratch, batch: usize, row: usize) CM31 {
+        return self.batchMajorInversePtr(batch, row)[0];
     }
 
     pub fn retainedBytes(self: Scratch) usize {
@@ -470,6 +504,33 @@ test "quotient row inverses match scalar rows across batch counts and domains" {
                 );
                 try std.testing.expect(scalar_quotient.eql(chunked_quotient));
             }
+
+            try scratch.prepareBatchMajor(&workspace, scratch.rowCapacity());
+            try std.testing.expectError(error.InvalidChunkSize, scratch.inversesForRow(0));
+            for (scratch.domain_points, 0..) |domain_point, row| {
+                try workspace.beginRow(domain_point);
+                for (workspace.denominator_inverses, 0..) |scalar, batch| {
+                    try std.testing.expect(scalar.eql(scratch.batchMajorInverse(batch, row)));
+                }
+            }
+        }
+
+        // Exercise packed groups, scalar tails, and changing batch-major
+        // strides in the same retained scratch allocation.
+        const tail_domain = canonic.CanonicCoset.new(6).circleDomain();
+        var tail_scratch = try Scratch.init(allocator, batch_count, 17);
+        defer tail_scratch.deinit(allocator);
+        for (tail_scratch.domain_points, 0..) |*point, row| {
+            point.* = tail_domain.at(row);
+        }
+        for ([_]usize{ 1, 2, 3, 4, 7, 8, 17 }) |row_count| {
+            try tail_scratch.prepareBatchMajor(&workspace, row_count);
+            for (tail_scratch.domain_points[0..row_count], 0..) |domain_point, row| {
+                try workspace.beginRow(domain_point);
+                for (workspace.denominator_inverses, 0..) |scalar, batch| {
+                    try std.testing.expect(scalar.eql(tail_scratch.batchMajorInverse(batch, row)));
+                }
+            }
         }
     }
 }
@@ -492,6 +553,7 @@ test "quotient row scratch reports a zero denominator" {
     scratch.domain_points[0] = domain_point;
 
     try std.testing.expectError(error.DivisionByZero, scratch.prepare(&workspace, 1));
+    try std.testing.expectError(error.DivisionByZero, scratch.prepareBatchMajor(&workspace, 1));
 }
 
 test "quotient row scratch policy honors cost boundary and memory fallback" {
