@@ -1,6 +1,7 @@
 //! Register-resident reduction of compact quotient contribution groups.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const planning = @import("quotients/planning.zig");
@@ -48,39 +49,91 @@ pub fn accumulate(
 
         var sums: [qm31.SECURE_EXTENSION_DEGREE][2]M31 =
             @splat(@splat(M31.zero()));
-        var member_index: usize = 0;
-        while (member_index + 4 <= group.members.len) : (member_index += 4) {
-            var even_values: [4]M31 = undefined;
-            var odd_values: [4]M31 = undefined;
-            inline for (0..4) |term| {
-                const member = group.members[member_index + term];
-                std.debug.assert(source_index + 1 < member.values.len);
-                even_values[term] = member.values[source_index];
-                odd_values[term] = member.values[source_index + 1];
-            }
-            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-                var coefficients: [4]M31 = undefined;
+        if (comptime builtin.cpu.arch == .aarch64 and
+            builtin.zig_backend != .stage2_c)
+        {
+            var even_sum: m31.Vec4u32 = @splat(0);
+            var odd_sum: m31.Vec4u32 = @splat(0);
+            var member_index: usize = 0;
+            while (member_index + 4 <= group.members.len) : (member_index += 4) {
+                var even_products: [4]m31.Vec4u32 = undefined;
+                var odd_products: [4]m31.Vec4u32 = undefined;
                 inline for (0..4) |term| {
-                    coefficients[term] = group.members[member_index + term].coefficients[coordinate];
+                    const member = group.members[member_index + term];
+                    std.debug.assert(source_index + 1 < member.values.len);
+                    const coefficients = m31.loadVec4(member.coefficients[0..].ptr);
+                    even_products[term] = m31.mulVec4(
+                        coefficients,
+                        @splat(member.values[source_index].v),
+                    );
+                    odd_products[term] = m31.mulVec4(
+                        coefficients,
+                        @splat(member.values[source_index + 1].v),
+                    );
                 }
-                sums[coordinate][0] = sums[coordinate][0].add(
-                    m31.dot4(even_values, coefficients),
+                const even_batch = m31.addVec4(
+                    m31.addVec4(even_products[0], even_products[1]),
+                    m31.addVec4(even_products[2], even_products[3]),
                 );
-                sums[coordinate][1] = sums[coordinate][1].add(
-                    m31.dot4(odd_values, coefficients),
+                const odd_batch = m31.addVec4(
+                    m31.addVec4(odd_products[0], odd_products[1]),
+                    m31.addVec4(odd_products[2], odd_products[3]),
+                );
+                even_sum = m31.addVec4(even_sum, even_batch);
+                odd_sum = m31.addVec4(odd_sum, odd_batch);
+            }
+            while (member_index < group.members.len) : (member_index += 1) {
+                const member = group.members[member_index];
+                std.debug.assert(source_index + 1 < member.values.len);
+                const coefficients = m31.loadVec4(member.coefficients[0..].ptr);
+                even_sum = m31.addVec4(
+                    even_sum,
+                    m31.mulVec4(coefficients, @splat(member.values[source_index].v)),
+                );
+                odd_sum = m31.addVec4(
+                    odd_sum,
+                    m31.mulVec4(coefficients, @splat(member.values[source_index + 1].v)),
                 );
             }
-        }
-        while (member_index < group.members.len) : (member_index += 1) {
-            const member = group.members[member_index];
-            std.debug.assert(source_index + 1 < member.values.len);
             inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
-                sums[coordinate][0] = sums[coordinate][0].add(
-                    member.values[source_index].mul(member.coefficients[coordinate]),
-                );
-                sums[coordinate][1] = sums[coordinate][1].add(
-                    member.values[source_index + 1].mul(member.coefficients[coordinate]),
-                );
+                sums[coordinate][0] = M31.fromCanonical(even_sum[coordinate]);
+                sums[coordinate][1] = M31.fromCanonical(odd_sum[coordinate]);
+            }
+        } else {
+            var member_index: usize = 0;
+            while (member_index + 4 <= group.members.len) : (member_index += 4) {
+                var even_values: [4]M31 = undefined;
+                var odd_values: [4]M31 = undefined;
+                inline for (0..4) |term| {
+                    const member = group.members[member_index + term];
+                    std.debug.assert(source_index + 1 < member.values.len);
+                    even_values[term] = member.values[source_index];
+                    odd_values[term] = member.values[source_index + 1];
+                }
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    var coefficients: [4]M31 = undefined;
+                    inline for (0..4) |term| {
+                        coefficients[term] = group.members[member_index + term].coefficients[coordinate];
+                    }
+                    sums[coordinate][0] = sums[coordinate][0].add(
+                        m31.dot4(even_values, coefficients),
+                    );
+                    sums[coordinate][1] = sums[coordinate][1].add(
+                        m31.dot4(odd_values, coefficients),
+                    );
+                }
+            }
+            while (member_index < group.members.len) : (member_index += 1) {
+                const member = group.members[member_index];
+                std.debug.assert(source_index + 1 < member.values.len);
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    sums[coordinate][0] = sums[coordinate][0].add(
+                        member.values[source_index].mul(member.coefficients[coordinate]),
+                    );
+                    sums[coordinate][1] = sums[coordinate][1].add(
+                        member.values[source_index + 1].mul(member.coefficients[coordinate]),
+                    );
+                }
             }
         }
 
