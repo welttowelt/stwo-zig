@@ -1,6 +1,7 @@
 const std = @import("std");
 const cpu = @import("../cpu_scalar/mod.zig").CpuBackend;
 const backend_composition = @import("runtime/backend_composition.zig");
+const column_source_materialization = @import("runtime/column_source_materialization.zig");
 const commit_policy = @import("commit_policy.zig");
 const combined_commit = @import("runtime/combined_commit.zig");
 const fold_inverses = @import("runtime/fold_inverses.zig");
@@ -8,7 +9,6 @@ const merkle = @import("stwo_prover_impl").vcs_lifted.prover;
 const metal_merkle = @import("merkle_tree.zig");
 const ownership_testing = @import("runtime/ownership_testing.zig");
 const quadratic_trace = @import("runtime/quadratic_trace_backend.zig");
-const prover_pcs = @import("stwo_prover_impl").pcs;
 const shared_runtime = @import("shared_runtime.zig");
 const telemetry = @import("telemetry.zig");
 const fri_inverse_cache_min_values: usize = 1 << 13;
@@ -50,28 +50,7 @@ pub const MetalCommitBackend = struct {
     pub const quadratic_recurrence_min_cells = quadratic_trace.min_cells;
     pub const admitsQuadraticRecurrenceTrace = quadratic_trace.admits;
     pub const fillQuadraticRecurrenceTrace = quadratic_trace.fill;
-
-    pub fn materializeColumnSource(
-        columns: []prover_pcs.ColumnEvaluation,
-        source: prover_pcs.ColumnSource,
-    ) !void {
-        switch (source) {
-            .materialized => {},
-            .quadratic_recurrence => |deferred| {
-                if (columns.len > 256) return error.InvalidColumns;
-                const FieldElement = @import("stwo_core").fields.m31.M31;
-                var views: [256][]FieldElement = undefined;
-                for (columns, 0..) |column, index| {
-                    views[index] = @constCast(column.values);
-                }
-                try quadratic_trace.fill(
-                    views[0..columns.len],
-                    deferred.log_n_rows,
-                    deferred.recipe,
-                );
-            },
-        }
-    }
+    pub const materializeColumnSource = column_source_materialization.materialize;
 
     pub fn warmup() !void {
         var lease = try shared_runtime.acquire();

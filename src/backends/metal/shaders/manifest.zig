@@ -193,6 +193,8 @@ const cairo_witness_feed_source = @embedFile("cairo/witness_feed.metal");
 const cairo_fixed_tables_source = @embedFile("cairo/fixed_tables.metal");
 const cairo_ec_op_source = @embedFile("cairo/ec_op.metal");
 const circle_transform_source = @embedFile("core/circle_transform.metal");
+const circle_transform_wide_source = @embedFile("core/circle_transform_wide.metal");
+const circle_transform_all_source = circle_transform_source ++ circle_transform_wide_source;
 const arena_ops_source = @embedFile("core/arena_ops.metal");
 const transcript_source = @embedFile("core/transcript.metal");
 const composition_source = @embedFile("core/composition.metal");
@@ -222,6 +224,7 @@ pub const translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform_wide.metal", .source = circle_transform_wide_source },
     .{ .path = "src/backends/metal/shaders/cairo/trace.metal", .source = cairo_trace_source },
     .{ .path = "src/backends/metal/shaders/cairo/witness_feed.metal", .source = cairo_witness_feed_source },
     .{ .path = "src/backends/metal/shaders/cairo/fixed_tables.metal", .source = cairo_fixed_tables_source },
@@ -238,6 +241,7 @@ pub const native_translation_units = [_]TranslationUnit{
     .{ .path = "src/backends/metal/shaders/core/commitments.metal", .source = commitments_source },
     .{ .path = "src/backends/metal/kernels.metal", .source = legacy_source },
     .{ .path = "src/backends/metal/shaders/core/circle_transform.metal", .source = circle_transform_source },
+    .{ .path = "src/backends/metal/shaders/core/circle_transform_wide.metal", .source = circle_transform_wide_source },
     .{ .path = "src/backends/metal/shaders/core/arena_ops.metal", .source = arena_ops_source },
     .{ .path = "src/backends/metal/shaders/core/transcript.metal", .source = transcript_source },
     .{ .path = "src/backends/metal/shaders/core/composition.metal", .source = composition_source },
@@ -258,6 +262,7 @@ pub const native_amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATE
     "\n#line 1 \"src/backends/metal/shaders/core/commitments.metal\"\n" ++ commitments_source ++
     "\n#line 1 \"src/backends/metal/kernels.metal\"\n" ++ legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++ circle_transform_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform_wide.metal\"\n" ++ circle_transform_wide_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/arena_ops.metal\"\n" ++ arena_ops_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/transcript.metal\"\n" ++ transcript_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/composition.metal\"\n" ++ composition_source ++
@@ -311,6 +316,8 @@ pub const amalgamated_source: [:0]const u8 = "#define STWO_ZIG_AMALGAMATED 1\n" 
     legacy_source ++
     "\n#line 1 \"src/backends/metal/shaders/core/circle_transform.metal\"\n" ++
     circle_transform_source ++
+    "\n#line 1 \"src/backends/metal/shaders/core/circle_transform_wide.metal\"\n" ++
+    circle_transform_wide_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/trace.metal\"\n" ++
     cairo_trace_source ++
     "\n#line 1 \"src/backends/metal/shaders/cairo/witness_feed.metal\"\n" ++
@@ -572,7 +579,7 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
         if (entry.owner != .circle_transform) continue;
         owned += 1;
         try std.testing.expectEqual(@as(usize, 0), countKernelDeclarations(legacy_source, entry.name));
-        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_source, entry.name));
+        try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_all_source, entry.name));
         try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, entry.name));
     }
     try std.testing.expectEqual(@as(usize, 22), owned);

@@ -761,6 +761,7 @@ static void encode_fri_inverse_domain(
 #import "runtime/archive_store.m"
 #import "runtime/dynamic_evaluation.m"
 #import "runtime/composition.m"
+#import "runtime/composition_recurrence.m"
 #import "runtime/prepared_auxiliary.m"
 #import "runtime/circle_legacy.m"
 #import "runtime/circle_commit_epoch.m"
