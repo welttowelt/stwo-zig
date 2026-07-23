@@ -3,6 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const work_pool_mod = @import("../work_pool.zig");
+const blake2_stream4 = @import("blake2_stream4.zig");
 const parameters = @import("parameters.zig");
 
 pub fn Operations(comptime H: type) type {
@@ -122,6 +123,13 @@ pub fn Operations(comptime H: type) type {
             if (comptime @hasDecl(H, "nodeSeed") and @hasDecl(H, "hashChildrenWithSeed")) {
                 const seed = H.nodeSeed();
                 var i_seeded: usize = 0;
+                if (comptime blake2_stream4.supports(H)) {
+                    while (i_seeded + 8 <= out.len) : (i_seeded += 8) {
+                        const children: *const [16]H.Hash = @ptrCast(&prev_layer[2 * i_seeded]);
+                        const hashes = blake2_stream4.hashChildren8(seed, children);
+                        inline for (0..8) |lane| out[i_seeded + lane] = hashes[lane];
+                    }
+                }
                 if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
                     while (i_seeded + 4 <= out.len) : (i_seeded += 4) {
                         const children: *const [8]H.Hash = @ptrCast(&prev_layer[2 * i_seeded]);
@@ -342,6 +350,13 @@ pub fn Operations(comptime H: type) type {
 
         fn hashSeededRange(ctx: *const SeededRangeCtx) void {
             var i = ctx.start;
+            if (comptime blake2_stream4.supports(H)) {
+                while (i + 8 <= ctx.end) : (i += 8) {
+                    const children: *const [16]H.Hash = @ptrCast(&ctx.prev_layer[2 * i]);
+                    const hashes = blake2_stream4.hashChildren8(ctx.seed, children);
+                    inline for (0..8) |lane| ctx.out[i + lane] = hashes[lane];
+                }
+            }
             if (comptime @hasDecl(H, "hashChildrenWithSeed4")) {
                 while (i + 4 <= ctx.end) : (i += 4) {
                     const children: *const [8]H.Hash = @ptrCast(&ctx.prev_layer[2 * i]);
