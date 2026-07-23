@@ -50,6 +50,11 @@
       "path": "runs/2026-07-21-082920-matrix-v6-303292ce/report.json",
       "run": "2026-07-21-082920-matrix-v6-303292ce"
     },
+    "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82": {
+      "bytes": 2871945,
+      "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/report.json",
+      "run": "2026-07-23-104858-matrix-v6-9ed6df6b"
+    },
     "770830ab765311cf46afa7fd10d3dab3868001e40e9f60115f573e788bcaa4bc": {
       "bytes": 1160603,
       "path": "runs/2026-07-21-085853-matrix-v6-6448467f/report.json",
@@ -291,6 +296,15 @@
       "path": "runs/2026-07-20-221601-matrix-v6-e78cca6f/bundle",
       "report_sha256": "facd106c0afb0f14e12263a420d5bbe6dca2dcf6b09d603f3bf3e99950385d6f",
       "run": "2026-07-20-221601-matrix-v6-e78cca6f",
+      "schema": "native_proof_matrix_bundle_v1"
+    },
+    "feaff6e421103cc8e3919b250eec509f0cc7202981e3f6abe64267f18e22b781": {
+      "artifact_bytes": 5616391,
+      "artifact_files": 78,
+      "bundle_sha256": "feaff6e421103cc8e3919b250eec509f0cc7202981e3f6abe64267f18e22b781",
+      "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/bundle",
+      "report_sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82",
+      "run": "2026-07-23-104858-matrix-v6-9ed6df6b",
       "schema": "native_proof_matrix_bundle_v1"
     }
   },
@@ -710,6 +724,19 @@
       "id": "f7dedf9806dfd340839521cbd27117e377610fb724588316ecb0ca2c5744c835",
       "report_kind": "native_proof_cross_backend_matrix_v6",
       "status": "incomparable"
+    },
+    {
+      "archived_at": "2026-07-23T10:50:56Z",
+      "baseline_run": "2026-07-23-072542-matrix-v6-a01299b4",
+      "baseline_sha256": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120",
+      "comparison_identity_sha256": null,
+      "current_run": "2026-07-23-104858-matrix-v6-9ed6df6b",
+      "current_sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82",
+      "delta_path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/delta-from-2026-07-23-072542-matrix-v6-a01299b4.json",
+      "delta_sha256": "89e5406bfc0f85f809021f7c828fbb74abca682887d4991b5b246fa22db80f4e",
+      "id": "af8eb07a60654665d2b0a768b71523302bbd507fea0bb939385fbed4418532fb",
+      "report_kind": "native_proof_cross_backend_matrix_v6",
+      "status": "incomparable"
     }
   ],
   "deltas": {
@@ -808,6 +835,12 @@
       "bytes": 230866,
       "path": "runs/2026-07-21-083443-matrix-v6-f7b9d33d/delta-from-2026-07-21-083318-matrix-v6-81a216fc-868f03.json",
       "run": "2026-07-21-083443-matrix-v6-f7b9d33d"
+    },
+    "89e5406bfc0f85f809021f7c828fbb74abca682887d4991b5b246fa22db80f4e": {
+      "baseline_run": "2026-07-23-072542-matrix-v6-a01299b4",
+      "bytes": 1156,
+      "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/delta-from-2026-07-23-072542-matrix-v6-a01299b4.json",
+      "run": "2026-07-23-104858-matrix-v6-9ed6df6b"
     },
     "935452a7f710c885cff681fa6f374c23e9136d1df179adbfa13412491e02ecbd": {
       "baseline_run": "2026-07-17-232833-matrix-v4-b0cfbc62",
@@ -1351,6 +1384,29 @@
         "bytes": 1318813,
         "path": "runs/2026-07-23-072542-matrix-v6-a01299b4/report.json",
         "sha256": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120"
+      },
+      "status": "superseded",
+      "status_reason": "Controlled exact-binary reproduction found the Metal log16 rows on a stable but contended or underclocked plateau; the capture also omitted circle_transform_wide.metal from its advertised shader source digest.",
+      "superseded_by": "2026-07-23-104858-matrix-v6-9ed6df6b"
+    },
+    "2026-07-23-104858-matrix-v6-9ed6df6b": {
+      "bundle": {
+        "artifact_bytes": 5616391,
+        "artifact_files": 78,
+        "bundle_sha256": "feaff6e421103cc8e3919b250eec509f0cc7202981e3f6abe64267f18e22b781",
+        "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/bundle",
+        "report_sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82",
+        "run": "2026-07-23-104858-matrix-v6-9ed6df6b",
+        "schema": "native_proof_matrix_bundle_v1"
+      },
+      "deltas": [
+        "runs/2026-07-23-104858-matrix-v6-9ed6df6b/delta-from-2026-07-23-072542-matrix-v6-a01299b4.json"
+      ],
+      "kind": "native_proof_cross_backend_matrix_v6",
+      "report": {
+        "bytes": 2871945,
+        "path": "runs/2026-07-23-104858-matrix-v6-9ed6df6b/report.json",
+        "sha256": "621e3290c57272e67e65d87e3565e5d477fe8fbef94e45114a9869feffb92e82"
       }
     }
   },
