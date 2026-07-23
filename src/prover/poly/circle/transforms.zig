@@ -27,6 +27,36 @@ inline fn layerTwiddles(
     return twiddles[twiddles.len - count * 2 .. twiddles.len - count];
 }
 
+/// Multiplies a complete coefficient buffer by one field scalar. Four
+/// independent packed products are issued together to cover AdvSIMD multiply
+/// latency; arbitrary lengths retain an exact scalar tail.
+fn scaleM31(values: []M31, scalar: M31) void {
+    var index: usize = 0;
+    if (comptime m31.PACK_WIDTH > 1) {
+        const width = m31.PACK_WIDTH;
+        const scalar_packed = m31.splatPacked(scalar);
+        while (index + 4 * width <= values.len) : (index += 4 * width) {
+            const a = m31.mulPacked(m31.loadPacked(values.ptr + index), scalar_packed);
+            const b = m31.mulPacked(m31.loadPacked(values.ptr + index + width), scalar_packed);
+            const c = m31.mulPacked(m31.loadPacked(values.ptr + index + 2 * width), scalar_packed);
+            const d = m31.mulPacked(m31.loadPacked(values.ptr + index + 3 * width), scalar_packed);
+            m31.storePacked(values.ptr + index, a);
+            m31.storePacked(values.ptr + index + width, b);
+            m31.storePacked(values.ptr + index + 2 * width, c);
+            m31.storePacked(values.ptr + index + 3 * width, d);
+        }
+        while (index + width <= values.len) : (index += width) {
+            m31.storePacked(
+                values.ptr + index,
+                m31.mulPacked(m31.loadPacked(values.ptr + index), scalar_packed),
+            );
+        }
+    }
+    while (index < values.len) : (index += 1) {
+        values[index] = values[index].mul(scalar);
+    }
+}
+
 fn forwardBottomLayers(
     values: []M31,
     line_log_size: u32,
@@ -314,9 +344,7 @@ pub fn interpolateIntoBufferWithTwiddles(
     }
 
     const n_inv = M31.fromCanonical(@intCast(n)).inv() catch return PolyError.SingularSystem;
-    for (coeffs) |*coeff| {
-        coeff.* = coeff.*.mul(n_inv);
-    }
+    scaleM31(coeffs, n_inv);
 }
 
 /// Interpolates a batch in place while sharing twiddle traversal.
@@ -432,9 +460,7 @@ pub fn interpolateBuffersWithTwiddles(
 
     const n_inv = M31.fromCanonical(@intCast(coeffs_batch[0].len)).inv() catch return PolyError.SingularSystem;
     for (coeffs_batch) |coeffs| {
-        for (coeffs) |*coeff| {
-            coeff.* = coeff.*.mul(n_inv);
-        }
+        scaleM31(coeffs, n_inv);
     }
 }
 

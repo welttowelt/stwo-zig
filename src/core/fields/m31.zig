@@ -148,17 +148,16 @@ pub const M31 = struct {
 
 /// Reduce a 64-bit integer modulo p = 2^31 - 1.
 ///
-/// For x <= (p-1)^2 < 2^62, two Mersenne folds suffice.
-fn reduce64(x: u64) u32 {
+/// Two Mersenne folds reduce every `u64` input to at most `p + 3`. The
+/// wrapping subtraction is then smaller exactly when canonicalization is
+/// required, avoiding a compare/select chain on AArch64.
+inline fn reduce64(x: u64) u32 {
     const p: u64 = Modulus;
     var t: u64 = (x & p) + (x >> 31);
     t = (t & p) + (t >> 31);
 
     const r: u32 = @intCast(t);
-    // t is in [0, p+1].
-    if (r == Modulus) return 0;
-    if (r > Modulus) return r - Modulus;
-    return r;
+    return @min(r, r -% Modulus);
 }
 
 /// Reduce a product of two canonical M31 values. Unlike `reduce64`, the input
@@ -520,6 +519,30 @@ test "m31: bounded product reduction matches generic reduction" {
     const packed_result: [PACK_WIDTH]u32 = mulPacked(lhs_packed, rhs_packed);
     for (lhs_packed, rhs_packed, packed_result) |a, b, result| {
         try std.testing.expectEqual(reduceProduct(@as(u64, a) * b), result);
+    }
+}
+
+test "m31: generic reduction canonicalizes the full u64 range" {
+    const p: u64 = Modulus;
+    const edge = [_]u64{
+        0,
+        1,
+        p - 1,
+        p,
+        p + 1,
+        p * p,
+        4 * (p - 1) * (p - 1),
+        std.math.maxInt(u64),
+    };
+    for (edge) |value| {
+        try std.testing.expectEqual(@as(u32, @intCast(value % p)), reduce64(value));
+    }
+
+    var prng = std.Random.DefaultPrng.init(0x243f_6a88_85a3_08d3);
+    const random = prng.random();
+    for (0..4096) |_| {
+        const value = random.int(u64);
+        try std.testing.expectEqual(@as(u32, @intCast(value % p)), reduce64(value));
     }
 }
 
