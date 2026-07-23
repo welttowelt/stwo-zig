@@ -821,6 +821,185 @@ pub const MetalCommitBackend = struct {
         };
     }
 
+    /// Commits the quotient tree and the complete resident FRI cascade as one
+    /// ordered GPU transaction. The two command buffers share an explicit
+    /// transcript buffer and are submitted on the same queue without an
+    /// intervening host wait.
+    pub fn commitLazyFriTransaction(
+        comptime H: type,
+        comptime FirstLayerProver: type,
+        comptime InnerLayerProver: type,
+        comptime InnerCommitResult: type,
+        comptime LazyFriCommitResult: type,
+        allocator: std.mem.Allocator,
+        channel: anytype,
+        config: @import("stwo_core").fri.FriConfig,
+        circle_domain: @import("stwo_core").poly.circle.domain.CircleDomain,
+        provider: anytype,
+    ) !?LazyFriCommitResult {
+        const channel_blake2s = @import("stwo_core").channel.blake2s;
+        const line = @import("stwo_core").poly.line;
+        const circle = @import("stwo_core").circle;
+        if (comptime @TypeOf(channel.*) != channel_blake2s.Blake2sChannel) return null;
+        if (config.fold_step != 1 or
+            provider.domain_size != circle_domain.size() or
+            !commit_policy.quotientUsesResidentMerkle(provider.lifting_log_size) or
+            circle_domain.logSize() == 0)
+        {
+            return null;
+        }
+        const line_domain = try line.LineDomain.init(
+            circle.Coset.halfOdds(circle_domain.logSize() - 1),
+        );
+        const last_layer_size = config.lastLayerDomainSize();
+        if (line_domain.size() < fri_inverse_cache_min_values or
+            line_domain.size() <= last_layer_size or
+            !std.math.isPowerOfTwo(line_domain.size()) or
+            !std.math.isPowerOfTwo(last_layer_size) or
+            line_domain.size() % last_layer_size != 0)
+        {
+            return null;
+        }
+        const layer_count = std.math.log2_int(
+            usize,
+            line_domain.size() / last_layer_size,
+        );
+        if (layer_count == 0 or layer_count >= 31) return null;
+
+        var first_column = try allocateSecureColumn(provider.domain_size);
+        errdefer first_column.deinit(allocator);
+        var line_evaluation = try allocateLineEvaluation(line_domain);
+        defer line_evaluation.deinit(allocator);
+
+        const SecureColumn = @import("stwo_prover_impl").secure_column.SecureColumnByCoords;
+        const columns = try allocator.alloc(SecureColumn, layer_count);
+        defer allocator.free(columns);
+        var initialized_columns: usize = 0;
+        var moved_columns: usize = 0;
+        errdefer {
+            for (columns[moved_columns..initialized_columns]) |*column| {
+                column.deinit(allocator);
+            }
+        }
+        const coordinate_handles = try allocator.alloc(*anyopaque, layer_count);
+        defer allocator.free(coordinate_handles);
+        var current_count = line_domain.size();
+        for (columns, coordinate_handles) |*column, *handle| {
+            column.* = try allocateSecureColumn(current_count);
+            initialized_columns += 1;
+            handle.* = column.resident_storage.?.handle;
+            current_count >>= 1;
+        }
+
+        var terminal_domain = line_domain;
+        for (0..layer_count) |_| terminal_domain = terminal_domain.double();
+        var terminal = try allocateLineEvaluation(terminal_domain);
+        errdefer terminal.deinit(allocator);
+
+        var channel_state = [_]u32{0} ** 10;
+        for (0..8) |word| {
+            channel_state[word] = std.mem.readInt(
+                u32,
+                channel.digest[word * 4 ..][0..4],
+                .little,
+            );
+        }
+        channel_state[8] = channel.n_draws;
+
+        const first_storage = first_column.resident_storage orelse return error.InvalidColumns;
+        const line_storage = line_evaluation.resident_storage orelse return error.InvalidColumns;
+        const terminal_storage = terminal.resident_storage orelse return error.InvalidColumns;
+        const initial_coset = line_domain.coset();
+        var lease = try shared_runtime.acquire();
+        defer lease.deinit();
+        var runtime_result = try lease.runtime.computeQuotientsAndCommitFri(
+            allocator,
+            provider,
+            &first_column,
+            line_storage.handle,
+            coordinate_handles,
+            terminal_storage.handle,
+            @intCast(initial_coset.initial_index.v),
+            @intCast(initial_coset.step_size.v),
+            &channel_state,
+            H.leafSeed(),
+            H.nodeSeed(),
+            H.domainPrefixBytes(),
+        );
+        _ = first_storage;
+        defer allocator.free(runtime_result.fri.trees);
+
+        var initial_runtime_tree = runtime_result.tree;
+        var initial_tree_consumed = false;
+        errdefer if (!initial_tree_consumed) initial_runtime_tree.deinit();
+        var first_tree = try MerkleTree(H).fromSharedRuntime(initial_runtime_tree);
+        initial_tree_consumed = true;
+        errdefer first_tree.deinit(allocator);
+
+        var consumed_runtime_trees: usize = 0;
+        errdefer {
+            for (runtime_result.fri.trees[consumed_runtime_trees..]) |*tree| tree.deinit();
+        }
+        const ready_layers = try allocator.alloc(InnerLayerProver, layer_count);
+        var initialized_layers: usize = 0;
+        errdefer {
+            for (ready_layers[0..initialized_layers]) |*layer| {
+                layer.column.deinit(allocator);
+                layer.merkle_tree.deinit(allocator);
+            }
+            allocator.free(ready_layers);
+        }
+        var layer_domain = line_domain;
+        for (ready_layers, runtime_result.fri.trees, columns) |*layer, runtime_tree, column| {
+            const tree = try MerkleTree(H).fromSharedRuntime(runtime_tree);
+            consumed_runtime_trees += 1;
+            layer.* = .{
+                .domain = layer_domain,
+                .column = column,
+                .merkle_tree = tree,
+                .fold_step = 1,
+            };
+            initialized_layers += 1;
+            moved_columns += 1;
+            layer_domain = layer_domain.double();
+        }
+
+        for (0..8) |word| {
+            std.mem.writeInt(
+                u32,
+                channel.digest[word * 4 ..][0..4],
+                channel_state[word],
+                .little,
+            );
+        }
+        channel.n_draws = channel_state[8];
+        telemetry.record(.metal_quotient_dispatch);
+        telemetry.record(.metal_fri_circle_fold_dispatch);
+        telemetry.record(.metal_fri_fold_commit_epoch);
+        telemetry.record(.resident_merkle_commit);
+        for (0..layer_count) |_| telemetry.record(.resident_merkle_commit);
+        std.log.debug(
+            "Metal quotient + complete FRI transaction: quotient={d:.3}ms fri={d:.3}ms, {} FRI layers, 2 command buffers, 1 wait",
+            .{
+                runtime_result.gpu_ms,
+                runtime_result.fri.stats.gpu_milliseconds,
+                layer_count,
+            },
+        );
+
+        return .{
+            .first_layer = FirstLayerProver{
+                .domain = circle_domain,
+                .column = first_column,
+                .merkle_tree = first_tree,
+            },
+            .inner_commit = InnerCommitResult{
+                .inner_layers = ready_layers,
+                .last_layer_evaluation = terminal,
+            },
+        };
+    }
+
     /// Starts the resident FRI line cascade in the same command buffer as the
     /// circle-to-line fold. The transcript challenge is still drawn by the
     /// canonical host channel; only the independent GPU work and its

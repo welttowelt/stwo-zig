@@ -80,6 +80,12 @@ pub const QuotientCommitResult = struct {
     tree: Tree,
 };
 
+pub const QuotientFriCommitResult = struct {
+    gpu_ms: f64,
+    tree: Tree,
+    fri: FriLineCascadeResult,
+};
+
 pub const FriFoldCommitResult = struct {
     stats: CommandEpochStats,
     tree: Tree,
@@ -218,6 +224,7 @@ pub const Runtime = struct {
     pub const commitColumnsWithBacking = resident_ops.commitColumnsWithBacking;
     pub const computeQuotients = polynomial_ops.computeQuotients;
     pub const computeQuotientsAndCommit = polynomial_ops.computeQuotientsAndCommit;
+    pub const computeQuotientsAndCommitFri = polynomial_ops.computeQuotientsAndCommitFri;
     pub const evaluateCoefficientPlans = polynomial_ops.evaluateCoefficientPlans;
     pub const evaluateCoefficientTreePlans = polynomial_ops.evaluateCoefficientTreePlans;
     pub const transformCircle = polynomial_ops.transformCircle;

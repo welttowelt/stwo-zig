@@ -217,6 +217,8 @@ void *stwo_zig_metal_fri_fold_line_and_commit(
 bool stwo_zig_metal_fri_line_cascade(
     void *runtime_ptr, void *source_ptr, uint32_t source_count,
     void *circle_source_ptr, const uint32_t *circle_alpha,
+    void *prior_channel_buffer_ptr, uint32_t prior_state_word_offset,
+    uint32_t prior_alpha_word_offset,
     const uint32_t *inverse_x, uint32_t inverse_x_count,
     uint32_t domain_initial_index, uint32_t domain_step_size,
     void *const *coordinate_ptrs, void *final_destination_ptr,
@@ -227,7 +229,10 @@ bool stwo_zig_metal_fri_line_cascade(
     char *error_message, size_t error_message_len
 ) {
     if (runtime_ptr == NULL || source_ptr == NULL ||
-        ((circle_source_ptr == NULL) != (circle_alpha == NULL)) ||
+        (circle_source_ptr == NULL &&
+            (circle_alpha != NULL || prior_channel_buffer_ptr != NULL)) ||
+        (circle_source_ptr != NULL &&
+            ((circle_alpha == NULL) == (prior_channel_buffer_ptr == NULL))) ||
         coordinate_ptrs == NULL || final_destination_ptr == NULL ||
         leaf_seed == NULL || node_seed == NULL || channel_state == NULL ||
         tree_outputs == NULL || stats == NULL || source_count < 2u ||
@@ -255,10 +260,19 @@ bool stwo_zig_metal_fri_line_cascade(
         id<MTLBuffer> circle_source = circle_source_ptr == NULL
             ? nil
             : (__bridge id<MTLBuffer>)circle_source_ptr;
+        id<MTLBuffer> prior_channel_buffer = prior_channel_buffer_ptr == NULL
+            ? nil
+            : (__bridge id<MTLBuffer>)prior_channel_buffer_ptr;
         id<MTLBuffer> final_destination = (__bridge id<MTLBuffer>)final_destination_ptr;
         uint32_t final_count = source_count >> fri_layer_count;
         if (initial_source.length < (NSUInteger)source_count * 16u ||
             (circle_source != nil && circle_source.length < (NSUInteger)source_count * 32u) ||
+            (prior_channel_buffer != nil &&
+                (prior_state_word_offset > UINT32_MAX - 10u ||
+                 prior_alpha_word_offset > UINT32_MAX - 4u ||
+                 prior_channel_buffer.length <
+                    (NSUInteger)(MAX(prior_state_word_offset + 10u,
+                                    prior_alpha_word_offset + 4u)) * sizeof(uint32_t))) ||
             final_destination.length < (NSUInteger)final_count * 16u) {
             write_error(error_message, error_message_len, @"Metal FRI cascade evaluation buffer is too small");
             return false;
@@ -345,7 +359,8 @@ bool stwo_zig_metal_fri_line_cascade(
             return false;
         }
         memset(transcript_arena.contents, 0, (NSUInteger)transcript_words * sizeof(uint32_t));
-        memcpy(transcript_arena.contents, channel_state, 10u * sizeof(uint32_t));
+        if (prior_channel_buffer == nil)
+            memcpy(transcript_arena.contents, channel_state, 10u * sizeof(uint32_t));
 
         NSMutableArray<StwoZigMetalTree *> *trees =
             [NSMutableArray arrayWithCapacity:fri_layer_count];
@@ -417,7 +432,21 @@ bool stwo_zig_metal_fri_line_cascade(
             write_error(error_message, error_message_len, @"Metal FRI cascade command allocation failed");
             return false;
         }
-        uint64_t compute_encoders = 1u, dispatches = 0u;
+        uint64_t compute_encoders = 1u, blit_encoders = 0u, dispatches = 0u;
+        if (prior_channel_buffer != nil) {
+            id<MTLBlitCommandEncoder> state_copy = [command blitCommandEncoder];
+            if (state_copy == nil) {
+                write_error(error_message, error_message_len, @"Metal FRI transcript transfer encoder failed");
+                return false;
+            }
+            [state_copy copyFromBuffer:prior_channel_buffer
+                          sourceOffset:(NSUInteger)prior_state_word_offset * sizeof(uint32_t)
+                              toBuffer:transcript_arena
+                     destinationOffset:0u
+                                  size:10u * sizeof(uint32_t)];
+            [state_copy endEncoding];
+            blit_encoders += 1u;
+        }
         if (circle_source != nil) {
             id<MTLComputeCommandEncoder> circle_encoder = [command computeCommandEncoder];
             if (circle_encoder == nil) {
@@ -435,7 +464,13 @@ bool stwo_zig_metal_fri_line_cascade(
             [circle_encoder setComputePipelineState:runtime.friFoldCircle];
             [circle_encoder setBuffer:circle_source offset:0u atIndex:0];
             [circle_encoder setBuffer:circle_inverse_buffer offset:0u atIndex:1];
-            [circle_encoder setBytes:circle_alpha length:4u * sizeof(uint32_t) atIndex:2];
+            if (prior_channel_buffer != nil) {
+                [circle_encoder setBuffer:prior_channel_buffer
+                                   offset:(NSUInteger)prior_alpha_word_offset * sizeof(uint32_t)
+                                 atIndex:2];
+            } else {
+                [circle_encoder setBytes:circle_alpha length:4u * sizeof(uint32_t) atIndex:2];
+            }
             [circle_encoder setBuffer:initial_source offset:0u atIndex:3];
             [circle_encoder setBytes:&source_count length:sizeof(source_count) atIndex:4];
             NSUInteger circle_width = MIN(
@@ -718,7 +753,7 @@ bool stwo_zig_metal_fri_line_cascade(
             .wait_count = 1u,
             .intermediate_wait_count = 0u,
             .compute_encoders = compute_encoders,
-            .blit_encoders = 0u,
+            .blit_encoders = blit_encoders,
             .dispatches = dispatches,
             .gpu_milliseconds = gpu_milliseconds,
         };

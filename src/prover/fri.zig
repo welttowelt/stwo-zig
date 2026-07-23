@@ -174,6 +174,43 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
                 return FriProverError.ShapeMismatch;
             }
 
+            if (comptime @hasDecl(B, "commitLazyFriTransaction")) {
+                if (try B.commitLazyFriTransaction(
+                    H,
+                    FirstLayerProver,
+                    InnerLayerProver,
+                    InnerCommitResult,
+                    LazyFriCommitResult,
+                    allocator,
+                    channel,
+                    config,
+                    column_domain,
+                    provider,
+                )) |transaction| {
+                    var first_layer = transaction.first_layer;
+                    errdefer first_layer.deinit(allocator);
+                    var inner_commit = transaction.inner_commit;
+                    defer inner_commit.last_layer_evaluation.deinit(allocator);
+                    errdefer {
+                        for (inner_commit.inner_layers) |*layer| layer.deinit(allocator);
+                        allocator.free(inner_commit.inner_layers);
+                    }
+                    var last_layer_poly = try commitLastLayer(
+                        allocator,
+                        channel,
+                        config,
+                        &inner_commit.last_layer_evaluation,
+                    );
+                    errdefer last_layer_poly.deinit(allocator);
+                    return .{
+                        .config = config,
+                        .first_layer = first_layer,
+                        .inner_layers = inner_commit.inner_layers,
+                        .last_layer_poly = last_layer_poly,
+                    };
+                }
+            }
+
             var first_layer = try commitFirstLayerLazy(allocator, channel, column_domain, provider);
             errdefer first_layer.deinit(allocator);
 
@@ -372,6 +409,11 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
         const InnerCommitResult = struct {
             inner_layers: []InnerLayerProver,
             last_layer_evaluation: prover_line.LineEvaluation,
+        };
+
+        const LazyFriCommitResult = struct {
+            first_layer: FirstLayerProver,
+            inner_commit: InnerCommitResult,
         };
 
         fn commitInnerLayers(
