@@ -389,6 +389,19 @@ pub inline fn dot4Packed(
     );
 }
 
+/// Four-term scalar dot product with one final Mersenne reduction.
+///
+/// Four canonical products sum to less than `2^64`, so the accumulation is
+/// exact in `u64`. This is the scalar-gather counterpart to `dot4Packed` for
+/// reducers whose four terms come from independent borrowed columns.
+pub inline fn dot4(values: [4]M31, coefficients: [4]M31) M31 {
+    var sum: u64 = 0;
+    inline for (0..4) |term| {
+        sum += @as(u64, values[term].v) * @as(u64, coefficients[term].v);
+    }
+    return M31.fromU64(sum);
+}
+
 /// Native-width form of `reduceProduct`; every lane is a canonical product.
 inline fn reduceProductPacked(x: PackedU64) PackedM31 {
     const p64: PackedU64 = @splat(@as(u64, Modulus));
@@ -529,15 +542,18 @@ test "m31: packed four-term dot product matches scalar accumulation" {
 
     const actual: [PACK_WIDTH]u32 = dot4Packed(packed_values, packed_coefficients);
     for (0..PACK_WIDTH) |lane| {
+        var scalar_values: [4]M31 = undefined;
+        var scalar_coefficients: [4]M31 = undefined;
         var expected = M31.zero();
         inline for (0..4) |term| {
+            scalar_values[term] = M31.fromCanonical(values[term][lane]);
+            scalar_coefficients[term] = M31.fromCanonical(coefficients[term][lane]);
             expected = expected.add(
-                M31.fromCanonical(values[term][lane]).mul(
-                    M31.fromCanonical(coefficients[term][lane]),
-                ),
+                scalar_values[term].mul(scalar_coefficients[term]),
             );
         }
         try std.testing.expectEqual(expected.v, actual[lane]);
+        try std.testing.expectEqual(expected.v, dot4(scalar_values, scalar_coefficients).v);
     }
 }
 
