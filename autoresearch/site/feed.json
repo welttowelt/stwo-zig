@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6002,8 +6002,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6463,8 +6463,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6583,8 +6583,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6869,8 +6869,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7404,8 +7404,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7858,6 +7858,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "wide"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.991605,
+     "ci_low": 0.987233,
+     "commit": "4d654780844fb2f77d508d6b2040acc6b73bb53b",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 46.866037,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:009c5decba3206df0325fc5447dafb3acc59ecc8c4ef7931e67ff79de07bb955",
+     "gates": "G1..G5:pass",
+     "harness_commit": "481487ba7153",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T16:58:46Z",
+     "judged_r": 0.98928,
+     "measurement_rounds": 25,
+     "measurement_seconds": 159.921241,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1",
+     "outcome": "neutral",
+     "peak_rss_mib": 1344.778924,
+     "predecessor": "c3a7e8b36460",
+     "proof_bytes": 67692,
+     "prove_ms": 1210.46201,
+     "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
     }
    ],
    "frontier_by_class": {
@@ -7865,19 +7900,21 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": false,
-       "span_reasons": []
+       "span": true,
+       "span_reasons": [
+        "subfloor_effect"
+       ]
       },
       "effective_score": 0.5190643050495095,
       "evidence_share": {
-       "claimed": 5,
+       "claimed": 6,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -7890,18 +7927,19 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 0,
-       "pending": 0,
-       "share": null
+       "eligible": 1,
+       "pending": 1,
+       "share": 0.0
       },
       "unaudited_tail": {
-       "count": 5,
+       "count": 6,
        "observation_ids": [
         "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
         "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
         "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
         "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
-        "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a"
+        "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
+        "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1"
        ]
       }
      },
@@ -8052,8 +8090,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8165,8 +8203,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 318,
-       "seconds": 167585
+       "commits": 323,
+       "seconds": 173479
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -9568,7 +9606,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "03ea9b520a1bc82beee9d78fd82300b8f48343d1b72aa33953a9254baecaae3b",
+   "autoresearch/ledger/promotions.tsv": "8ba8998620700761b2733c440874053c289c9e72a83aa8a1d29f74ee4d31222c",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9709,6 +9747,7 @@
    "autoresearch/submissions/2026-07-23-metal-resident-quotient-fri-transaction/verdict.json": "ceab4bf3d5114d8efb837298a8aa246dd07dfc4465d675292cfd5d168f828076",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
+   "autoresearch/submissions/2026-07-23-riscv-eight-way-terminal-blake2s/verdict.json": "f173c0add6bcdae30458ab1f8e00ce0bb77f8bb63a828715546c2c4e7942b049",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
    "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-deep.json": "30f4d95f8f839643b149971ecbfc10ca918ab6fd97c356e2e2fb636f84ea4b83",
    "autoresearch/submissions/2026-07-23-riscv-sparse-qm31-base/verdict-riscv-wide.json": "d9aeb81da5805585e9872f96dabce731fd65fbba72216470bbe480ba2b7d6b2c",
@@ -9716,8 +9755,8 @@
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "da98800ff4ad",
-  "repo_commit_time": "2026-07-23T15:20:32Z"
+  "repo_commit": "56d67ff344fe",
+  "repo_commit_time": "2026-07-23T16:58:46Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -18334,7 +18373,7 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 5,
+      "available_points": 6,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
@@ -18365,15 +18404,21 @@
         "judged_at_utc": "2026-07-23T15:20:32Z",
         "points": 5,
         "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 1.8871178772094017,
+        "judged_at_utc": "2026-07-23T16:58:46Z",
+        "points": 6,
+        "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd"
        }
       ],
       "latest": {
-       "actual_rounds": 29,
+       "actual_rounds": 25,
        "actual_rounds_per_workload": {
         "riscv_fib_iter": 3,
         "riscv_gcd_euclid": 3,
-        "riscv_multi_shard_addi": 5,
-        "riscv_sha2_1024b": 5,
+        "riscv_multi_shard_addi": 3,
+        "riscv_sha2_1024b": 3,
         "riscv_sha2_2048b": 5,
         "riscv_sha2_512b": 5,
         "riscv_xorshift_prng": 3
@@ -18382,13 +18427,13 @@
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.21304224175988948,
-       "credited_ln_improvement_per_measurement_hour": 3.6239140016425817,
-       "gradient_snr": 40.84584167954905,
-       "judged_at_utc": "2026-07-23T15:20:32Z",
-       "measurement_wall_hours": 0.05878788560195567,
-       "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
-       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-23T16:58:46Z",
+       "measurement_wall_hours": 0.04442256699083373,
+       "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+       "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18511,14 +18556,38 @@
         "row_id": "sha256:2af763bc18dc9afda3db579ffdf82f720c7cd4567d4e5cc2e71f97ba9cdfeea5",
         "submission_id": "2026-07-23-riscv-sparse-qm31-base",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 25,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 3,
+         "riscv_sha2_1024b": 3,
+         "riscv_sha2_2048b": 5,
+         "riscv_sha2_512b": 5,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T16:58:46Z",
+        "measurement_wall_hours": 0.04442256699083373,
+        "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
+        "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.6557275016619479,
-       "credited_ln_improvement_per_measurement_hour": 2.1637381341551545,
-       "measurement_wall_hours": 0.3030530780555758,
-       "median_gradient_snr": 20.501307668744357,
-       "points": 5
+       "credited_ln_improvement_per_measurement_hour": 1.8871178772094017,
+       "measurement_wall_hours": 0.34747564504640954,
+       "median_gradient_snr": 15.250549201621673,
+       "points": 6
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -19519,6 +19588,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "huge"
+  },
+  {
+   "id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+   "judged_r": 0.98928,
+   "note": "# Batch eight independent terminal BLAKE2s Merkle hashes\n\n## Model and harness\n\nModel: GPT-5 Codex. Harness: repo-resident `stwo-perf` 0.1.0 at\n`481487ba7153`, clean candidate `e199fbf569a8`, clean predecessor\n`c3a7e8b36460`, immutable system-2x task baseline\n`2beae9d03b33bc9c5b0b21bb445439799786f2fb`, Zig 0.15.2 ReleaseFast on\nthe 18-logical-CPU Apple M5 Max.\n\nThe submitted S3 RISC-V deep verdict used isolated paired same-host\nprocesses. Every timed proof independently verified, cross-arm proof digests\nwere byte-identical, and the pinned Stark-V oracle accepted all seven\nprograms. The complete profiles, hypotheses, rejected variants, source-policy\ncorrection, and final evidence are recorded in `transcripts/session-01.md`.\n\n## Hypothesis\n\nThe shared BLAKE2s Merkle implementation hashes four independent messages in\none AArch64 vector. At each BLAKE dependency level, however, the machine can\nissue work from a second independent four-message group. A logical\n`@Vector(8, u32)` terminal compression exposes those two native NEON halves\nto LLVM in one operation graph. This is useful specifically for the\nsingle-compression internal-node path, where it increases instruction-level\nparallelism without retaining multi-block stream state.\n\n## Changes\n\nThe shared crypto backend now provides an eight-message fixed-terminal\nBLAKE2s operation. It:\n\n- consumes eight independent 64-byte child payloads after one common\n  pre-hashed node-domain seed;\n- uses checked, fixed-size data flow and the existing exact ten-round BLAKE2s\n  permutation;\n- uses bit-cast halves for zero-cost native-vector splitting and joining;\n- preserves the scalar backend fallback for platforms without the SIMD path;\n- keeps four-way handling for the residual Merkle tail; and\n- is selected only from the generic lifted Merkle structure, never by\n  workload, input digest, row count, or proof size.\n\nThe production routing is confined to manifest-editable\n`src/core/crypto/**` and `src/prover/vcs_lifted/**`. A first packaging attempt\nplaced two convenience wrappers under non-editable shared-VCS directories;\nthe harness rejected it mechanically. Those wrappers were removed and the\nsame operation moved into the allowed prover adapter before this verdict.\n\nAn attempted eight-way multi-block leaf/continuation path was also removed.\nIt preserved proof bytes and reduced cycles, but its larger live vector state\ncaused spill pressure and did not win both wall-time halves. The promoted\npatch therefore applies eight-way batching only to the one-compression node\ncase.\n\n```text\nold:  4 parents -> terminal BLAKE2s V4\n      4 parents -> terminal BLAKE2s V4\n\nnew:  8 parents -> one terminal BLAKE2s V8 operation graph\n      residual 4 parents -> existing terminal BLAKE2s V4\n```\n\n## Results\n\nThe admissible RISC-V deep-class paired result is:\n\n| workload | candidate/predecessor | 95% CI |\n| --- | ---: | ---: |\n| xorshift PRNG | 0.9849 | [0.9834, 0.9870] |\n| iterative Fibonacci | 0.9917 | [0.9896, 0.9926] |\n| Euclidean GCD | 0.9919 | [0.9898, 0.9934] |\n| multi-shard ADDI | 0.9885 | [0.9863, 0.9906] |\n| SHA2-512 | 0.9839 | [0.9779, 0.9909] |\n| SHA2-1024 | 0.9963 | [0.9936, 1.0043] |\n| SHA2-2048 | 0.9878 | [0.9767, 1.0008] |\n\nThe incremental deep portfolio ratio is **0.9893**. All seven medians improve,\nbut the local harness correctly classifies the 1.07% aggregate change as\nconfirmed-neutral because the class significance floor is 1.29%. The\ncumulative candidate-to-frozen-task-anchor ratio reported by the same verdict\nis **0.4688**.\n\nA separate admissible wide run passed all correctness, mechanism, resource,\nand source-policy gates at ratio 0.9911. It is retained as guard evidence, not\nclaimed as a moved class: its Keccak row was noisy and the portfolio was\nconfirmed-neutral.\n\nShort exact-proof screens showed 1.6--4% fewer cycles in the affected request\npath. Peak physical footprint remained effectively unchanged. Core and prover\nReleaseFast tests, the full product build, exact SHA2-128/SHA2-2048 artifact\ncomparisons, and the seven-workload oracle gate pass.\n\n## Caveats\n\nThis is a local claimed/advisory checkpoint; only an authenticated judge can\npromote it. Its incremental effect is below the local significance threshold,\nso it must not be described as an independently significant speedup.\n\nThe broader system-level task is not fully complete: although the cumulative\ndeep result is below 0.50 versus the frozen baseline, the required per-cell\nCPU request/prove contract and genuine RISC-V Metal phase have not both been\ncompleted. **RISC-V system-level 2x: not achieved.**\n",
+   "outcome": "neutral",
+   "solver": "teddyjfpender",
+   "title": "Batch eight independent terminal BLAKE2s Merkle hashes",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# RISC-V system-level 2x autoresearch \u2014 terminal BLAKE2s epoch\n\n## Objective and inherited state\n\nThis epoch continued the fixed-protocol RISC-V system-level 2x task. The\nimmutable authority is commit\n`2beae9d03b33bc9c5b0b21bb445439799786f2fb`; the epoch began from promoted\nmain `c3a7e8b364604e117d292a3f7793918498d1a64d`. The target host is an Apple\nM5 Max with 18 logical CPUs and 64 GiB RAM, using Zig 0.15.2 ReleaseFast.\n\nThe fixed contract requires exact RISC-V statement/AIR/protocol semantics,\nindependent verification, pinned Rust/Stark-V oracle acceptance, identical\nproof bytes, unchanged proof shape and security parameters, no input- or\nworkload-specific routing, resource telemetry, pai",
+     "label": "session-01.md",
+     "sha256": "b29a39654a129e882ca7bc64da9325d7b671d6a2638c51eead063995b8ab9cba"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "deep"
   },
   {
    "id": "2026-07-23-riscv-shared-prover-vectorization",
