@@ -10,9 +10,18 @@ const telemetry = @import("../telemetry.zig");
 const M31 = m31.M31;
 const ColumnEvaluation = prover.pcs.ColumnEvaluation;
 const CircleCoefficients = prover.poly.circle.CircleCoefficients;
+const ColumnSource = prover.pcs.ColumnSource;
 const min_base_log_size: u32 = 16;
+const min_deferred_base_log_size: u32 = 18;
 const min_columns: usize = 64;
+const composition_column_count: usize = 8;
 const max_columns: usize = 256;
+
+pub fn admitsDeferredQuadraticRecurrenceTrace(row_count: usize, column_count: usize) bool {
+    return std.math.isPowerOfTwo(row_count) and
+        row_count >= (1 << min_deferred_base_log_size) and
+        column_count >= min_columns and column_count <= max_columns;
+}
 
 fn PreparedCommitment(comptime H: type) type {
     return struct {
@@ -34,11 +43,12 @@ pub fn prepareAndCommitOwned(
     retention_policy: anytype,
     twiddle_source: anytype,
     source_backing_buffers: ?[][]M31,
-    source: prover.pcs.ColumnSource,
+    source: ColumnSource,
 ) !?PreparedCommitment(H) {
-    _ = source;
+    const supported_column_count = owned_columns.len == composition_column_count or
+        (owned_columns.len >= min_columns and owned_columns.len <= max_columns);
     if (retention_policy != .always or log_blowup_factor != 1 or
-        owned_columns.len < min_columns or owned_columns.len > max_columns)
+        !supported_column_count)
         return null;
 
     const base_log_size = owned_columns[0].log_size;
@@ -48,6 +58,14 @@ pub fn prepareAndCommitOwned(
         column.validate() catch return null;
         if (column.log_size != base_log_size or column.values.len != base_len) return null;
     }
+    const deferred_recipe: ?[7]u32 = switch (source) {
+        .materialized => null,
+        .quadratic_recurrence => |deferred| blk: {
+            if (deferred.log_n_rows != base_log_size) return null;
+            for (deferred.recipe) |value| if (value >= 0x7fffffff) return null;
+            break :blk deferred.recipe;
+        },
+    };
 
     const extended_log_size = base_log_size + 1;
     const extended_len = @as(usize, 1) << @intCast(extended_log_size);
@@ -74,6 +92,7 @@ pub fn prepareAndCommitOwned(
         source_backing_buffers.?.len == 1 and
         source_backing_buffers.?[0].len == base_words and
         columnsCoverContiguousBacking(owned_columns, source_backing_buffers.?[0], base_len);
+    if (deferred_recipe != null and !reuse_source) return null;
     const base_buffer = if (reuse_source)
         source_backing_buffers.?[0]
     else
@@ -100,7 +119,7 @@ pub fn prepareAndCommitOwned(
     const extended_twiddles = try twiddle_source.get(allocator, extended_log_size);
     var lease = shared_runtime.acquireExisting() catch return null;
     defer lease.deinit();
-    const result = lease.runtime.transformCircleLdeAndCommit(
+    const result = lease.runtime.transformCircleLdeAndCommitPrepared(
         allocator,
         source_values,
         base_values,
@@ -115,6 +134,8 @@ pub fn prepareAndCommitOwned(
         H.leafSeed(),
         H.nodeSeed(),
         H.domainPrefixBytes(),
+        deferred_recipe,
+        false,
     ) catch |err| if (reuse_source) return err else return null;
     const commitment = metal_merkle.MetalMerkleTree(H).fromSharedRuntime(result.tree) catch |err|
         if (reuse_source) return err else return null;
@@ -159,8 +180,134 @@ pub fn prepareAndCommitOwned(
     keep_base = true;
     keep_transform = true;
     telemetry.record(.metal_circle_lde_dispatch);
+    if (deferred_recipe != null) telemetry.record(.metal_trace_generation_dispatch);
     telemetry.record(.resident_merkle_commit);
     std.log.debug("Metal circle LDE + Merkle epoch: {d:.3}ms", .{result.gpu_ms});
+    return .{
+        .columns = columns,
+        .coefficients = coefficients,
+        .column_backing_buffers = column_backings,
+        .coefficient_backing_buffers = coefficient_backings,
+        .commitment = commitment,
+    };
+}
+
+/// Evaluates an already-interpolated secure composition split and builds its
+/// Merkle tree in the same command buffer. The input polynomials remain
+/// borrowed; the returned commitment owns contiguous coefficient and
+/// evaluation arenas used by later PCS opening stages.
+pub fn prepareAndCommitPolys(
+    comptime H: type,
+    allocator: std.mem.Allocator,
+    polys: []const CircleCoefficients,
+    log_blowup_factor: u32,
+    retention_policy: anytype,
+    twiddle_source: anytype,
+) !?PreparedCommitment(H) {
+    if (retention_policy != .always or log_blowup_factor != 1 or
+        polys.len != composition_column_count)
+        return null;
+
+    const base_log_size = polys[0].logSize();
+    if (base_log_size < min_base_log_size or base_log_size >= @bitSizeOf(usize) - 1)
+        return null;
+    const base_len = @as(usize, 1) << @intCast(base_log_size);
+    for (polys) |poly| {
+        if (poly.logSize() != base_log_size or poly.coefficients().len != base_len)
+            return null;
+    }
+
+    const extended_log_size = base_log_size + 1;
+    const extended_len = @as(usize, 1) << @intCast(extended_log_size);
+    const page_words = std.heap.pageSize() / @sizeOf(M31);
+    const extended_stride = try std.math.add(usize, extended_len, 16);
+    const extended_span = try std.math.add(
+        usize,
+        try std.math.mul(usize, polys.len - 1, extended_stride),
+        extended_len,
+    );
+    const backing_words = std.mem.alignBackward(
+        usize,
+        try std.math.add(usize, extended_span, page_words - 1),
+        page_words,
+    );
+    const base_words = try std.math.mul(usize, polys.len, base_len);
+
+    const base_buffer = try allocator.alloc(M31, base_words);
+    var keep_base = false;
+    defer if (!keep_base) allocator.free(base_buffer);
+
+    const transform_buffer = try allocator.alloc(M31, backing_words);
+    var keep_transform = false;
+    defer if (!keep_transform) allocator.free(transform_buffer);
+
+    const source_values = try allocator.alloc([]const M31, polys.len);
+    defer allocator.free(source_values);
+    const base_values = try allocator.alloc([]M31, polys.len);
+    defer allocator.free(base_values);
+    const extended_values = try allocator.alloc([]M31, polys.len);
+    defer allocator.free(extended_values);
+    for (polys, 0..) |poly, index| {
+        base_values[index] = base_buffer[index * base_len ..][0..base_len];
+        source_values[index] = poly.coefficients();
+        extended_values[index] = transform_buffer[index * extended_stride ..][0..extended_len];
+    }
+
+    const base_twiddles = try twiddle_source.get(allocator, base_log_size);
+    const extended_twiddles = try twiddle_source.get(allocator, extended_log_size);
+    var lease = shared_runtime.acquireExisting() catch return null;
+    defer lease.deinit();
+    const result = lease.runtime.transformCircleLdeAndCommitPrepared(
+        allocator,
+        source_values,
+        base_values,
+        extended_values,
+        transform_buffer,
+        0,
+        extended_stride,
+        base_twiddles.itwiddles,
+        extended_twiddles.twiddles,
+        base_log_size,
+        extended_log_size,
+        H.leafSeed(),
+        H.nodeSeed(),
+        H.domainPrefixBytes(),
+        null,
+        true,
+    ) catch |err| {
+        if (err == error.OutOfMemory) return err;
+        return null;
+    };
+    const commitment = metal_merkle.MetalMerkleTree(H).fromSharedRuntime(result.tree) catch |err| {
+        if (err == error.OutOfMemory) return err;
+        return null;
+    };
+    errdefer {
+        var owned_commitment = commitment;
+        owned_commitment.deinit(allocator);
+    }
+
+    const columns = try allocator.alloc(ColumnEvaluation, polys.len);
+    errdefer allocator.free(columns);
+    const coefficients = try allocator.alloc(CircleCoefficients, polys.len);
+    errdefer allocator.free(coefficients);
+    for (columns, coefficients, base_values, extended_values) |*column, *coefficient, base, extended| {
+        column.* = .{ .log_size = extended_log_size, .values = extended };
+        coefficient.* = try CircleCoefficients.initBorrowed(base);
+    }
+
+    const column_backings = try allocator.alloc([]M31, 1);
+    errdefer allocator.free(column_backings);
+    column_backings[0] = transform_buffer;
+    const coefficient_backings = try allocator.alloc([]M31, 1);
+    errdefer allocator.free(coefficient_backings);
+    coefficient_backings[0] = base_buffer;
+
+    keep_base = true;
+    keep_transform = true;
+    telemetry.record(.metal_circle_lde_dispatch);
+    telemetry.record(.resident_merkle_commit);
+    std.log.debug("Metal coefficient LDE + Merkle epoch: {d:.3}ms", .{result.gpu_ms});
     return .{
         .columns = columns,
         .coefficients = coefficients,

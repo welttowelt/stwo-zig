@@ -652,9 +652,11 @@ pub fn evaluateRecurrenceComposition(
     power_words: []const u32,
     denominator_inverses: [2]u32,
     output: []@import("stwo_core").fields.m31.M31,
+    inverse_twiddles: []const @import("stwo_core").fields.m31.M31,
 ) MetalError!f64 {
     if (row_count == 0 or column_count < 3 or column_stride < row_count or
         power_words.len != (column_count - 2) * 4 or output.len != row_count * 4 or
+        inverse_twiddles.len != row_count / 2 or
         row_count > std.math.maxInt(u32) or column_count > std.math.maxInt(u32) or
         column_stride > std.math.maxInt(u32) or power_words.len > std.math.maxInt(u32))
     {
@@ -662,6 +664,7 @@ pub fn evaluateRecurrenceComposition(
     }
     const trace_words: [*]const u32 = @ptrCast(trace_first);
     const output_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(output));
+    const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_twiddles));
     var gpu_ms: f64 = 0;
     var message: [1024]u8 = [_]u8{0} ** 1024;
     if (!ffi.stwo_zig_metal_recurrence_composition(
@@ -676,6 +679,7 @@ pub fn evaluateRecurrenceComposition(
         &denominator_inverses,
         output_words.ptr,
         output_words.len,
+        inverse_words.ptr,
         &gpu_ms,
         &message,
         message.len,

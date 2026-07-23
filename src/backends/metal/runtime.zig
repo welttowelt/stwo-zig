@@ -8,7 +8,7 @@ const command_epoch = @import("command_epoch.zig");
 const shader_manifest = @import("shaders/manifest.zig");
 
 comptime {
-    if (shader_manifest.core_shader_abi != 8) @compileError("Metal core shader ABI drift");
+    if (shader_manifest.core_shader_abi != 9) @compileError("Metal core shader ABI drift");
 }
 
 pub const CommandEpoch = command_epoch.CommandEpoch;
@@ -226,6 +226,7 @@ pub const Runtime = struct {
     pub const transformCircleLdeInto = polynomial_ops.transformCircleLdeInto;
     pub const evaluateRecurrenceComposition = polynomial_ops.evaluateRecurrenceComposition;
     pub const transformCircleLdeAndCommit = combined_commit_ops.transformCircleLdeAndCommit;
+    pub const transformCircleLdeAndCommitPrepared = combined_commit_ops.transformCircleLdeAndCommitPrepared;
 };
 
 /// Deferred compatibility hooks that deliberately bypass production admission.

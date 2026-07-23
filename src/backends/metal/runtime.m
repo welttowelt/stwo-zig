@@ -23,6 +23,7 @@
 @property(nonatomic, strong) id<MTLDevice> device;
 @property(nonatomic, strong) id<MTLCommandQueue> queue;
 @property(nonatomic, strong) id<MTLComputePipelineState> quadraticRecurrenceTrace;
+@property(nonatomic, strong) id<MTLComputePipelineState> quadraticRecurrenceIfftWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> leaves;
 @property(nonatomic, strong) id<MTLComputePipelineState> parents;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotients;
@@ -36,6 +37,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRescale;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleExpand;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFused;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleIfftFusedWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFused;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientNumerator;
 @property(nonatomic, strong) id<MTLComputePipelineState> quotientFinalize;
@@ -98,6 +100,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftRadix4Sparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLastSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFusedSparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFusedSparseWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLayerSparseWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLastSparseWide;
 @property(nonatomic, strong) id<MTLComputePipelineState> relationFused;
@@ -534,6 +537,8 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.evalPipelines = [NSMutableDictionary dictionary];
         runtime.quadraticRecurrenceTrace = make_pipeline(device, library, @"stwo_zig_quadratic_recurrence_trace",
                                                          error_message, error_message_len);
+        runtime.quadraticRecurrenceIfftWide = make_pipeline(device, library, @"stwo_zig_quadratic_recurrence_ifft_fused_wide",
+                                                            error_message, error_message_len);
         runtime.leaves = make_pipeline(device, library, @"stwo_zig_blake2s_leaves",
                                        error_message, error_message_len);
         runtime.parents = make_pipeline(device, library, @"stwo_zig_blake2s_parents",
@@ -553,6 +558,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.circleRescale = make_pipeline(device, library, @"stwo_zig_circle_rescale", error_message, error_message_len);
         runtime.circleExpand = make_pipeline(device, library, @"stwo_zig_circle_expand_coefficients", error_message, error_message_len);
         runtime.circleIfftFused = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_tail", error_message, error_message_len);
+        runtime.circleIfftFusedWide = make_pipeline(device, library, @"stwo_zig_circle_ifft_fused_tail_wide", error_message, error_message_len);
         runtime.circleRfftFused = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail", error_message, error_message_len);
         runtime.quotientNumerator = make_pipeline(device, library, @"stwo_zig_quotient_numerator_raw", error_message, error_message_len);
         runtime.quotientFinalize = make_pipeline(device, library, @"stwo_zig_quotient_finalize", error_message, error_message_len);
@@ -594,6 +600,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.circleRfftRadix4Sparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_radix4_sparse", error_message, error_message_len);
         runtime.circleRfftLastSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_last_sparse", error_message, error_message_len);
         runtime.circleRfftFusedSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail_sparse", error_message, error_message_len);
+        runtime.circleRfftFusedSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail_sparse_wide", error_message, error_message_len);
         runtime.circleRfftLayerSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_layer_sparse_wide", error_message, error_message_len);
         runtime.circleRfftLastSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_last_sparse_wide", error_message, error_message_len);
         runtime.relationFused = make_pipeline(device, library, @"stwo_zig_relation_fused", error_message, error_message_len);
@@ -619,11 +626,13 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.compositionRandomPowers = make_pipeline(device, library, @"stwo_zig_composition_random_powers", error_message, error_message_len);
         runtime.compositionExtParams = make_pipeline(device, library, @"stwo_zig_composition_ext_params", error_message, error_message_len);
         if (runtime.queue == nil || runtime.quadraticRecurrenceTrace == nil ||
+            runtime.quadraticRecurrenceIfftWide == nil ||
             runtime.leaves == nil || runtime.parents == nil ||
             runtime.quotients == nil || runtime.rawQuotients == nil || runtime.polynomialEval == nil ||
             runtime.polynomialBasis == nil || runtime.circleIfftFirst == nil || runtime.circleIfftLayer == nil ||
             runtime.circleRfftLayer == nil || runtime.circleRfftLast == nil || runtime.circleRescale == nil ||
-            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleRfftFused == nil ||
+            runtime.circleExpand == nil || runtime.circleIfftFused == nil || runtime.circleIfftFusedWide == nil ||
+            runtime.circleRfftFused == nil ||
             runtime.quotientNumerator == nil || runtime.quotientFinalize == nil ||
             runtime.quotientDomainPointsResident == nil || runtime.quotientDenominatorsResident == nil ||
             runtime.quotientCombineResident == nil || runtime.quotientCoefficientsResident == nil ||
@@ -645,6 +654,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftRadix4Sparse == nil ||
             runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||
+            runtime.circleRfftFusedSparseWide == nil ||
             runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;
         if (runtime.relationFused == nil || runtime.relationBlockScan == nil ||
             runtime.relationScanBlocks == nil || runtime.relationScanFinalize == nil ||
@@ -751,6 +761,7 @@ static void encode_fri_inverse_domain(
 #import "runtime/archive_store.m"
 #import "runtime/dynamic_evaluation.m"
 #import "runtime/composition.m"
+#import "runtime/composition_recurrence.m"
 #import "runtime/prepared_auxiliary.m"
 #import "runtime/circle_legacy.m"
 #import "runtime/circle_commit_epoch.m"
