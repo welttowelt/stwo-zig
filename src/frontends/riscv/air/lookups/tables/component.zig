@@ -357,7 +357,7 @@ pub const LookupTableComponent = struct {
             eval_twiddles.twiddles,
             eval_twiddles.itwiddles,
         );
-        try prover_poly.evaluateBuffersWithTwiddles(
+        try prover_poly.evaluateExtensionBuffersWithTwiddles(
             extension_buffers.items,
             eval_domain,
             eval_twiddle_view,

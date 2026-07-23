@@ -280,7 +280,7 @@ pub const ClockUpdateComponent = struct {
         if (extension_buffers.items.len != 0) {
             var twiddles = try prover_twiddles.precomputeM31(allocator, eval_domain.half_coset);
             defer prover_twiddles.deinitM31(allocator, &twiddles);
-            try prover_poly.evaluateBuffersWithTwiddles(
+            try prover_poly.evaluateExtensionBuffersWithTwiddles(
                 extension_buffers.items,
                 eval_domain,
                 prover_twiddles.TwiddleTree([]const M31).init(
