@@ -717,7 +717,7 @@ pub const MetalCommitBackend = struct {
 
         var lease = try shared_runtime.acquire();
         defer lease.deinit();
-        var runtime_result = try lease.runtime.foldFriLineCascade(
+        var runtime_result = try lease.runtime.foldFriCircleLineCascade(
             allocator,
             source_storage.handle,
             @intCast(evaluation.len()),

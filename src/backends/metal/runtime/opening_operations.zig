@@ -170,7 +170,7 @@ pub fn foldFriLineAndCommit(
     };
 }
 
-pub fn foldFriLineCascade(
+pub fn foldFriCircleLineCascade(
     self: *Runtime,
     allocator: std.mem.Allocator,
     source: *anyopaque,
@@ -251,6 +251,39 @@ pub fn foldFriLineCascade(
         };
     }
     return .{ .stats = stats, .trees = trees };
+}
+
+pub fn foldFriLineCascade(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    source: *anyopaque,
+    source_count: u32,
+    inverse_x: ?[]const u32,
+    domain_initial_index: u32,
+    domain_step_size: u32,
+    coordinates: []const *anyopaque,
+    final_destination: *anyopaque,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+    channel_state: *[10]u32,
+) (MetalError || std.mem.Allocator.Error)!FriLineCascadeResult {
+    return self.foldFriCircleLineCascade(
+        allocator,
+        source,
+        source_count,
+        null,
+        null,
+        inverse_x,
+        domain_initial_index,
+        domain_step_size,
+        coordinates,
+        final_destination,
+        leaf_seed,
+        node_seed,
+        domain_prefix_bytes,
+        channel_state,
+    );
 }
 
 pub fn prepareFriFold(

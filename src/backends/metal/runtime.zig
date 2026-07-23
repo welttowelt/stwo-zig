@@ -179,6 +179,7 @@ pub const Runtime = struct {
     pub const foldFriCircle = opening_ops.foldFriCircle;
     pub const foldFriLine = opening_ops.foldFriLine;
     pub const foldFriLineAndCommit = opening_ops.foldFriLineAndCommit;
+    pub const foldFriCircleLineCascade = opening_ops.foldFriCircleLineCascade;
     pub const foldFriLineCascade = opening_ops.foldFriLineCascade;
     pub const prepareFriFold = opening_ops.prepareFriFold;
     pub const friFoldPrepared = opening_ops.friFoldPrepared;
