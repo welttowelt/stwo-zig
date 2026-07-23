@@ -12,7 +12,6 @@ const canonic = @import("stwo_core").poly.circle.canonic;
 const utils = @import("stwo_core").utils;
 const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
 const prover_component = @import("stwo_prover_impl").air.component_prover;
-const prover_eval = @import("stwo_prover_impl").poly.circle.evaluation;
 const prover_poly = @import("stwo_prover_impl").poly.circle.poly;
 const prover_twiddles = @import("stwo_prover_impl").poly.twiddles;
 const logup = @import("../logup.zig");
@@ -219,9 +218,8 @@ pub const HashComponent = struct {
         const eval_size = eval_domain.size();
         const n_main = nMainColumns(self.kind);
         const n_interaction = nInteractionColumns(self.kind);
-        const n_previous = n_interaction;
         const n_committed = 2 + n_main + n_interaction;
-        const n_sources = n_committed + n_previous;
+        const n_sources = n_committed;
         const preprocessed = trace.polys.items[0];
         const main_polys = trace.polys.items[1];
         const interaction_polys = trace.polys.items[2];
@@ -263,40 +261,6 @@ pub const HashComponent = struct {
             }
             source += 1;
         }
-        var trace_twiddles = try prover_twiddles.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(self.log_size).circleDomain().half_coset,
-        );
-        defer prover_twiddles.deinitM31(allocator, &trace_twiddles);
-        const trace_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            trace_twiddles.root_coset,
-            trace_twiddles.twiddles,
-            trace_twiddles.itwiddles,
-        );
-        switch (self.kind) {
-            .merkle => try appendPrevious(
-                merkle_node.N_SUMS,
-                allocator,
-                self.s_merkle_prev,
-                self.log_size,
-                eval_size,
-                trace_twiddle_view,
-                evaluations,
-                &source,
-                &extension_buffers,
-            ),
-            .poseidon2 => try appendPrevious(
-                poseidon2_air.N_SUMS,
-                allocator,
-                self.s_poseidon_prev,
-                self.log_size,
-                eval_size,
-                trace_twiddle_view,
-                evaluations,
-                &source,
-                &extension_buffers,
-            ),
-        }
         std.debug.assert(source == n_sources);
         var eval_twiddles = try prover_twiddles.precomputeM31(allocator, eval_domain.half_coset);
         defer prover_twiddles.deinitM31(allocator, &eval_twiddles);
@@ -330,8 +294,12 @@ pub const HashComponent = struct {
         const column_accumulator = &accumulators[0];
         const main_start: usize = 2;
         const interaction_start = main_start + n_main;
-        const previous_start = interaction_start + n_interaction;
         for (0..eval_size) |row| {
+            const previous_row = utils.previousBitReversedCircleDomainIndex(
+                row,
+                self.log_size,
+                eval_log_size,
+            );
             const is_first = QM31.fromBase(evaluations[0][row]);
             const is_active = QM31.fromBase(evaluations[1][row]);
             var row_evaluation = QM31.zero();
@@ -348,8 +316,8 @@ pub const HashComponent = struct {
                         merkle_node.N_SUMS,
                         evaluations,
                         interaction_start,
-                        previous_start,
                         row,
+                        previous_row,
                         &sums,
                         &previous,
                     );
@@ -376,8 +344,8 @@ pub const HashComponent = struct {
                         poseidon2_air.N_SUMS,
                         evaluations,
                         interaction_start,
-                        previous_start,
                         row,
+                        previous_row,
                         &sums,
                         &previous,
                     );
@@ -529,39 +497,6 @@ fn sampledSecure(columns: [][]QM31, offset: usize, point: usize) !QM31 {
     return QM31.fromPartialEvals(coordinates);
 }
 
-fn appendPrevious(
-    comptime n: usize,
-    allocator: std.mem.Allocator,
-    previous: [n][4][]const M31,
-    log_size: u32,
-    eval_size: usize,
-    twiddles: anytype,
-    evaluations: [][]const M31,
-    source: *usize,
-    buffers: *std.ArrayList([]M31),
-) !void {
-    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
-    for (previous) |set| {
-        for (set) |values| {
-            if (values.len != domain.size()) return error.InvalidProofShape;
-            const evaluation = try prover_eval.CircleEvaluation.init(domain, values);
-            var coefficients = try prover_poly.interpolateFromEvaluationWithTwiddles(
-                allocator,
-                evaluation,
-                twiddles,
-            );
-            defer coefficients.deinit(allocator);
-            const extended = try allocator.alloc(M31, eval_size);
-            errdefer allocator.free(extended);
-            @memcpy(extended[0..coefficients.coefficients().len], coefficients.coefficients());
-            @memset(extended[coefficients.coefficients().len..], M31.zero());
-            try buffers.append(allocator, extended);
-            evaluations[source.*] = extended;
-            source.* += 1;
-        }
-    }
-}
-
 fn readMain(comptime n: usize, columns: []const []const M31, row: usize) [n]QM31 {
     var result: [n]QM31 = undefined;
     for (&result, columns) |*value, column| value.* = QM31.fromBase(column[row]);
@@ -572,14 +507,17 @@ fn readInteraction(
     comptime n: usize,
     evaluations: []const []const M31,
     interaction_start: usize,
-    previous_start: usize,
     row: usize,
+    previous_row: usize,
     sums: *[n]QM31,
     previous: *[n]QM31,
 ) void {
     for (0..n) |index| {
         sums[index] = secureAt(evaluations[interaction_start + 4 * index ..][0..4], row);
-        previous[index] = secureAt(evaluations[previous_start + 4 * index ..][0..4], row);
+        previous[index] = secureAt(
+            evaluations[interaction_start + 4 * index ..][0..4],
+            previous_row,
+        );
     }
 }
 

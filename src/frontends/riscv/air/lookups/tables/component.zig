@@ -9,11 +9,9 @@ const circle = @import("stwo_core").circle;
 const M31 = @import("stwo_core").fields.m31.M31;
 const QM31 = @import("stwo_core").fields.qm31.QM31;
 const canonic = @import("stwo_core").poly.circle.canonic;
+const utils = @import("stwo_core").utils;
 const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
 const prover_component = @import("stwo_prover_impl").air.component_prover;
-const prover_eval = @import("stwo_prover_impl").poly.circle.evaluation;
-const prover_poly = @import("stwo_prover_impl").poly.circle.poly;
-const prover_twiddles = @import("stwo_prover_impl").poly.twiddles;
 const logup = @import("../../logup.zig");
 const relations_mod = @import("../../relation_challenges.zig");
 const interaction = @import("interaction.zig");
@@ -286,7 +284,7 @@ pub const LookupTableComponent = struct {
         const eval_size = eval_domain.size();
         const n_tuple = schema.arity(self.kind);
         const n_committed = 1 + n_tuple + 1 + interaction.N_COLUMNS;
-        const n_sources = n_committed + interaction.N_COLUMNS;
+        const n_sources = n_committed;
         const preprocessed = trace.polys.items[0];
         const main = trace.polys.items[1];
         const secure = trace.polys.items[2];
@@ -323,45 +321,7 @@ pub const LookupTableComponent = struct {
             source += 1;
         }
 
-        var extension_buffers = std.ArrayList([]M31).empty;
-        defer {
-            for (extension_buffers.items) |values| allocator.free(values);
-            extension_buffers.deinit(allocator);
-        }
-        var trace_twiddles = try prover_twiddles.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(log_size).circleDomain().half_coset,
-        );
-        defer prover_twiddles.deinitM31(allocator, &trace_twiddles);
-        const trace_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            trace_twiddles.root_coset,
-            trace_twiddles.twiddles,
-            trace_twiddles.itwiddles,
-        );
-        try appendPrevious(
-            allocator,
-            self.previous,
-            log_size,
-            eval_size,
-            trace_twiddle_view,
-            evaluations,
-            &source,
-            &extension_buffers,
-        );
         std.debug.assert(source == n_sources);
-
-        var eval_twiddles = try prover_twiddles.precomputeM31(allocator, eval_domain.half_coset);
-        defer prover_twiddles.deinitM31(allocator, &eval_twiddles);
-        const eval_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            eval_twiddles.root_coset,
-            eval_twiddles.twiddles,
-            eval_twiddles.itwiddles,
-        );
-        try prover_poly.evaluateBuffersWithTwiddles(
-            extension_buffers.items,
-            eval_domain,
-            eval_twiddle_view,
-        );
 
         const trace_coset = canonic.CanonicCoset.new(log_size).coset();
         var denominator_inv: [2]M31 = undefined;
@@ -381,8 +341,12 @@ pub const LookupTableComponent = struct {
         const tuple_start: usize = 1;
         const main_index = tuple_start + n_tuple;
         const interaction_start = main_index + 1;
-        const previous_start = interaction_start + interaction.N_COLUMNS;
         for (0..eval_size) |row| {
+            const previous_row = utils.previousBitReversedCircleDomainIndex(
+                row,
+                log_size,
+                eval_log_size,
+            );
             var tuple: [schema.MAX_ARITY]QM31 = undefined;
             for (tuple[0..n_tuple], evaluations[tuple_start..][0..n_tuple]) |*value, column| {
                 value.* = QM31.fromBase(column[row]);
@@ -391,7 +355,10 @@ pub const LookupTableComponent = struct {
                 tuple[0..n_tuple],
                 QM31.fromBase(evaluations[main_index][row]),
                 secureAt(evaluations[interaction_start..][0..interaction.N_COLUMNS], row),
-                secureAt(evaluations[previous_start..][0..interaction.N_COLUMNS], row),
+                secureAt(
+                    evaluations[interaction_start..][0..interaction.N_COLUMNS],
+                    previous_row,
+                ),
                 QM31.fromBase(evaluations[0][row]),
             );
             column_accumulator.accumulate(
@@ -455,36 +422,6 @@ fn sampledSecure(columns: [][]QM31, offset: usize, point: usize) !QM31 {
         value.* = columns[offset + index][point];
     }
     return QM31.fromPartialEvals(coordinates);
-}
-
-fn appendPrevious(
-    allocator: std.mem.Allocator,
-    previous: [interaction.N_COLUMNS][]const M31,
-    log_size: u32,
-    eval_size: usize,
-    twiddles: anytype,
-    evaluations: [][]const M31,
-    source: *usize,
-    buffers: *std.ArrayList([]M31),
-) !void {
-    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
-    for (previous) |values| {
-        if (values.len != domain.size()) return error.InvalidProofShape;
-        const evaluation = try prover_eval.CircleEvaluation.init(domain, values);
-        var coefficients = try prover_poly.interpolateFromEvaluationWithTwiddles(
-            allocator,
-            evaluation,
-            twiddles,
-        );
-        defer coefficients.deinit(allocator);
-        const extended = try allocator.alloc(M31, eval_size);
-        errdefer allocator.free(extended);
-        @memcpy(extended[0..coefficients.coefficients().len], coefficients.coefficients());
-        @memset(extended[coefficients.coefficients().len..], M31.zero());
-        try buffers.append(allocator, extended);
-        evaluations[source.*] = extended;
-        source.* += 1;
-    }
 }
 
 fn secureAt(columns: []const []const M31, row: usize) QM31 {

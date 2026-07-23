@@ -25,9 +25,6 @@ const canonic = @import("stwo_core").poly.circle.canonic;
 const utils = @import("stwo_core").utils;
 const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
 const prover_component = @import("stwo_prover_impl").air.component_prover;
-const prover_eval = @import("stwo_prover_impl").poly.circle.evaluation;
-const prover_poly = @import("stwo_prover_impl").poly.circle.poly;
-const prover_twiddles = @import("stwo_prover_impl").poly.twiddles;
 const interaction_gen = @import("interaction_gen.zig");
 const logup = @import("logup.zig");
 const memory_interaction = @import("memory_commitment/interaction.zig");
@@ -413,30 +410,12 @@ pub const RiscVTraceComponent = struct {
             semantic_eval.isTraceCompatible(self.desc.family);
         const opcode_main_sources: usize = if (self.kind == .opcode) self.desc.n_columns else 0;
         const n_sources: usize = switch (self.kind) {
-            .opcode => 2 + opcode_main_sources + n_inter + 8 + opcode_memory.N_COLUMNS,
-            .program => 2 + program_commitment.N_MAIN_COLUMNS + n_inter +
-                program_interaction.N_COLUMNS,
-            .memory => 2 + 8 + n_inter + memory_interaction.N_COLUMNS,
+            .opcode => 2 + opcode_main_sources + n_inter,
+            .program => 2 + program_commitment.N_MAIN_COLUMNS + n_inter,
+            .memory => 2 + 8 + n_inter,
         };
         const evaluations = try allocator.alloc([]const M31, n_sources);
         defer allocator.free(evaluations);
-
-        var extension_buffers = std.ArrayList([]M31).empty;
-        defer {
-            for (extension_buffers.items) |values| allocator.free(values);
-            extension_buffers.deinit(allocator);
-        }
-
-        var trace_twiddles = try prover_twiddles.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(log_size).circleDomain().half_coset,
-        );
-        defer prover_twiddles.deinitM31(allocator, &trace_twiddles);
-        const trace_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            trace_twiddles.root_coset,
-            trace_twiddles.twiddles,
-            trace_twiddles.itwiddles,
-        );
 
         var source_index: usize = 0;
         // Committed polynomials: deterministic selectors, relation inputs
@@ -477,57 +456,7 @@ pub const RiscVTraceComponent = struct {
                 source_index += 1;
             }
         }
-        // Uncommitted shifted S columns: interpolate committed-order values on
-        // the trace domain, then extend exactly like the committed columns.
-        {
-            const prev_sets: []const [4][]const M31 = switch (self.kind) {
-                .opcode => &.{
-                    self.s_state_prev,
-                    self.s_prog_prev,
-                    self.s_opcode_memory_prev[0],
-                    self.s_opcode_memory_prev[1],
-                    self.s_opcode_memory_prev[2],
-                },
-                .program => &self.s_program_prev,
-                .memory => &self.s_memory_prev,
-            };
-            const trace_domain = canonic.CanonicCoset.new(log_size).circleDomain();
-            for (prev_sets) |prev_set| {
-                for (prev_set) |values| {
-                    if (values.len != trace_domain.size()) return error.InvalidProofShape;
-                    const evaluation = try prover_eval.CircleEvaluation.init(trace_domain, values);
-                    var coeffs = try prover_poly.interpolateFromEvaluationWithTwiddles(
-                        allocator,
-                        evaluation,
-                        trace_twiddle_view,
-                    );
-                    defer coeffs.deinit(allocator);
-                    evaluations[source_index] = try appendExtensionBuffer(
-                        allocator,
-                        &extension_buffers,
-                        coeffs.coefficients(),
-                        eval_size,
-                    );
-                    source_index += 1;
-                }
-            }
-        }
         std.debug.assert(source_index == n_sources);
-
-        if (extension_buffers.items.len != 0) {
-            var eval_twiddles = try prover_twiddles.precomputeM31(allocator, eval_domain.half_coset);
-            defer prover_twiddles.deinitM31(allocator, &eval_twiddles);
-            const twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-                eval_twiddles.root_coset,
-                eval_twiddles.twiddles,
-                eval_twiddles.itwiddles,
-            );
-            try prover_poly.evaluateBuffersWithTwiddles(
-                extension_buffers.items,
-                eval_domain,
-                twiddle_view,
-            );
-        }
 
         // The trace-coset vanishing polynomial is block-constant over the
         // extended domain in committed order: block b (of 2^log_size rows)
@@ -559,6 +488,11 @@ pub const RiscVTraceComponent = struct {
 
         const denominator_shift: std.math.Log2Int(usize) = @intCast(log_size);
         for (0..eval_size) |row| {
+            const previous_row = utils.previousBitReversedCircleDomainIndex(
+                row,
+                log_size,
+                eval_log_size,
+            );
             const is_first = QM31.fromBase(evaluations[0][row]);
             const is_active = QM31.fromBase(evaluations[1][row]);
             var row_evaluation: QM31 = undefined;
@@ -566,7 +500,6 @@ pub const RiscVTraceComponent = struct {
                 .opcode => {
                     const main_start: usize = 2;
                     const inter_start = main_start + opcode_main_sources;
-                    const prev_start = inter_start + n_inter;
                     const clk = QM31.fromBase(
                         evaluations[main_start + semantic_eval.clockColumn(self.desc.family)][row],
                     );
@@ -581,8 +514,14 @@ pub const RiscVTraceComponent = struct {
                     const value_3 = QM31.fromBase(evaluations[bus + 4][row]);
                     const s_state = secureAt(evaluations[inter_start .. inter_start + 4], row);
                     const s_prog = secureAt(evaluations[inter_start + 4 .. inter_start + 8], row);
-                    const s_state_prev = secureAt(evaluations[prev_start .. prev_start + 4], row);
-                    const s_prog_prev = secureAt(evaluations[prev_start + 4 .. prev_start + 8], row);
+                    const s_state_prev = secureAt(
+                        evaluations[inter_start .. inter_start + 4],
+                        previous_row,
+                    );
+                    const s_prog_prev = secureAt(
+                        evaluations[inter_start + 4 .. inter_start + 8],
+                        previous_row,
+                    );
 
                     const c_state = logup.pairConstraint(
                         s_state,
@@ -618,9 +557,11 @@ pub const RiscVTraceComponent = struct {
                     var memory_previous: [opcode_memory.N_ACCESSES]QM31 = undefined;
                     for (0..opcode_memory.N_ACCESSES) |slot| {
                         const memory_offset = inter_start + 8 + slot * 4;
-                        const previous_offset = prev_start + 8 + slot * 4;
                         memory_sums[slot] = secureAt(evaluations[memory_offset..][0..4], row);
-                        memory_previous[slot] = secureAt(evaluations[previous_offset..][0..4], row);
+                        memory_previous[slot] = secureAt(
+                            evaluations[memory_offset..][0..4],
+                            previous_row,
+                        );
                     }
                     const memory_constraints = try opcode_memory.constraints(
                         self.desc.family,
@@ -653,7 +594,6 @@ pub const RiscVTraceComponent = struct {
                 .program => {
                     const main_start: usize = 2;
                     const inter_start = main_start + program_commitment.N_MAIN_COLUMNS;
-                    const prev_start = inter_start + program_interaction.N_COLUMNS;
                     var sampled: [program_commitment.N_MAIN_COLUMNS]QM31 = undefined;
                     for (&sampled, 0..) |*value, column| {
                         value.* = QM31.fromBase(evaluations[main_start + column][row]);
@@ -662,7 +602,10 @@ pub const RiscVTraceComponent = struct {
                     var previous: [program_interaction.N_SUMS]QM31 = undefined;
                     for (0..program_interaction.N_SUMS) |index| {
                         sums[index] = secureAt(evaluations[inter_start + index * 4 ..][0..4], row);
-                        previous[index] = secureAt(evaluations[prev_start + index * 4 ..][0..4], row);
+                        previous[index] = secureAt(
+                            evaluations[inter_start + index * 4 ..][0..4],
+                            previous_row,
+                        );
                     }
                     const constraints = program_interaction.evaluate(
                         sampled,
@@ -684,7 +627,6 @@ pub const RiscVTraceComponent = struct {
                 .memory => {
                     const main_start: usize = 2;
                     const inter_start = main_start + 8;
-                    const prev_start = inter_start + memory_interaction.N_COLUMNS;
                     var sampled: [8]QM31 = undefined;
                     for (&sampled, 0..) |*value, column| {
                         value.* = QM31.fromBase(evaluations[main_start + column][row]);
@@ -693,7 +635,10 @@ pub const RiscVTraceComponent = struct {
                     var previous: [memory_interaction.N_SUMS]QM31 = undefined;
                     for (0..memory_interaction.N_SUMS) |index| {
                         sums[index] = secureAt(evaluations[inter_start + index * 4 ..][0..4], row);
-                        previous[index] = secureAt(evaluations[prev_start + index * 4 ..][0..4], row);
+                        previous[index] = secureAt(
+                            evaluations[inter_start + index * 4 ..][0..4],
+                            previous_row,
+                        );
                     }
                     const constraints = memory_interaction.evaluate(
                         sampled,
@@ -723,21 +668,6 @@ pub const RiscVTraceComponent = struct {
 
 fn secureAt(coords: []const []const M31, row: usize) QM31 {
     return QM31.fromM31(coords[0][row], coords[1][row], coords[2][row], coords[3][row]);
-}
-
-/// Zero-extend circle-FFT coefficients into an owned eval-domain buffer.
-fn appendExtensionBuffer(
-    allocator: std.mem.Allocator,
-    extension_buffers: *std.ArrayList([]M31),
-    coefficient_values: []const M31,
-    eval_size: usize,
-) ![]const M31 {
-    const values = try allocator.alloc(M31, eval_size);
-    errdefer allocator.free(values);
-    @memcpy(values[0..coefficient_values.len], coefficient_values);
-    @memset(values[coefficient_values.len..], M31.zero());
-    try extension_buffers.append(allocator, values);
-    return values;
 }
 
 // ---------------------------------------------------------------------------

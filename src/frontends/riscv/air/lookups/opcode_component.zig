@@ -19,9 +19,6 @@ const canonic = @import("stwo_core").poly.circle.canonic;
 const utils = @import("stwo_core").utils;
 const prover_air_accumulation = @import("stwo_prover_impl").air.accumulation;
 const prover_component = @import("stwo_prover_impl").air.component_prover;
-const prover_eval = @import("stwo_prover_impl").poly.circle.evaluation;
-const prover_poly = @import("stwo_prover_impl").poly.circle.poly;
-const prover_twiddles = @import("stwo_prover_impl").poly.twiddles;
 const infra = @import("../../infra_trace.zig");
 const logup = @import("../logup.zig");
 const relations_mod = @import("../relation_challenges.zig");
@@ -279,7 +276,7 @@ pub const OpcodeLookupComponent = struct {
             secure.len < self.interaction_col_offset + n_interaction)
             return error.InvalidProofShape;
 
-        const n_sources = 1 + n_main + 2 * n_interaction;
+        const n_sources = 1 + n_main + n_interaction;
         const evaluations = try allocator.alloc([]const M31, n_sources);
         defer allocator.free(evaluations);
         var source: usize = 0;
@@ -294,45 +291,7 @@ pub const OpcodeLookupComponent = struct {
             source += 1;
         }
 
-        var extension_buffers = std.ArrayList([]M31).empty;
-        defer {
-            for (extension_buffers.items) |values| allocator.free(values);
-            extension_buffers.deinit(allocator);
-        }
-        var trace_twiddles = try prover_twiddles.precomputeM31(
-            allocator,
-            canonic.CanonicCoset.new(self.log_size).circleDomain().half_coset,
-        );
-        defer prover_twiddles.deinitM31(allocator, &trace_twiddles);
-        const trace_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            trace_twiddles.root_coset,
-            trace_twiddles.twiddles,
-            trace_twiddles.itwiddles,
-        );
-        try appendPrevious(
-            allocator,
-            self.previous[0..self.nConstraints()],
-            self.log_size,
-            eval_size,
-            trace_twiddle_view,
-            evaluations,
-            &source,
-            &extension_buffers,
-        );
         std.debug.assert(source == n_sources);
-
-        var eval_twiddles = try prover_twiddles.precomputeM31(allocator, eval_domain.half_coset);
-        defer prover_twiddles.deinitM31(allocator, &eval_twiddles);
-        const eval_twiddle_view = prover_twiddles.TwiddleTree([]const M31).init(
-            eval_twiddles.root_coset,
-            eval_twiddles.twiddles,
-            eval_twiddles.itwiddles,
-        );
-        try prover_poly.evaluateBuffersWithTwiddles(
-            extension_buffers.items,
-            eval_domain,
-            eval_twiddle_view,
-        );
 
         const denominator_inv = try quotientDenominators(
             allocator,
@@ -349,8 +308,12 @@ pub const OpcodeLookupComponent = struct {
         const column_accumulator = &accumulators[0];
         const main_start: usize = 1;
         const interaction_start = main_start + n_main;
-        const previous_start = interaction_start + n_interaction;
         for (0..eval_size) |row| {
+            const previous_row = utils.previousBitReversedCircleDomainIndex(
+                row,
+                self.log_size,
+                eval_log_size,
+            );
             var sampled: [trace.MAX_FAMILY_COLUMNS]QM31 = undefined;
             for (sampled[0..n_main], evaluations[main_start..][0..n_main]) |*value, column| {
                 value.* = QM31.fromBase(column[row]);
@@ -359,7 +322,10 @@ pub const OpcodeLookupComponent = struct {
             var previous = [_]QM31{QM31.zero()} ** entry.MAX_BATCHES;
             for (0..self.nConstraints()) |batch| {
                 current[batch] = secureAt(evaluations[interaction_start + 4 * batch ..][0..4], row);
-                previous[batch] = secureAt(evaluations[previous_start + 4 * batch ..][0..4], row);
+                previous[batch] = secureAt(
+                    evaluations[interaction_start + 4 * batch ..][0..4],
+                    previous_row,
+                );
             }
             const evaluation = try self.evaluateRow(
                 sampled[0..n_main],
@@ -424,38 +390,6 @@ fn sampledSecure(columns: [][]QM31, offset: usize, point: usize) !QM31 {
 
 fn secureAt(columns: []const []const M31, row: usize) QM31 {
     return QM31.fromM31(columns[0][row], columns[1][row], columns[2][row], columns[3][row]);
-}
-
-fn appendPrevious(
-    allocator: std.mem.Allocator,
-    previous: []const [4][]const M31,
-    log_size: u32,
-    eval_size: usize,
-    twiddles: anytype,
-    evaluations: [][]const M31,
-    source: *usize,
-    buffers: *std.ArrayList([]M31),
-) !void {
-    const domain = canonic.CanonicCoset.new(log_size).circleDomain();
-    for (previous) |set| {
-        for (set) |values| {
-            if (values.len != domain.size()) return error.InvalidProofShape;
-            const evaluation = try prover_eval.CircleEvaluation.init(domain, values);
-            var coefficients = try prover_poly.interpolateFromEvaluationWithTwiddles(
-                allocator,
-                evaluation,
-                twiddles,
-            );
-            defer coefficients.deinit(allocator);
-            const extended = try allocator.alloc(M31, eval_size);
-            errdefer allocator.free(extended);
-            @memcpy(extended[0..coefficients.coefficients().len], coefficients.coefficients());
-            @memset(extended[coefficients.coefficients().len..], M31.zero());
-            try buffers.append(allocator, extended);
-            evaluations[source.*] = extended;
-            source.* += 1;
-        }
-    }
 }
 
 fn quotientDenominators(
