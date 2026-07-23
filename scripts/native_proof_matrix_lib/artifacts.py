@@ -46,6 +46,7 @@ PROFILE_ENV_VARS = (
 MAX_STDOUT_BYTES = 64 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024 * 1024
 MAX_PROOF_ARTIFACT_BYTES = 64 * 1024 * 1024
+HOST_MEASUREMENT_LOCK = Path("/tmp/stwo-perf-judge.lock")
 
 
 def sha256_file(path: Path) -> str:
@@ -107,6 +108,47 @@ def output_dir_lock(path: Path) -> Iterator[None]:
     finally:
         os.close(descriptor)
         lock_path.unlink(missing_ok=True)
+
+
+@contextmanager
+def host_measurement_lock(repo_root: Path) -> Iterator[None]:
+    """Exclude judged matrices from every cooperating host benchmark."""
+    payload = f"{os.getpid()} {repo_root.resolve()}\n".encode()
+    descriptor: int | None = None
+    for _ in range(2):
+        try:
+            descriptor = os.open(
+                HOST_MEASUREMENT_LOCK,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o644,
+            )
+            break
+        except FileExistsError as error:
+            try:
+                pid = int(HOST_MEASUREMENT_LOCK.read_text().split()[0])
+                os.kill(pid, 0)
+            except PermissionError as live_error:
+                raise MatrixError(
+                    f"host measurement lock held by another user: "
+                    f"{HOST_MEASUREMENT_LOCK}"
+                ) from live_error
+            except (ValueError, IndexError, ProcessLookupError, OSError):
+                HOST_MEASUREMENT_LOCK.unlink(missing_ok=True)
+                continue
+            raise MatrixError(
+                f"host measurement lock held by pid {pid}: {HOST_MEASUREMENT_LOCK}"
+            ) from error
+    if descriptor is None:
+        raise MatrixError(
+            f"could not acquire host measurement lock: {HOST_MEASUREMENT_LOCK}"
+        )
+    try:
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+        yield
+    finally:
+        os.close(descriptor)
+        HOST_MEASUREMENT_LOCK.unlink(missing_ok=True)
 
 
 def require_unprofiled_environment(environment: dict[str, str]) -> None:

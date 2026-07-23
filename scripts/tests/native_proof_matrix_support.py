@@ -373,7 +373,7 @@ def make_report(
             else {
                 "initialized": True,
                 "origin": "diagnostic_source_jit",
-                "source_sha256": "a1" * 32,
+                "source_sha256": "5" * 64,
                 "manifest_sha256": None,
                 "metallib_sha256": None,
                 "metallib_bytes": None,

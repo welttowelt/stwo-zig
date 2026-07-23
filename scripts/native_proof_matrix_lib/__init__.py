@@ -3,6 +3,7 @@
 from .artifacts import (
     atomic_write_bytes,
     atomic_write_json,
+    host_measurement_lock,
     load_proof_artifact,
     output_dir_lock,
     require_unprofiled_environment,
@@ -80,6 +81,7 @@ __all__ = [
     "ZIG_RESOURCE_CONSTANTS",
     "atomic_write_bytes",
     "atomic_write_json",
+    "host_measurement_lock",
     "load_proof_artifact",
     "output_dir_lock",
     "parse_workload",

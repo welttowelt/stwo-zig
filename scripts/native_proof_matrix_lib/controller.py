@@ -25,6 +25,7 @@ except ModuleNotFoundError:
 
 from .artifacts import (
     atomic_write_json,
+    host_measurement_lock,
     output_dir_lock,
     prepare_output_dir,
     require_binary,
@@ -292,28 +293,29 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
     )
     binary_hashes = {lane: sha256_file(binary) for lane, binary in binaries.items()}
     metal_runtime = getattr(args, "metal_runtime", "source-jit")
-    host_environment = collect_static(metal_runtime)
-    try:
-        validate_environment(host_environment, metal_runtime)
-    except ValueError as error:
-        raise MatrixError(str(error)) from error
-    load_start = collect_load()
-    try:
-        validate_load(load_start)
-    except ValueError as error:
-        raise MatrixError(str(error)) from error
     output_dir = args.output_dir.resolve()
-    with output_dir_lock(output_dir):
-        prepare_output_dir(output_dir)
-        return _run_matrix_locked(
-            args,
-            binaries,
-            binary_hashes,
-            output_dir,
-            rust_oracle,
-            host_environment,
-            load_start,
-        )
+    with host_measurement_lock(Path.cwd()):
+        host_environment = collect_static(metal_runtime)
+        try:
+            validate_environment(host_environment, metal_runtime)
+        except ValueError as error:
+            raise MatrixError(str(error)) from error
+        load_start = collect_load()
+        try:
+            validate_load(load_start)
+        except ValueError as error:
+            raise MatrixError(str(error)) from error
+        with output_dir_lock(output_dir):
+            prepare_output_dir(output_dir)
+            return _run_matrix_locked(
+                args,
+                binaries,
+                binary_hashes,
+                output_dir,
+                rust_oracle,
+                host_environment,
+                load_start,
+            )
 
 
 def _run_matrix_locked(
