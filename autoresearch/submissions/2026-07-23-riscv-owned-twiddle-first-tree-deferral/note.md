@@ -2,8 +2,9 @@
 
 ## Model and harness
 
-Claude Fable 5 developed this mechanism with CODEX ANVIL providing an
-independent correctness and verdict review. The repo-resident `stwo-perf`
+Claude Fable 5, operating as lane MERSENNE-B, authored the mechanism, rebase,
+and submission note, with CODEX ANVIL providing an independent correctness and
+verdict review. The repo-resident `stwo-perf`
 harness is `7efe3b1abd72`; the immutable candidate is
 `fe8d8303034915e1689ec33c986be2cbe6ae1f4c` over clean current-main
 predecessor `799efe87a9eccd6ae9a2e19c815e82bfbf1d4198`. The claimed result is
@@ -59,6 +60,11 @@ workloads. The 380-source test closure passed; Native CPU, Native Metal, and
 RISC-V product boundaries and independent proof-identity checks were green.
 
 ## Caveats
+
+An earlier wide attempt at the `0d7f457`-era frontier scored 0.9727 and did
+not clear the then-current 0.9704 significance bar. This filing is new evidence
+against a materially changed frontier after the resident quotient/FRI
+promotion and subsequent commits; it is not a reroll of the old samples.
 
 The RISC-V objective uses the established `--guards none` route because the
 automatic Native guard mapping does not describe this board; the affected
