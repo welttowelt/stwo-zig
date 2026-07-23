@@ -98,6 +98,7 @@
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRescaleSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLayerSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftRadix4Sparse;
+@property(nonatomic, strong) id<MTLComputePipelineState> circleRfftHighFusedSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftLastSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFusedSparse;
 @property(nonatomic, strong) id<MTLComputePipelineState> circleRfftFusedSparseWide;
@@ -598,6 +599,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
         runtime.circleRescaleSparse = make_pipeline(device, library, @"stwo_zig_circle_rescale_sparse", error_message, error_message_len);
         runtime.circleRfftLayerSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_layer_sparse", error_message, error_message_len);
         runtime.circleRfftRadix4Sparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_radix4_sparse", error_message, error_message_len);
+        runtime.circleRfftHighFusedSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_high_fused_sparse", error_message, error_message_len);
         runtime.circleRfftLastSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_last_sparse", error_message, error_message_len);
         runtime.circleRfftFusedSparse = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail_sparse", error_message, error_message_len);
         runtime.circleRfftFusedSparseWide = make_pipeline(device, library, @"stwo_zig_circle_rfft_fused_tail_sparse_wide", error_message, error_message_len);
@@ -653,6 +655,7 @@ static StwoZigMetalRuntime *create_runtime_from_library(
             runtime.circleCopySparse == nil || runtime.circleIfftFirstSparse == nil ||
             runtime.circleIfftLayerSparse == nil || runtime.circleRescaleSparse == nil ||
             runtime.circleRfftLayerSparse == nil || runtime.circleRfftRadix4Sparse == nil ||
+            runtime.circleRfftHighFusedSparse == nil ||
             runtime.circleRfftLastSparse == nil || runtime.circleRfftFusedSparse == nil ||
             runtime.circleRfftFusedSparseWide == nil ||
             runtime.circleRfftLayerSparseWide == nil || runtime.circleRfftLastSparseWide == nil) return NULL;

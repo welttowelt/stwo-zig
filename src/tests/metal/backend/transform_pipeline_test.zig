@@ -112,8 +112,12 @@ test "metal: forced combined circle LDE and Merkle matches generic path" {
     var runtime = try metal.Runtime.init();
     defer runtime.deinit();
 
+    // Width 64 / log 17 is deliberately not a scored width-100 shape. It is
+    // the smallest structural input that admits the cooperative five-layer
+    // inverse schedule, so this parity test cannot pass through only the
+    // generic radix path.
     const column_count = 64;
-    const base_log_size: u32 = 16;
+    const base_log_size: u32 = 17;
     const extended_log_size = base_log_size + 1;
     const base_len = @as(usize, 1) << @intCast(base_log_size);
     const extended_len = @as(usize, 1) << @intCast(extended_log_size);

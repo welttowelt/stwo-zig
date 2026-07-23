@@ -274,6 +274,34 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
 
             MTLSize base_grid = MTLSizeMake(base_pairs, column_count, 1u);
             uint32_t inverse_layer = 12u;
+            uint32_t inverse_layer_count = base_log_size - inverse_layer;
+            if (column_count >= 64u && inverse_layer_count >= 5u) {
+                uint32_t inverse_mode = 1u;
+                // Inverse stages expose their cheapest register radix at the
+                // top. Keep at least sixteen independent tuples per group;
+                // larger cooperative tuples lose occupancy to the 2/3/4-stage
+                // register kernel used for the remainder.
+                uint32_t fused_count = inverse_layer_count > 8u ? 8u : inverse_layer_count;
+                uint32_t lanes_per_group = 4096u >> fused_count;
+                uint32_t lane_batches = (1u << inverse_layer) / lanes_per_group;
+                uint32_t outer_groups = 1u <<
+                    (base_log_size - inverse_layer - fused_count);
+                uint32_t group_count = lane_batches * outer_groups;
+                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                [encoder setComputePipelineState:runtime.circleRfftHighFusedSparse];
+                [encoder setBuffer:coefficients offset:0u atIndex:0];
+                [encoder setBuffer:base_offsets offset:0u atIndex:1];
+                [encoder setBuffer:inverse_buffer offset:0u atIndex:2];
+                [encoder setBytes:&base_log_size length:sizeof(base_log_size) atIndex:3];
+                [encoder setBytes:&inverse_layer length:sizeof(inverse_layer) atIndex:4];
+                [encoder setBytes:&fused_count length:sizeof(fused_count) atIndex:5];
+                [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
+                [encoder setBytes:&inverse_mode length:sizeof(inverse_mode) atIndex:7];
+                [encoder dispatchThreadgroups:MTLSizeMake(group_count, column_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+                [encoder endEncoding];
+                inverse_layer += fused_count;
+            }
             while (inverse_layer < base_log_size) {
             if (inverse_layer + 3u < base_log_size) {
                 uint32_t layer_mode = inverse_layer | 0xa0000000u;
@@ -365,6 +393,30 @@ void *stwo_zig_metal_circle_lde_merkle_commit(
         bool use_wide_tile = column_count >= 64u;
         uint32_t fused_layer = use_wide_tile ? 11u : 10u;
         uint32_t layer = extended_log_size - 3u;
+        uint32_t high_layer_count = layer - fused_layer;
+        if (use_wide_tile && high_layer_count >= 5u) {
+            uint32_t fused_count = high_layer_count > 12u ? 12u : high_layer_count;
+            uint32_t lowest_stage = layer - fused_count + 1u;
+            uint32_t inverse_mode = 0u;
+            uint32_t lanes_per_group = 4096u >> fused_count;
+            uint32_t lane_batches = (1u << lowest_stage) / lanes_per_group;
+            uint32_t outer_groups = 1u <<
+                (extended_log_size - lowest_stage - fused_count);
+            id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+            [encoder setComputePipelineState:runtime.circleRfftHighFusedSparse];
+            [encoder setBuffer:extended offset:0u atIndex:0];
+            [encoder setBuffer:extended_offsets offset:0u atIndex:1];
+            [encoder setBuffer:forward_buffer offset:0u atIndex:2];
+            [encoder setBytes:&extended_log_size length:sizeof(extended_log_size) atIndex:3];
+            [encoder setBytes:&lowest_stage length:sizeof(lowest_stage) atIndex:4];
+            [encoder setBytes:&fused_count length:sizeof(fused_count) atIndex:5];
+            [encoder setBytes:&column_count length:sizeof(column_count) atIndex:6];
+            [encoder setBytes:&inverse_mode length:sizeof(inverse_mode) atIndex:7];
+            [encoder dispatchThreadgroups:MTLSizeMake(lane_batches * outer_groups, column_count, 1u)
+                threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+            [encoder endEncoding];
+            layer -= fused_count;
+        }
         while (layer > fused_layer) {
             if (layer >= fused_layer + 4u) {
                 uint32_t layer_mode = layer | 0x20000000u;
