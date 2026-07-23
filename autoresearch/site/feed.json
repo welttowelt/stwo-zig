@@ -2223,8 +2223,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2547,8 +2547,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2734,8 +2734,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2952,8 +2952,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3275,8 +3275,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5537,6 +5537,41 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "huge"
+    },
+    {
+     "board": "core_metal",
+     "ci_high": 0.965666,
+     "ci_low": 0.930236,
+     "commit": "17376f1b222f88ec7606ee6d445987efddea067a",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 0.448573,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:a741445db082fc1400b659ac65c22aa2abc03e072171f54ab3da3418c35bc8ae",
+     "gates": "G1..G5:pass",
+     "harness_commit": "2290dbc5d935",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T07:42:37Z",
+     "judged_r": 0.952527,
+     "measurement_rounds": 9,
+     "measurement_seconds": 24.219608,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:a80baf29a614158e5f8312b124dd79da551b39ab6a6e70e440a41e90d443c453",
+     "outcome": "promoted",
+     "peak_rss_mib": 326.157349,
+     "predecessor": "a01299b4c42c",
+     "proof_bytes": 74328,
+     "prove_ms": 30.015729,
+     "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "xlarge"
     }
    ],
    "frontier_by_class": {
@@ -5544,8 +5579,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6005,8 +6040,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6123,8 +6158,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6409,8 +6444,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6907,8 +6942,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6917,9 +6952,9 @@
        "span": false,
        "span_reasons": []
       },
-      "effective_score": 0.11753619853439036,
+      "effective_score": 0.1135007106939106,
       "evidence_share": {
-       "claimed": 6,
+       "claimed": 7,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -6937,14 +6972,15 @@
        "share": null
       },
       "unaudited_tail": {
-       "count": 6,
+       "count": 7,
        "observation_ids": [
         "sha256:bc22869f072ac25d16f8e813c1b81319e660d774c3985b0ddf261832eb42af4b",
         "sha256:1a943c83756731fdb098fb3a0b166132e97faf0c923757787ca4eb1e26da8cb0",
         "sha256:87220b03dbe71eb23871db3942881a815b29eb46ba4879e5e9eb5c6e746eb5b2",
         "sha256:cf5909bd0acb6fb363a9ac139fcc473af4b7d60dacee16de81576ccee609831d",
         "sha256:bc86965ae8f78c26785078a96c6dbda17a752fa2988e1cb37fe4a3a054a76b10",
-        "sha256:12cc145720ed62d09dad05c313a84fe3d528e2ce738fc638272dae0874981907"
+        "sha256:12cc145720ed62d09dad05c313a84fe3d528e2ce738fc638272dae0874981907",
+        "sha256:a80baf29a614158e5f8312b124dd79da551b39ab6a6e70e440a41e90d443c453"
        ]
       }
      },
@@ -6983,38 +7019,73 @@
        "verdict_kind": "claimed",
        "waits": null,
        "workload_class": "xlarge"
+      },
+      {
+       "board": "core_metal",
+       "ci_high": 0.965666,
+       "ci_low": 0.930236,
+       "commit": "17376f1b222f88ec7606ee6d445987efddea067a",
+       "covers": [],
+       "credit_replaces": [],
+       "dispatches": null,
+       "energy_j": 0.448573,
+       "epoch": 2,
+       "evidence_kind": "promotion",
+       "evidence_sha256": "sha256:a741445db082fc1400b659ac65c22aa2abc03e072171f54ab3da3418c35bc8ae",
+       "gates": "G1..G5:pass",
+       "harness_commit": "2290dbc5d935",
+       "holdout": "none",
+       "judged_at_utc": "2026-07-23T07:42:37Z",
+       "judged_r": 0.952527,
+       "measurement_rounds": 9,
+       "measurement_seconds": 24.219608,
+       "native_mhz": 0.0,
+       "observation_id": "sha256:a80baf29a614158e5f8312b124dd79da551b39ab6a6e70e440a41e90d443c453",
+       "outcome": "promoted",
+       "peak_rss_mib": 326.157349,
+       "predecessor": "a01299b4c42c",
+       "proof_bytes": 74328,
+       "prove_ms": 30.015729,
+       "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
+       "schema_version": 3,
+       "scope": "s3",
+       "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
+       "supersedes": "",
+       "verdict_kind": "claimed",
+       "waits": null,
+       "workload_class": "xlarge"
       }
      ],
      "head": {
       "board": "core_metal",
-      "ci_high": 0.958276,
-      "ci_low": 0.917937,
-      "commit": "c93c0839810f6c920ff352d7a4097f04fbb539e9",
+      "ci_high": 0.965666,
+      "ci_low": 0.930236,
+      "commit": "17376f1b222f88ec7606ee6d445987efddea067a",
       "covers": [],
       "credit_replaces": [],
       "dispatches": null,
-      "energy_j": 0.456356,
+      "energy_j": 0.448573,
       "epoch": 2,
       "evidence_kind": "promotion",
-      "evidence_sha256": "sha256:0e5ff692eb9c045f4f763c9d9e9c55a6184d271c2053a88955109c67dfd4bf53",
+      "evidence_sha256": "sha256:a741445db082fc1400b659ac65c22aa2abc03e072171f54ab3da3418c35bc8ae",
       "gates": "G1..G5:pass",
-      "harness_commit": "f05c84e1750f",
+      "harness_commit": "2290dbc5d935",
       "holdout": "none",
-      "judged_at_utc": "2026-07-23T06:01:11Z",
-      "judged_r": 0.944067,
+      "judged_at_utc": "2026-07-23T07:42:37Z",
+      "judged_r": 0.952527,
       "measurement_rounds": 9,
-      "measurement_seconds": 16.809242,
+      "measurement_seconds": 24.219608,
       "native_mhz": 0.0,
-      "observation_id": "sha256:12cc145720ed62d09dad05c313a84fe3d528e2ce738fc638272dae0874981907",
+      "observation_id": "sha256:a80baf29a614158e5f8312b124dd79da551b39ab6a6e70e440a41e90d443c453",
       "outcome": "promoted",
-      "peak_rss_mib": 326.001099,
-      "predecessor": "7c9e2e227ffe",
+      "peak_rss_mib": 326.157349,
+      "predecessor": "a01299b4c42c",
       "proof_bytes": 74328,
-      "prove_ms": 29.378751,
-      "row_id": "sha256:2b5ecba27247c949651705522651fc65af932f78edec2de04ba4d0ebf9cbbfad",
+      "prove_ms": 30.015729,
+      "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
       "schema_version": 3,
       "scope": "s3",
-      "submission_id": "2026-07-23-metal-resident-transform-fusion-final",
+      "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
       "supersedes": "",
       "verdict_kind": "claimed",
       "waits": null,
@@ -7035,7 +7106,7 @@
      "huge": 6,
      "small": 0,
      "wide": 1,
-     "xlarge": 6
+     "xlarge": 7
     },
     "audited_class_ratios": {
      "deep": 1.0,
@@ -7050,7 +7121,7 @@
      "huge": 0.15397608530462578,
      "small": 1.0,
      "wide": 0.649457,
-     "xlarge": 0.11753619853439036
+     "xlarge": 0.1135007106939106
     },
     "classes": [
      "small",
@@ -7060,10 +7131,10 @@
      "huge"
     ],
     "epoch": 2,
-    "index": 41.118291707581356,
+    "index": 40.83198107172568,
     "method": "metrics_v2_scored_class_geomean_v2",
-    "ratio_geomean": 0.41118291707581356,
-    "speedup": 2.432007650297449
+    "ratio_geomean": 0.4083198107172568,
+    "speedup": 2.449060696426643
    }
   },
   "heavy_cairo": {
@@ -7226,8 +7297,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7377,8 +7448,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7418,8 +7489,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 239,
-       "seconds": 134024
+       "commits": 247,
+       "seconds": 140110
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -8676,7 +8747,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "c50a1ec027cefb2d4e462fd03e300883c14eab7ce6f38f26f5a923d437501615",
+   "autoresearch/ledger/promotions.tsv": "b21002e620bb43ceb07fccde606899408ec3f9db98b54923c205d5e7a8b5173d",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -8806,14 +8877,15 @@
    "autoresearch/submissions/2026-07-22-pr6-batched-cpu-composition/verdict.json": "ed531c8dadf8dc77aaf2e9c7a4ba4b822c51b1605fb341bbc568c06a3d739080",
    "autoresearch/submissions/2026-07-22-riscv-direct-column-streaming-simd/verdict.json": "c33fe8919a27126a831a739389341547221f97e85067763014cfe3d9dfd7ebd9",
    "autoresearch/submissions/2026-07-22-riscv-register-grouped-quotients/verdict.json": "2ed91769c3537a1049a0c6dc2541feaedbad25f9b7a09eb7f3e2b7d80d4bf3e4",
+   "autoresearch/submissions/2026-07-23-metal-cooperative-high-circle-layers/verdict.json": "9405e9b0b4662724db508454dcdb6d89e168206132d7395cb2bd668c3f87cd0d",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
    "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
    "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
   },
-  "repo_commit": "de2d9a2ac58c",
-  "repo_commit_time": "2026-07-23T06:01:11Z"
+  "repo_commit": "7b37db035f65",
+  "repo_commit_time": "2026-07-23T07:42:37Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -16883,7 +16955,7 @@
      },
      "xlarge": {
       "available": true,
-      "available_points": 6,
+      "available_points": 7,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 1.503537429661192,
@@ -16920,6 +16992,12 @@
         "judged_at_utc": "2026-07-23T06:01:11Z",
         "points": 6,
         "row_id": "sha256:2b5ecba27247c949651705522651fc65af932f78edec2de04ba4d0ebf9cbbfad"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 29.912043961953014,
+        "judged_at_utc": "2026-07-23T07:42:37Z",
+        "points": 7,
+        "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c"
        }
       ],
       "latest": {
@@ -16931,13 +17009,13 @@
        "auto_boost_target_rounds": 9,
        "available": true,
        "configured_rounds": 9,
-       "credited_ln_improvement": 0.04261944229540415,
-       "credited_ln_improvement_per_measurement_hour": 9.127716054876535,
-       "gradient_snr": 2.8529555196774377,
-       "judged_at_utc": "2026-07-23T06:01:11Z",
-       "measurement_wall_hours": 0.004669234016392794,
-       "row_id": "sha256:2b5ecba27247c949651705522651fc65af932f78edec2de04ba4d0ebf9cbbfad",
-       "submission_id": "2026-07-23-metal-resident-transform-fusion-final",
+       "credited_ln_improvement": 0.03493726025048222,
+       "credited_ln_improvement_per_measurement_hour": 5.193070700567257,
+       "gradient_snr": 2.5502458309351734,
+       "judged_at_utc": "2026-07-23T07:42:37Z",
+       "measurement_wall_hours": 0.006727668900534303,
+       "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
+       "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -17048,14 +17126,32 @@
         "row_id": "sha256:2b5ecba27247c949651705522651fc65af932f78edec2de04ba4d0ebf9cbbfad",
         "submission_id": "2026-07-23-metal-resident-transform-fusion-final",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 9,
+        "actual_rounds_per_workload": {
+         "mwf_log18x100": 9
+        },
+        "auto_boost_reason": "trailing_median_at_or_above_threshold",
+        "auto_boost_target_rounds": 9,
+        "available": true,
+        "configured_rounds": 9,
+        "credited_ln_improvement": 0.03493726025048222,
+        "credited_ln_improvement_per_measurement_hour": 5.193070700567257,
+        "gradient_snr": 2.5502458309351734,
+        "judged_at_utc": "2026-07-23T07:42:37Z",
+        "measurement_wall_hours": 0.006727668900534303,
+        "row_id": "sha256:8514bb97c3a26e5cdd7e5c314b8552ffb213cfd66e513b69df43bd3b0b175e4c",
+        "submission_id": "2026-07-23-metal-cooperative-high-circle-layers",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
-       "credited_ln_improvement": 2.1410089202094436,
-       "credited_ln_improvement_per_measurement_hour": 32.43110258648095,
-       "measurement_wall_hours": 0.06601714864612505,
-       "median_gradient_snr": 10.726576405586611,
-       "points": 6
+       "credited_ln_improvement": 2.175946180459926,
+       "credited_ln_improvement_per_measurement_hour": 29.912043961953014,
+       "measurement_wall_hours": 0.07274481754665936,
+       "median_gradient_snr": 2.9069431036233113,
+       "points": 7
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -18112,6 +18208,24 @@
    ],
    "verdict_kind": "claimed",
    "workload_class": "deep"
+  },
+  {
+   "id": "2026-07-23-metal-cooperative-high-circle-layers",
+   "judged_r": 0.952527,
+   "note": "# Cooperatively fuse high Metal circle-transform layers\n\n## Model and harness\n\nModel: GPT-5 Codex. The repo-resident `stwo-perf` CLI was updated before this\nepoch. Measurements use Zig 0.15.2, ReleaseFast, default parallel proving,\nand Metal source JIT on the same arm64 macOS M5 Max host. The scored candidate\nis clean commit `f472bd100b82f5b20dc4e306befc57ad53d97129`, based on immutable\npredecessor `a01299b4c42c`, with harness `2290dbc5d935`. The candidate changes\nonly seven files under `src/backends/metal/**` (211 insertions, 21 deletions).\n\nThis submission claims `core_metal/xlarge/time` at S3. The log20 and log22\nresults are retained as strong diagnostic evidence, but log20 is deliberately\nnot claimed because two complete receipts each had an unrelated noisy tiny\nguard above its 1.05 upper-CI budget.\n\n## Hypothesis\n\nThe resident trace/commitment pipeline had removed the largest CPU/device\nboundaries, leaving high circle-transform layers as a global-memory problem.\nEvery high radix layer launched across the full column domain and re-read\ntwiddles and values from device memory. A GPU should instead let one\nthreadgroup keep a contiguous transform tile resident, cooperatively execute\nseveral high layers, and publish it once.\n\n## Changes\n\nThe accepted implementation uses a 4,096-value / 16 KiB threadgroup tile with\n256 threads. It reuses the already compiled `circle_rfft_last_sparse` pipeline\nrather than adding another pipeline state. A packed structural mode carries\ncolumn count, inverse direction, layer count, and lowest stage; dynamic\nthreadgroup memory is set only for the cooperative mode. Ordinary callers\nretain zero dynamic threadgroup memory and the original behavior. There is no\nworkload name, benchmark size, input digest, or statement special case.\n\nFor log22, inverse work deliberately stops after eight cooperative layers and\nuses the generic remainder for the last two. Profiling showed that an all-ten\ninverse tile took about 28.8 ms while the eight-plus-two schedule took about\n19.5 ms. Forward high layers remain cooperatively fused. Explicit shift/mask\naddressing and a lane-major global tile layout avoid division and threadgroup\nbank conflicts. The BLAKE leaf loop is also organized in complete 16-word\nmessage blocks, reducing loop/control overhead without changing a single\ndigest.\n\nThe core shader ABI advances fail-closed from 9 to 10 because an existing\nbinding gained a packed cooperative mode. Export counts remain unchanged at\n91 total, 82 native, and 22 circle exports; source-JIT and AOT manifest tests\nanchor those identities.\n\n## Results\n\nThe complete xlarge receipt passes G1-G5, all 13 impact-mapped regression\nguards, resource budgets, exact proof parity, and the pinned Rust Stwo oracle.\n\n| Workload | Prove ratio (95% CI) | A / B median | Request ratio | Energy ratio (upper CI) | RSS ratio (upper CI) |\n| --- | ---: | ---: | ---: | ---: | ---: |\n| `2^18 \u00d7 100` | **0.9525 [0.9309, 0.9683]** | 31.369 / 30.016 ms | 0.9459 | 0.9974 (1.0334) | 1.0001 (1.0005) |\n\nNine paired rounds establish a statistically significant 4.75% prove-time\nreduction. Proof size is exactly 74,328 bytes, unchanged. Every cross-arm\nproof digest is byte-identical, and the pinned Rust oracle accepted artifact\n`49f9555c8a3d6d1f47045a7a22caf961745d503174d840b8e21a414aaf74cfb4`.\n\n## Large-shape diagnostics\n\nThe same clean candidate generalizes more strongly as transform height grows:\n\n| Shape | Evidence | Predecessor | Candidate | Change |\n| --- | --- | ---: | ---: | ---: |\n| `2^18 \u00d7 100` | official paired median | 31.369 ms | 30.016 ms | 4.31% median reduction |\n| `2^20 \u00d7 100` | official paired median, unclaimed | 113.028 ms | 106.064 ms | 6.16% median reduction |\n| `2^22 \u00d7 100` | clean 10+7 diagnostic | 431.445 ms | 379.959 ms | 11.93% reduction |\n\nThe first log20 receipt is significant at **0.9456 [0.9334, 0.9506]** and\npasses proof, oracle, matrix, request, energy, RSS, and proof-size gates. Its\nonly failed gate is `guard_wf_10x8`, a sub-millisecond unrelated workload at\n1.0673 [0.9825, 1.1409]. A complete resample again produced a significant\nlog20 objective, 0.9518 [0.9386, 0.9812], while the same tiny guard and\n`guard_xor_14` were noisy. Both full receipts are retained; neither is\nselectively promoted.\n\nThe log22 extreme-profile run admitted all 419,430,400 committed cells and\n6,710,886,400 accounted bytes with checked fail-closed arithmetic. Seven\nsamples were 368.390--397.819 ms; prove median was 379.959 ms and verified-\nrequest median 380.556 ms. Throughput was 11.039 trace-row MHz and 1,103.9\ncommitted-Mcells/s. Peak physical footprint was 2,843,612,368 bytes, measured\nbatch energy 16.327 J, and the runtime reported 31 dispatches per proof with\nzero CPU fallbacks. All seven proofs were the same 106,436-byte\n`2c0ca9f7...76205` artifact.\n\n## Profile evidence and remaining bottleneck\n\nA final instrumented log20 proof measured 97.883 ms prove / 98.438 ms request\nwith the canonical 86,383-byte `e6609d05...c7e86` proof. The high-level stage\nmap was 54.888 ms for main trace commitment and 42.988 ms for core proving,\nincluding 16.899 ms quotient/FRI commit, 8.805 ms composition commit, 8.210 ms\nsampled-value evaluation, and 4.742 ms composition evaluation.\n\nAcross the profiled warmup and sample, the largest GPU pipeline totals were\nBLAKE parent-tail 23.56 ms, BLAKE parents 18.54 ms, BLAKE leaves 18.14 ms,\nwide recurrence/IFFT 16.43 ms, reused cooperative last-layer transform 14.60\nms, and fused wide transform tail 11.01 ms. This makes the next epoch clear:\nreduce BLAKE leaf/parent traffic and overlap or fuse Merkle levels without\nreintroducing host visibility.\n\n## Validation\n\n`test-native-metal`, `metal-check`, `test-metal-core-aot`, and\n`test-metal-core-aot-probe` pass on the exact scored commit. Source-JIT\ncompilation, the device-only lifecycle, independent proof verification, the\n259-source native-Metal closure, shader export/ABI checks, and AOT mutation\nauthority all pass. Canonical proof hashes are unchanged at logs 18, 20, and\n22, and every measured Metal proof reports zero fallbacks.\n\nThe broad `metal-test` suite remains 86/90 with the same two failures and two\nskips reproduced on untouched predecessor `a01299b4`: the resident-FRI\ncoordinate policy test and the known quotient-residency runtime-discovery\nsurface test. The candidate introduces no new broad-suite failure. The\nexisting focused combined LDE/Merkle differential test continues to force\nthe combined path and compare it with generic evaluation and Merkle output.\n\n## Rejected designs retained in the transcript\n\nThe research record includes the losing 512/1,024-thread schedules, an\nall-ten-layer inverse schedule, a cooperative four-lane BLAKE leaf kernel,\na bank-conflicted tile layout, SIMD twiddle broadcast, an eager standalone\npipeline that increased source-JIT/resource noise, and a wide-tail pipeline\nreuse variant that lost hot performance. Proof failures from an incomplete\nlog22 outer-group schedule were caught by constraint verification and fixed\nbefore any timing claim.\n\n## Caveats\n\nThis is a significant repository Metal improvement and should be promoted on\nits passing board. It does not satisfy the separate all-cell PR6 contract,\nwhich still needs every exact workload, both verified-request and cold-\nprocess peer comparisons, seven complete same-host ABBA rounds per cell, and\nan authenticated locked-judge verdict. **PR6 Supremacy: not achieved.**\n",
+   "outcome": "promoted",
+   "solver": "teddyjfpender",
+   "title": "Cooperatively fuse high Metal circle-transform layers",
+   "transcripts": [
+    {
+     "captured_by": "submitter",
+     "excerpt": "# Autoresearch session 01 \u2014 cooperative high Metal transforms\n\n## Mandate and starting point\n\nThe user asked for the largest possible Metal-backend steps, immediate\nsubmission once a significant result existed, complete notes and transcripts,\nand continued optimization after promotion. The repo-resident CLI was updated\nbefore experimentation. The repository's five research skills were exercised:\nalgorithm matching, Zig profiling, Metal profiling, Metal performance design,\nand submission transcripts. Their practical constraints were to compare exact\nalgorithms, profile verified end-to-end proofs, reason about GPU topology and\nmemory movement, preserve failed experiments, and never promote a f",
+     "label": "session-01.md",
+     "sha256": "ced99cdb8fc4e604f50afb22d75945df96b54e36254814a9be94e85062f474c6"
+    }
+   ],
+   "verdict_kind": "claimed",
+   "workload_class": "xlarge"
   },
   {
    "id": "2026-07-23-metal-resident-transform-fusion-final",
