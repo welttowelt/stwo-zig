@@ -23,15 +23,35 @@ bool stwo_zig_metal_compute_quotients(
     const uint32_t *leaf_seed,
     const uint32_t *node_seed,
     uint32_t domain_prefix_bytes,
+    void *fri_line_output_ptr,
+    void *const *fri_coordinate_ptrs,
+    void *fri_final_destination_ptr,
+    uint32_t fri_layer_count,
+    uint32_t fri_domain_initial_index,
+    uint32_t fri_domain_step_size,
+    uint32_t *fri_channel_state,
+    void **fri_tree_outputs,
+    StwoZigCommandEpochStats *fri_stats,
     void **tree_out,
     double *gpu_milliseconds,
     char *error_message, size_t error_message_len
 ) {
+    bool fri_transaction = fri_line_output_ptr != NULL;
     if (runtime_ptr == NULL || views == NULL || sample_components == NULL ||
         linear_terms == NULL || (!cache_domain && (domain_x == NULL || domain_y == NULL)) ||
         output == NULL || row_count == 0u || tree_out == NULL ||
         (resident_tree_count != 0u && resident_tree_handles == NULL) ||
         (domain_prefix_bytes != 0u && domain_prefix_bytes != 64u) ||
+        (fri_transaction &&
+            (fri_coordinate_ptrs == NULL || fri_final_destination_ptr == NULL ||
+             fri_layer_count == 0u || fri_layer_count >= 31u ||
+             fri_channel_state == NULL || fri_tree_outputs == NULL || fri_stats == NULL ||
+             resident_output_ptr == NULL || leaf_seed == NULL || node_seed == NULL ||
+             row_count < 4u || (row_count >> 1u) >> fri_layer_count == 0u)) ||
+        (!fri_transaction &&
+            (fri_coordinate_ptrs != NULL || fri_final_destination_ptr != NULL ||
+             fri_layer_count != 0u || fri_channel_state != NULL ||
+             fri_tree_outputs != NULL || fri_stats != NULL)) ||
         (cache_domain && ((row_count & (row_count - 1u)) != 0u ||
                           domain_log_size >= 31u ||
                           row_count != (1u << domain_log_size))))
@@ -59,7 +79,10 @@ bool stwo_zig_metal_compute_quotients(
         bool gpu_raw_upload = false;
         if (raw_views) {
             for (uint32_t i = 0; i < raw_column_count; ++i) raw_len += raw_column_lengths[i];
-            gpu_raw_upload = raw_len * sizeof(uint32_t) >= (64u * 1024u * 1024u);
+            size_t raw_bytes = raw_len * sizeof(uint32_t);
+            gpu_raw_upload =
+                raw_bytes >= (64u * 1024u * 1024u) ||
+                (resident_tree_count != 0u && raw_bytes >= (8u * 1024u * 1024u));
             flat_buffer = gpu_raw_upload
                 ? [runtime.device newBufferWithLength:sizeof(uint32_t) options:MTLResourceStorageModeShared]
                 : [runtime.device newBufferWithLength:raw_len * sizeof(uint32_t) options:MTLResourceStorageModeShared];
@@ -149,6 +172,10 @@ bool stwo_zig_metal_compute_quotients(
         StwoZigMerkleParentChain *parent_plan = nil;
         NSData *layer_word_offsets_data = nil;
         NSData *layer_word_lengths_data = nil;
+        const uint32_t fri_state_word_offset = 0u;
+        const uint32_t fri_root_word_offset = 16u;
+        const uint32_t fri_alpha_word_offset = 24u;
+        id<MTLBuffer> fri_channel_buffer = nil;
         uint32_t layer_word_offsets[31] = { 0u };
         uint32_t layer_word_lengths[31] = { 0u };
         uint32_t lifting_log_size = 0u;
@@ -216,6 +243,18 @@ bool stwo_zig_metal_compute_quotients(
             if (parent_plan == nil) {
                 write_error(error_message, error_message_len, @"Resident quotient parent-chain allocation failed");
                 return false;
+            }
+            if (fri_transaction) {
+                fri_channel_buffer = [runtime.device newBufferWithLength:
+                    (NSUInteger)(fri_alpha_word_offset + 4u) * sizeof(uint32_t)
+                    options:MTLResourceStorageModeShared];
+                if (fri_channel_buffer == nil) {
+                    write_error(error_message, error_message_len, @"Resident FRI transcript allocation failed");
+                    return false;
+                }
+                memset(fri_channel_buffer.contents, 0, fri_channel_buffer.length);
+                memcpy((uint32_t *)fri_channel_buffer.contents + fri_state_word_offset,
+                       fri_channel_state, 10u * sizeof(uint32_t));
             }
         }
 
@@ -445,9 +484,81 @@ bool stwo_zig_metal_compute_quotients(
                                  toBuffer:root_readback destinationOffset:0u size:32u];
                 [root_copy endEncoding];
             }
+            if (fri_transaction) {
+                id<MTLBlitCommandEncoder> fri_root_copy = [command blitCommandEncoder];
+                if (fri_root_copy == nil) {
+                    write_error(error_message, error_message_len, @"Resident FRI root transfer encoder allocation failed");
+                    return false;
+                }
+                [fri_root_copy copyFromBuffer:hash_arena
+                                  sourceOffset:(NSUInteger)layer_word_offsets[lifting_log_size] * sizeof(uint32_t)
+                                      toBuffer:fri_channel_buffer
+                             destinationOffset:(NSUInteger)fri_root_word_offset * sizeof(uint32_t)
+                                          size:8u * sizeof(uint32_t)];
+                [fri_root_copy endEncoding];
+
+                id<MTLComputeCommandEncoder> fri_transcript = [command computeCommandEncoder];
+                if (fri_transcript == nil) {
+                    write_error(error_message, error_message_len, @"Resident FRI transcript encoder allocation failed");
+                    return false;
+                }
+                uint32_t source_words = 8u;
+                [fri_transcript setComputePipelineState:runtime.transcriptMixResident];
+                [fri_transcript setBuffer:fri_channel_buffer offset:0u atIndex:0];
+                [fri_transcript setBytes:&fri_state_word_offset
+                                  length:sizeof(fri_state_word_offset) atIndex:1];
+                [fri_transcript setBytes:&fri_root_word_offset
+                                  length:sizeof(fri_root_word_offset) atIndex:2];
+                [fri_transcript setBytes:&source_words length:sizeof(source_words) atIndex:3];
+                [fri_transcript dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+                [fri_transcript memoryBarrierWithScope:MTLBarrierScopeBuffers];
+
+                uint32_t felt_count = 1u;
+                [fri_transcript setComputePipelineState:runtime.transcriptDrawSecureResident];
+                [fri_transcript setBuffer:fri_channel_buffer offset:0u atIndex:0];
+                [fri_transcript setBytes:&fri_state_word_offset
+                                  length:sizeof(fri_state_word_offset) atIndex:1];
+                [fri_transcript setBytes:&fri_alpha_word_offset
+                                  length:sizeof(fri_alpha_word_offset) atIndex:2];
+                [fri_transcript setBytes:&felt_count length:sizeof(felt_count) atIndex:3];
+                [fri_transcript dispatchThreads:MTLSizeMake(1u, 1u, 1u)
+                         threadsPerThreadgroup:MTLSizeMake(1u, 1u, 1u)];
+                [fri_transcript endEncoding];
+            }
         }
         [command commit];
-        [command waitUntilCompleted];
+        bool fri_ok = true;
+        if (fri_transaction) {
+            fri_ok = stwo_zig_metal_fri_line_cascade(
+                runtime_ptr,
+                fri_line_output_ptr,
+                row_count >> 1u,
+                resident_output_ptr,
+                NULL,
+                (__bridge void *)fri_channel_buffer,
+                fri_state_word_offset,
+                fri_alpha_word_offset,
+                NULL,
+                (row_count >> 1u) - ((row_count >> 1u) >> fri_layer_count),
+                fri_domain_initial_index,
+                fri_domain_step_size,
+                fri_coordinate_ptrs,
+                fri_final_destination_ptr,
+                fri_layer_count,
+                leaf_seed,
+                node_seed,
+                domain_prefix_bytes,
+                fri_channel_state,
+                fri_tree_outputs,
+                fri_stats,
+                error_message,
+                error_message_len
+            );
+        } else {
+            [command waitUntilCompleted];
+        }
+        if (!fri_ok) return false;
         if (command.status == MTLCommandBufferStatusError) {
             write_error(error_message, error_message_len,
                         command.error.localizedDescription ?: @"Metal quotient execution failed");
