@@ -1,29 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const contract = @import("blake2s_contract.zig");
+const parallel4 = @import("blake2s_parallel4.zig");
 const stream4 = @import("blake2s_stream4.zig");
 
 pub const Blake2sHash = [32]u8;
 
-pub const BackendMode = enum(u8) {
-    auto,
-    scalar,
-    simd,
-};
-
-pub const BackendSelection = struct {
-    requested: BackendMode,
-    effective: BackendMode,
-    simd_supported: bool,
-    explicit_simd_width: usize,
-};
-
-pub const SimdContract = struct {
-    pub const explicit_width = 4;
-    pub const input_alignment = @alignOf(u8);
-    pub const scalar_tail_supported = true;
-    pub const read_only_input_aliasing_supported = true;
-    pub const caller_scratch_bytes = 0;
-};
+pub const BackendMode = contract.BackendMode;
+pub const BackendSelection = contract.BackendSelection;
+pub const SimdContract = contract.SimdContract;
 
 /// Test-only dispatch evidence. Recording is compiled out of production
 /// artifacts so observing the contract cannot perturb benchmark results.
@@ -762,47 +747,6 @@ fn g4(a: *V4, b: *V4, c: *V4, d: *V4, x: V4, y: V4) void {
     b.* = rotr32x4(b.* ^ c.*, 7);
 }
 
-/// Advances four independent BLAKE2s G functions in lockstep. AArch64 has
-/// enough vector arithmetic throughput to execute several of these operations
-/// per cycle, but a source-level sequence of four complete G calls leaves the
-/// scheduler following one long dependency chain at a time. Grouping each
-/// dependency level exposes the four-way instruction-level parallelism while
-/// retaining the same four-message SIMD lane layout.
-inline fn g4Interleaved(
-    v: *[16]V4,
-    comptime a_indices: [4]u8,
-    comptime b_indices: [4]u8,
-    comptime c_indices: [4]u8,
-    comptime d_indices: [4]u8,
-    x: [4]V4,
-    y: [4]V4,
-) void {
-    inline for (0..4) |i| {
-        v[a_indices[i]] = v[a_indices[i]] +% v[b_indices[i]] +% x[i];
-    }
-    inline for (0..4) |i| {
-        v[d_indices[i]] = rotr32x4(v[d_indices[i]] ^ v[a_indices[i]], 16);
-    }
-    inline for (0..4) |i| {
-        v[c_indices[i]] +%= v[d_indices[i]];
-    }
-    inline for (0..4) |i| {
-        v[b_indices[i]] = rotr32x4(v[b_indices[i]] ^ v[c_indices[i]], 12);
-    }
-    inline for (0..4) |i| {
-        v[a_indices[i]] = v[a_indices[i]] +% v[b_indices[i]] +% y[i];
-    }
-    inline for (0..4) |i| {
-        v[d_indices[i]] = rotr32x4(v[d_indices[i]] ^ v[a_indices[i]], 8);
-    }
-    inline for (0..4) |i| {
-        v[c_indices[i]] +%= v[d_indices[i]];
-    }
-    inline for (0..4) |i| {
-        v[b_indices[i]] = rotr32x4(v[b_indices[i]] ^ v[c_indices[i]], 7);
-    }
-}
-
 fn compressSimd(h: *[8]u32, m: *const [16]u32, t0: u32, t1: u32, f0: u32) void {
     if (comptime builtin.is_test) _ = test_simd_compressions.fetchAdd(1, .monotonic);
     var v: [16]u32 = undefined;
@@ -872,7 +816,9 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
     v[14] ^= @as(V4, @splat(f0));
 
     inline for (BLAKE2S_SIGMA) |s| {
-        g4Interleaved(
+        parallel4.g4Interleaved(
+            V4,
+            rotr32x4,
             &v,
             .{ 0, 1, 2, 3 },
             .{ 4, 5, 6, 7 },
@@ -881,7 +827,9 @@ fn compressParallel4(h: *[8]V4, m: *const [16]V4, t0: u32, t1: u32, f0: u32) voi
             .{ m[s[0]], m[s[2]], m[s[4]], m[s[6]] },
             .{ m[s[1]], m[s[3]], m[s[5]], m[s[7]] },
         );
-        g4Interleaved(
+        parallel4.g4Interleaved(
+            V4,
+            rotr32x4,
             &v,
             .{ 0, 1, 2, 3 },
             .{ 5, 6, 7, 4 },

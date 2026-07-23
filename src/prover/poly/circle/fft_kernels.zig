@@ -1,5 +1,6 @@
 const std = @import("std");
 const m31 = @import("stwo_core").fields.m31;
+const radix8 = @import("fft_radix8.zig");
 
 const M31 = m31.M31;
 
@@ -127,157 +128,11 @@ pub inline fn fftLayerLoopForwardM31(
     }
 }
 
-/// Whether three adjacent stages can be fused while retaining packed,
-/// contiguous lanes. The tuple elements are separated by 2^lowest_stage,
-/// while each packed load spans PACK_WIDTH adjacent lanes.
-pub fn canFuseThreeLayersPacked(lowest_stage: u32) bool {
-    if (lowest_stage >= @bitSizeOf(usize)) return false;
-    const distance = @as(usize, 1) << @intCast(lowest_stage);
-    return distance >= m31.PACK_WIDTH and distance % m31.PACK_WIDTH == 0;
-}
-
-/// Runs three adjacent FFT stages in one packed radix-8 pass.
-///
-/// Each packed lane represents adjacent positions inside one stage group.
-/// Eight vectors therefore hold eight strided tuple elements while retaining
-/// native SIMD within each element. All intermediates stay in registers, so
-/// the three-stage cascade reads and writes the column only once.
-fn fftThreeLayersPackedM31(
-    values: []M31,
-    log_size: u32,
-    stage: u32,
-    twiddles: []const M31,
-    comptime inverse: bool,
-    comptime normalize: bool,
-    normalization: M31,
-    comptime duplicate_upper_from_lower: bool,
-) void {
-    std.debug.assert(log_size < @bitSizeOf(usize));
-    std.debug.assert(values.len == @as(usize, 1) << @intCast(log_size));
-    const pair_count = values.len / 2;
-    std.debug.assert(twiddles.len >= pair_count);
-    std.debug.assert(!normalize or inverse);
-    std.debug.assert(!duplicate_upper_from_lower or (!inverse and !normalize));
-
-    const lowest_stage = if (inverse) stage else stage - 2;
-    std.debug.assert(canFuseThreeLayersPacked(lowest_stage));
-    std.debug.assert(if (inverse) stage + 2 < log_size else stage >= 2 and stage < log_size);
-
-    const distance = @as(usize, 1) << @intCast(lowest_stage);
-    const group_count = values.len >> @intCast(lowest_stage + 3);
-    std.debug.assert(!duplicate_upper_from_lower or group_count == 2);
-    const PW = m31.PACK_WIDTH;
-    const normalization_packed: m31.PackedM31 = @splat(normalization.v);
-
-    // Expansion starts with the upper group while the source lower half is
-    // still untouched, then transforms the lower group in place. Normal
-    // transforms retain their ascending traversal.
-    var group_cursor: usize = if (duplicate_upper_from_lower) group_count else 0;
-    while (if (duplicate_upper_from_lower) group_cursor > 0 else group_cursor < group_count) {
-        if (duplicate_upper_from_lower) group_cursor -= 1;
-        const group = group_cursor;
-        const base = group << @intCast(lowest_stage + 3);
-        const load_base = if (duplicate_upper_from_lower and group == 1) 0 else base;
-        var lane: usize = 0;
-        while (lane < distance) : (lane += PW) {
-            var tuple: [8]m31.PackedM31 = undefined;
-            inline for (0..8) |item| {
-                tuple[item] = m31.loadPacked(values.ptr + load_base + lane + item * distance);
-            }
-
-            inline for (0..3) |step| {
-                const substage = if (inverse)
-                    stage + @as(u32, @intCast(step))
-                else
-                    stage - @as(u32, @intCast(step));
-                const half_span: usize = if (inverse)
-                    @as(usize, 1) << @intCast(step)
-                else
-                    @as(usize, 4) >> @intCast(step);
-                const block_count = 4 / half_span;
-                const twiddle_offset = pair_count -
-                    (@as(usize, 1) << @intCast(log_size - substage));
-
-                inline for (0..block_count) |block| {
-                    const raw_twiddle = twiddles[twiddle_offset + group * block_count + block];
-                    const twiddle: m31.PackedM31 = @splat(
-                        if (inverse and normalize and step == 2)
-                            raw_twiddle.mul(normalization).v
-                        else
-                            raw_twiddle.v,
-                    );
-                    const block_start = block * (half_span * 2);
-                    inline for (0..half_span) |item| {
-                        const lo = block_start + item;
-                        const hi = lo + half_span;
-                        const lhs = tuple[lo];
-                        const rhs = tuple[hi];
-                        if (inverse) {
-                            tuple[lo] = if (normalize and step == 2)
-                                m31.mulPacked(m31.addPacked(lhs, rhs), normalization_packed)
-                            else
-                                m31.addPacked(lhs, rhs);
-                            tuple[hi] = m31.mulPacked(m31.subPacked(lhs, rhs), twiddle);
-                        } else {
-                            const product = m31.mulPacked(rhs, twiddle);
-                            tuple[lo] = m31.addPacked(lhs, product);
-                            tuple[hi] = m31.subPacked(lhs, product);
-                        }
-                    }
-                }
-            }
-
-            inline for (0..8) |item| {
-                m31.storePacked(values.ptr + base + lane + item * distance, tuple[item]);
-            }
-        }
-        if (!duplicate_upper_from_lower) group_cursor += 1;
-    }
-}
-
-pub fn fftThreeLayersForwardPackedM31(
-    values: []M31,
-    log_size: u32,
-    highest_stage: u32,
-    twiddles: []const M31,
-) void {
-    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false, false, M31.one(), false);
-}
-
-/// Starts a 2x extension without materializing the degenerate first layer.
-/// The upper half is logically identical to the lower half; processing that
-/// destination group first keeps its source intact and removes one complete
-/// coefficient-buffer copy.
-pub fn fftThreeLayersForwardPackedM31FromDuplicatedHalf(
-    values: []M31,
-    log_size: u32,
-    highest_stage: u32,
-    twiddles: []const M31,
-) void {
-    fftThreeLayersPackedM31(values, log_size, highest_stage, twiddles, false, false, M31.one(), true);
-}
-
-pub fn fftThreeLayersInversePackedM31(
-    values: []M31,
-    log_size: u32,
-    lowest_stage: u32,
-    itwiddles: []const M31,
-) void {
-    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true, false, M31.one(), false);
-}
-
-/// Runs three inverse stages and absorbs whole-transform normalization into
-/// the final stage. Every output is already resident in the radix-8 tuple, so
-/// this avoids a separate read/modify/write pass over the coefficient column.
-pub fn fftThreeLayersInversePackedM31Normalized(
-    values: []M31,
-    log_size: u32,
-    lowest_stage: u32,
-    itwiddles: []const M31,
-    normalization: M31,
-) void {
-    fftThreeLayersPackedM31(values, log_size, lowest_stage, itwiddles, true, true, normalization, false);
-}
+pub const canFuseThreeLayersPacked = radix8.canFuseThreeLayersPacked;
+pub const fftThreeLayersForwardPackedM31 = radix8.forward;
+pub const fftThreeLayersForwardPackedM31FromDuplicatedHalf = radix8.forwardFromDuplicatedHalf;
+pub const fftThreeLayersInversePackedM31 = radix8.inverse;
+pub const fftThreeLayersInversePackedM31Normalized = radix8.inverseNormalized;
 
 /// Fused forward pass over the three smallest-block layers (half-block 4, 2,
 /// and the adjacent-pair circle layer). All three operate strictly within
