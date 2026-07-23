@@ -2328,8 +2328,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2652,8 +2652,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2840,8 +2840,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3058,8 +3058,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3453,8 +3453,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6002,8 +6002,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6463,8 +6463,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6583,8 +6583,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6869,8 +6869,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7404,8 +7404,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7893,6 +7893,111 @@
      "verdict_kind": "claimed",
      "waits": null,
      "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.981265,
+     "ci_low": 0.976527,
+     "commit": "11086509e046660b5f31c7fa745164a7f9c5b1d0",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 97.659472,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:e28605becff87d92a62e1c06f7a01d7e8f92c01e4cbd4748faef4cbca2b35a36",
+     "gates": "G1..G5:pass",
+     "harness_commit": "0083890f7285",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T18:16:29Z",
+     "judged_r": 0.978829,
+     "measurement_rounds": 24,
+     "measurement_seconds": 152.149973,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:8fd4e17345d91ed7b58853296d7e92c5ab354804a79db07168d2991d24110f42",
+     "outcome": "neutral",
+     "peak_rss_mib": 1178.124012,
+     "predecessor": "9095ecec918f",
+     "proof_bytes": 58407,
+     "prove_ms": 1466.519503,
+     "row_id": "sha256:616e62f270ef981040aa1c06372361acaa8dd6bf14f25e67f46488bef5a8ff88",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "small"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.975572,
+     "ci_low": 0.97238,
+     "commit": "11086509e046660b5f31c7fa745164a7f9c5b1d0",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 138.414392,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:739b676a899b8a6563774d6f23e8fdfdb61314a017d0f92aa6a2e17d8b150777",
+     "gates": "G1..G5:pass",
+     "harness_commit": "0083890f7285",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T18:16:29Z",
+     "judged_r": 0.973712,
+     "measurement_rounds": 21,
+     "measurement_seconds": 218.690318,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:9de97ee67dfed737eef1a6f08f026aba2b959e2e20614f4b4bcfff4fab79a809",
+     "outcome": "neutral",
+     "peak_rss_mib": 1343.879328,
+     "predecessor": "9095ecec918f",
+     "proof_bytes": 67692,
+     "prove_ms": 2325.617891,
+     "row_id": "sha256:f55cf6de4666b7a3201369c2ea439bc5e26c23dc6abe2cf93603a1a2506860df",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "deep"
+    },
+    {
+     "board": "riscv",
+     "ci_high": 0.973935,
+     "ci_low": 0.970981,
+     "commit": "11086509e046660b5f31c7fa745164a7f9c5b1d0",
+     "covers": [],
+     "credit_replaces": [],
+     "dispatches": null,
+     "energy_j": 127.775554,
+     "epoch": 2,
+     "evidence_kind": "promotion",
+     "evidence_sha256": "sha256:86a8bd1fc71d2f6ecf7684018bf812236c31f85d24f3abb292a105bed04856f9",
+     "gates": "G1..G5:pass",
+     "harness_commit": "2b0be386f6ea",
+     "holdout": "none",
+     "judged_at_utc": "2026-07-23T18:16:29Z",
+     "judged_r": 0.972701,
+     "measurement_rounds": 21,
+     "measurement_seconds": 184.851279,
+     "native_mhz": 0.0,
+     "observation_id": "sha256:16d8e06d49b67f6f5dfe01c81835c499939c4608d55fef8c436a589490dc565f",
+     "outcome": "neutral",
+     "peak_rss_mib": 1263.641084,
+     "predecessor": "0d7f457364e7",
+     "proof_bytes": 67695,
+     "prove_ms": 1948.129134,
+     "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f",
+     "schema_version": 3,
+     "scope": "s3",
+     "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+     "supersedes": "",
+     "verdict_kind": "claimed",
+     "waits": null,
+     "workload_class": "wide"
     }
    ],
    "frontier_by_class": {
@@ -7900,8 +8005,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7914,7 +8019,7 @@
       },
       "effective_score": 0.5190643050495095,
       "evidence_share": {
-       "claimed": 6,
+       "claimed": 7,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -7927,19 +8032,20 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 1,
-       "pending": 1,
+       "eligible": 2,
+       "pending": 2,
        "share": 0.0
       },
       "unaudited_tail": {
-       "count": 6,
+       "count": 7,
        "observation_ids": [
         "sha256:7f2f8d3e62abfb0ed1af8afd5413b02e3a9467da06f61a26ec644064ff327818",
         "sha256:bc45a6417ac0e80530a5955becbad0553d7bba006c768c2cc25a666622f8f159",
         "sha256:e5a93c06d205de75e6c3529d20cb9406e2bf6026f459249b1a5846cc408e7631",
         "sha256:8f50daa46d65e061708f8ae5b40ecfd434810dc70ca234941bdafb4472610538",
         "sha256:3c98cd62a4740357ef7a6ffb3cde2ee9a7b91b11596526c80d3fa5d58701527a",
-        "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1"
+        "sha256:f7722384ca8ce174db5ab1f8b62fe27b57a0e399d6fb347563d0e86db6dad3c1",
+        "sha256:9de97ee67dfed737eef1a6f08f026aba2b959e2e20614f4b4bcfff4fab79a809"
        ]
       }
      },
@@ -8090,19 +8196,21 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": false,
-       "span_reasons": []
+       "span": true,
+       "span_reasons": [
+        "subfloor_effect"
+       ]
       },
       "effective_score": 0.896908,
       "evidence_share": {
-       "claimed": 1,
+       "claimed": 2,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -8115,14 +8223,15 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 0,
-       "pending": 0,
-       "share": null
+       "eligible": 1,
+       "pending": 1,
+       "share": 0.0
       },
       "unaudited_tail": {
-       "count": 1,
+       "count": 2,
        "observation_ids": [
-        "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093"
+        "sha256:bfda0f03f4ed19eef0f21619a77b153b204bd7490dcd84ba283474893a6d4093",
+        "sha256:8fd4e17345d91ed7b58853296d7e92c5ab354804a79db07168d2991d24110f42"
        ]
       }
      },
@@ -8203,19 +8312,21 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 323,
-       "seconds": 173479
+       "commits": 336,
+       "seconds": 178142
       },
       "audited_score": 1.0,
       "audited_through": null,
       "due": {
        "direct": false,
-       "span": false,
-       "span_reasons": []
+       "span": true,
+       "span_reasons": [
+        "subfloor_effect"
+       ]
       },
       "effective_score": 0.771063,
       "evidence_share": {
-       "claimed": 1,
+       "claimed": 2,
        "claimed_share": 1.0,
        "judged": 0,
        "judged_share": 0.0
@@ -8228,14 +8339,15 @@
       },
       "span_coverage": {
        "consumed": 0,
-       "eligible": 0,
-       "pending": 0,
-       "share": null
+       "eligible": 1,
+       "pending": 1,
+       "share": 0.0
       },
       "unaudited_tail": {
-       "count": 1,
+       "count": 2,
        "observation_ids": [
-        "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4"
+        "sha256:dca093e75d02947427f5f62c8f2ff6e1cbd70614ad67621e767711a663a5afd4",
+        "sha256:16d8e06d49b67f6f5dfe01c81835c499939c4608d55fef8c436a589490dc565f"
        ]
       }
      },
@@ -9606,7 +9718,7 @@
   "inputs_sha256": {
    "autoresearch/MANIFEST.json": "26e28b839215051110d6c42e1a11a609752cc1bed8a15032461b3a6f31825b66",
    "autoresearch/ledger/epochs.json": "60162d440a812415d2943b1c1a2317b70be5fda727fae7eaa5c75ff408c4f7f5",
-   "autoresearch/ledger/promotions.tsv": "8ba8998620700761b2733c440874053c289c9e72a83aa8a1d29f74ee4d31222c",
+   "autoresearch/ledger/promotions.tsv": "348e43fc96a9501849dd9c015466671bbf52638db5a784f22e5f1e2044b98770",
    "autoresearch/reference/metal-calibration-epoch-2.json": "e1a733f19dfe552389e25ff71d487cb889a3117b7fd71ea47c28cbc9000147df",
    "autoresearch/reference/peer-relative-series.json": "b85b4f079b69db227b120c16c965667070f40a67d1b37590a490b3ab514a3b2a",
    "autoresearch/reference/peer-rust-scalar.json": "d03693e65c4f5a5b5f47e808672d81dba279b95d16f6178c84b9ad5e113dec92",
@@ -9739,6 +9851,9 @@
    "autoresearch/submissions/2026-07-22-pr83-resident-pipeline-retro/verdict-huge.json": "2962e4fc2a17522c67cd46d169b5fb8586b171fb0707f861a73a2e8b680fbfd9",
    "autoresearch/submissions/2026-07-22-pr83-resident-pipeline-retro/verdict-wide.json": "8862fa05b37b80fcac03f0ce2a7c882e30099d4acdae6e12c6afb8d4e4b03fd9",
    "autoresearch/submissions/2026-07-22-pr83-resident-pipeline-retro/verdict.json": "308018396c3b0485997830bc31a767152a8bbb0c0ce8922d265cf70e7b093d31",
+   "autoresearch/submissions/2026-07-22-riscv-deferred-first-tree-commit/verdict-riscv-deep.json": "a94d17290ab25be66bad4ee57457b2b0d22823069f25976c3ab922821f0d429b",
+   "autoresearch/submissions/2026-07-22-riscv-deferred-first-tree-commit/verdict-riscv-wide.json": "40b4165f77ae5c428680b08b791b84f315055f810049a432ac484a91ab484ac1",
+   "autoresearch/submissions/2026-07-22-riscv-deferred-first-tree-commit/verdict.json": "c0ba909a5f865bbc96d153554aee614aee6d833a9aaf681e48657e328b182cec",
    "autoresearch/submissions/2026-07-22-riscv-direct-column-streaming-simd/verdict.json": "c33fe8919a27126a831a739389341547221f97e85067763014cfe3d9dfd7ebd9",
    "autoresearch/submissions/2026-07-22-riscv-register-grouped-quotients/verdict.json": "2ed91769c3537a1049a0c6dc2541feaedbad25f9b7a09eb7f3e2b7d80d4bf3e4",
    "autoresearch/submissions/2026-07-23-2026-07-23-cpu-latency-recurrence-plan/verdict.json": "cd372f8aeb34cf89d036c5446671fa80f3820834b27ef0505be65a2c68d21d45",
@@ -9755,8 +9870,8 @@
    "vectors/reports/benchmark_history/index.json": "2df531dbefbd60f078b4c4a0b1c10c00a577832cd35520e065b430c61e6903f0",
    "vectors/reports/benchmark_history/runs/2026-07-23-110359-matrix-v6-e58b4d1e/report.json": "e772acbf9f58ff3916f2ffe91016ebc28bc6aadc75c6e68d5fd43ef3023d7be3"
   },
-  "repo_commit": "56d67ff344fe",
-  "repo_commit_time": "2026-07-23T16:58:46Z"
+  "repo_commit": "241b8ede373c",
+  "repo_commit_time": "2026-07-23T18:16:29Z"
  },
  "references": {
   "metal_calibration_epoch_2": {
@@ -18373,7 +18488,7 @@
     "classes": {
      "deep": {
       "available": true,
-      "available_points": 6,
+      "available_points": 7,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 5.114390719175559,
@@ -18410,30 +18525,36 @@
         "judged_at_utc": "2026-07-23T16:58:46Z",
         "points": 6,
         "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 1.6062974717980536,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "points": 7,
+        "row_id": "sha256:f55cf6de4666b7a3201369c2ea439bc5e26c23dc6abe2cf93603a1a2506860df"
        }
       ],
       "latest": {
-       "actual_rounds": 25,
+       "actual_rounds": 21,
        "actual_rounds_per_workload": {
         "riscv_fib_iter": 3,
         "riscv_gcd_euclid": 3,
         "riscv_multi_shard_addi": 3,
         "riscv_sha2_1024b": 3,
-        "riscv_sha2_2048b": 5,
-        "riscv_sha2_512b": 5,
+        "riscv_sha2_2048b": 3,
+        "riscv_sha2_512b": 3,
         "riscv_xorshift_prng": 3
        },
-       "auto_boost_reason": "trailing_median_at_or_above_threshold",
+       "auto_boost_reason": "insufficient_trailing_evidence",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
        "credited_ln_improvement": -0.0,
        "credited_ln_improvement_per_measurement_hour": -0.0,
        "gradient_snr": 0.0,
-       "judged_at_utc": "2026-07-23T16:58:46Z",
-       "measurement_wall_hours": 0.04442256699083373,
-       "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
-       "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
+       "judged_at_utc": "2026-07-23T18:16:29Z",
+       "measurement_wall_hours": 0.06074731064805544,
+       "row_id": "sha256:f55cf6de4666b7a3201369c2ea439bc5e26c23dc6abe2cf93603a1a2506860df",
+       "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18580,50 +18701,80 @@
         "row_id": "sha256:5e1293d3780aa6719f51373c8177f8e3f8adfd5051c75f05c6e0509577ff62fd",
         "submission_id": "2026-07-23-riscv-eight-way-terminal-blake2s",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 21,
+        "actual_rounds_per_workload": {
+         "riscv_fib_iter": 3,
+         "riscv_gcd_euclid": 3,
+         "riscv_multi_shard_addi": 3,
+         "riscv_sha2_1024b": 3,
+         "riscv_sha2_2048b": 3,
+         "riscv_sha2_512b": 3,
+         "riscv_xorshift_prng": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "measurement_wall_hours": 0.06074731064805544,
+        "row_id": "sha256:f55cf6de4666b7a3201369c2ea439bc5e26c23dc6abe2cf93603a1a2506860df",
+        "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.6557275016619479,
-       "credited_ln_improvement_per_measurement_hour": 1.8871178772094017,
-       "measurement_wall_hours": 0.34747564504640954,
-       "median_gradient_snr": 15.250549201621673,
-       "points": 6
+       "credited_ln_improvement_per_measurement_hour": 1.6062974717980536,
+       "measurement_wall_hours": 0.408222955694465,
+       "median_gradient_snr": 9.99979073449899,
+       "points": 7
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "small": {
       "available": true,
-      "available_points": 1,
+      "available_points": 2,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
         "judged_at_utc": "2026-07-23T15:20:32Z",
         "points": 1,
         "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 1.4589538536972353,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "points": 2,
+        "row_id": "sha256:616e62f270ef981040aa1c06372361acaa8dd6bf14f25e67f46488bef5a8ff88"
        }
       ],
       "latest": {
-       "actual_rounds": 30,
+       "actual_rounds": 24,
        "actual_rounds_per_workload": {
         "riscv_alu_test": 5,
         "riscv_branch_fib": 5,
-        "riscv_declared_region": 5,
-        "riscv_jal_jalr": 5,
+        "riscv_declared_region": 3,
+        "riscv_jal_jalr": 3,
         "riscv_mem_ls": 5,
-        "riscv_shift_logic": 5
+        "riscv_shift_logic": 3
        },
        "auto_boost_reason": "insufficient_trailing_evidence",
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.10880198628596223,
-       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
-       "gradient_snr": 12.752000901415258,
-       "judged_at_utc": "2026-07-23T15:20:32Z",
-       "measurement_wall_hours": 0.03231146306695235,
-       "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
-       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-23T18:16:29Z",
+       "measurement_wall_hours": 0.04226388145833173,
+       "row_id": "sha256:616e62f270ef981040aa1c06372361acaa8dd6bf14f25e67f46488bef5a8ff88",
+       "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18649,37 +18800,66 @@
         "row_id": "sha256:99ce69e12b28d2d312b8f42a5f5c10d938949115d10be77f5753426e84d4df17",
         "submission_id": "2026-07-23-riscv-sparse-qm31-base",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 24,
+        "actual_rounds_per_workload": {
+         "riscv_alu_test": 5,
+         "riscv_branch_fib": 5,
+         "riscv_declared_region": 3,
+         "riscv_jal_jalr": 3,
+         "riscv_mem_ls": 5,
+         "riscv_shift_logic": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "measurement_wall_hours": 0.04226388145833173,
+        "row_id": "sha256:616e62f270ef981040aa1c06372361acaa8dd6bf14f25e67f46488bef5a8ff88",
+        "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.10880198628596223,
-       "credited_ln_improvement_per_measurement_hour": 3.367287518380533,
-       "measurement_wall_hours": 0.03231146306695235,
-       "median_gradient_snr": 12.752000901415258,
-       "points": 1
+       "credited_ln_improvement_per_measurement_hour": 1.4589538536972353,
+       "measurement_wall_hours": 0.07457534452528408,
+       "median_gradient_snr": 6.376000450707629,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 0
      },
      "wide": {
       "available": true,
-      "available_points": 1,
+      "available_points": 2,
       "decay": [
        {
         "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
         "judged_at_utc": "2026-07-23T15:20:32Z",
         "points": 1,
         "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659"
+       },
+       {
+        "credited_ln_improvement_per_measurement_hour": 2.8887820440391367,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "points": 2,
+        "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f"
        }
       ],
       "latest": {
-       "actual_rounds": 27,
+       "actual_rounds": 21,
        "actual_rounds_per_workload": {
-        "riscv_bubble_sort": 5,
+        "riscv_bubble_sort": 3,
         "riscv_collatz": 3,
         "riscv_keccak_128b": 3,
-        "riscv_memcpy_loop": 5,
-        "riscv_sha2_128b": 5,
+        "riscv_memcpy_loop": 3,
+        "riscv_sha2_128b": 3,
         "riscv_sha2_256b": 3,
         "riscv_sieve_primes": 3
        },
@@ -18687,13 +18867,13 @@
        "auto_boost_target_rounds": 5,
        "available": true,
        "configured_rounds": 5,
-       "credited_ln_improvement": 0.2599851966947994,
-       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
-       "gradient_snr": 30.363427873787227,
-       "judged_at_utc": "2026-07-23T15:20:32Z",
-       "measurement_wall_hours": 0.03865062672473464,
-       "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
-       "submission_id": "2026-07-23-riscv-sparse-qm31-base",
+       "credited_ln_improvement": -0.0,
+       "credited_ln_improvement_per_measurement_hour": -0.0,
+       "gradient_snr": 0.0,
+       "judged_at_utc": "2026-07-23T18:16:29Z",
+       "measurement_wall_hours": 0.05134757761583387,
+       "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f",
+       "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
        "verdict_kind": "claimed"
       },
       "time_series": [
@@ -18720,14 +18900,38 @@
         "row_id": "sha256:85f4d7bbcb51b8a1c126be88fd338edce2d0d7e5c593b33e9d71fdc478b91659",
         "submission_id": "2026-07-23-riscv-sparse-qm31-base",
         "verdict_kind": "claimed"
+       },
+       {
+        "actual_rounds": 21,
+        "actual_rounds_per_workload": {
+         "riscv_bubble_sort": 3,
+         "riscv_collatz": 3,
+         "riscv_keccak_128b": 3,
+         "riscv_memcpy_loop": 3,
+         "riscv_sha2_128b": 3,
+         "riscv_sha2_256b": 3,
+         "riscv_sieve_primes": 3
+        },
+        "auto_boost_reason": "insufficient_trailing_evidence",
+        "auto_boost_target_rounds": 5,
+        "available": true,
+        "configured_rounds": 5,
+        "credited_ln_improvement": -0.0,
+        "credited_ln_improvement_per_measurement_hour": -0.0,
+        "gradient_snr": 0.0,
+        "judged_at_utc": "2026-07-23T18:16:29Z",
+        "measurement_wall_hours": 0.05134757761583387,
+        "row_id": "sha256:785eaae925df2ade0ee1904e31798bb56c86dd53aaa2be384bbb7c11b3c0ea6f",
+        "submission_id": "2026-07-22-riscv-deferred-first-tree-commit",
+        "verdict_kind": "claimed"
        }
       ],
       "trailing": {
        "credited_ln_improvement": 0.2599851966947994,
-       "credited_ln_improvement_per_measurement_hour": 6.726545433438488,
-       "measurement_wall_hours": 0.03865062672473464,
-       "median_gradient_snr": 30.363427873787227,
-       "points": 1
+       "credited_ln_improvement_per_measurement_hour": 2.8887820440391367,
+       "measurement_wall_hours": 0.08999820434056852,
+       "median_gradient_snr": 15.181713936893614,
+       "points": 2
       },
       "trailing_window": 8,
       "unavailable_points": 0
@@ -19462,6 +19666,17 @@
    "transcripts": [],
    "verdict_kind": "claimed",
    "workload_class": "xlarge"
+  },
+  {
+   "id": "2026-07-22-riscv-deferred-first-tree-commit",
+   "judged_r": 0.972701,
+   "note": "# riscv-deferred-first-tree-commit\n\n## Model and harness\n\nclaude-fable-5 (Claude-Mersenne lane, welttowelt fleet); Metrics-v2\nharness, `stwo-perf run --scope s3 --board riscv`, Studio M4 Max\nmeasurement host, paired arms pinned (predecessor 0d7f4573, candidate\n8cff7eb).\n\n## Hypothesis\n\nThe riscv floor is ~58-72% serial-equivalent (model-dependent; workers\nsweep), and the deferred first-tree commit mechanism (#63) \u2014 which hides\ntree builds behind serial generation windows \u2014 is inert on the riscv\nboard solely because its gate requires a session-borrowed twiddle tower\nwhile the riscv pipeline constructs an owned source. Enabling deferral\nfor owned sources should recover part of the preprocessed-commit build\ntime by overlapping it with the channel-independent main\nwitness-generation window.\n\n## Changes\n\nThree editable files: `src/prover/poly/twiddle_source.zig` (owned cache\nserializes lookup/insert behind a mutex; worker and main may request\ntrees concurrently; returned slices are stable allocations),\n`src/prover/pcs/deferred_commit.zig` (gate no longer requires borrowed\ntowers; new `resolveObserved` joins+appends channel-lessly for\nsingle-commit observers with the root mix owed to the next\nchannel-bearing choke point \u2014 sequential mix order preserved by\nconstruction since first-tree-only implies the owed tree is trees[0];\nallocator-failure path leaves the scheme self-consistent, pinned by a\nFailingAllocator test), `src/prover/pcs/scheme.zig` (`roots()` resolves\nobserved pending first; 849/850 lines).\n\n## Results\n\n- riscv small: R 0.9788, significant (theta 0.01), all gates pass\n- riscv deep: R 0.9737, significant (theta 0.0129), all gates pass\n- (Refreshed vs 9095ecec after #80 landed; first battery vs 0d7f4573\n  measured 0.9750/0.9746 \u2014 mechanism unmoved by the faster FFT baseline.)\n- riscv wide: R 0.9727, NOT significant (theta 0.0296) \u2014 no credit\n  claimed, verdict attached for the record\n- Peak RSS ~1.000 on all classes; transcript identity verified\n  patched-vs-baseline (alu_test + sha2_2048b); native boards\n  byte-identical (borrowed-mode paths take the pre-existing branch) and\n  timing-neutral.\n\n## Caveats\n\n- Guards ran `--guards none`: the riscv guard phase currently errors on\n  the `{admission}` token for native guard commands (known board gap);\n  disclosed, not hidden.\n- Head moved to edb5be92 (#77, Metal-runtime-only) during the battery;\n  nil intersection with riscv classes or the touched files.\n- Wide is a consistent near-miss across two batteries (0.9721/0.9727 vs\n  bar 0.9704); we record it as not significant rather than re-rolling.\n- Session transcripts declined for this submission; the fix history\n  (original reviewer NACK on the allocator-failure path and the pinning\n  test that closed it) is summarized above.\n",
+   "outcome": "neutral",
+   "solver": "welttowelt",
+   "title": "riscv-deferred-first-tree-commit",
+   "transcripts": [],
+   "verdict_kind": "claimed",
+   "workload_class": "wide"
   },
   {
    "id": "2026-07-22-riscv-direct-column-streaming-simd",
