@@ -55,13 +55,20 @@ class StagedCalibrationCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out = root / "calibration.json"
+            lock = root / "judge.lock"
+            lock.write_text("held")
             manifest = SimpleNamespace(root=root)
             with (
                 mock.patch.object(cli.manifest_mod, "load", return_value=manifest),
+                mock.patch.object(
+                    runner, "acquire_judge_lock", return_value=lock
+                ) as acquire_lock,
                 mock.patch.object(runner, "evaluate_aa", return_value=receipt) as evaluate,
             ):
                 self.assertEqual(cli.cmd_run(self.args(out=str(out))), 0)
             self.assertEqual(json.loads(out.read_text()), receipt)
+            acquire_lock.assert_called_once_with(root)
+            self.assertFalse(lock.exists())
             self.assertTrue(evaluate.call_args.kwargs["allow_staged"])
 
 

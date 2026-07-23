@@ -91,13 +91,18 @@ def cmd_run(args) -> int:
     if args.staged_calibration and board != "riscv":
         return _fail("--staged-calibration is restricted to the RISC-V board")
     if args.aa:
+        lock = None
         try:
+            lock = runner.acquire_judge_lock(m.root)
             result = runner.evaluate_aa(
                 m.root, m, args.workload_class, out_dir, board=board,
                 allow_staged=args.staged_calibration,
             )
         except runner.RunError as exc:
             return _fail(str(exc))
+        finally:
+            if lock is not None:
+                lock.unlink(missing_ok=True)
         if args.out:
             calibration_out = Path(args.out)
             calibration_out.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +134,9 @@ def cmd_run(args) -> int:
             "--predecessor <worktree> is required: scoring is paired two-arm by "
             "contract (frozen reports are provenance, never a denominator)"
         )
+    lock = None
     try:
+        lock = runner.acquire_judge_lock(m.root)
         # The public CLI only ever evaluates claimed verdicts; judged runs are
         # minted exclusively by the judge bot, which signs them (signing.py).
         verdict = runner.evaluate(
@@ -139,6 +146,9 @@ def cmd_run(args) -> int:
         )
     except runner.RunError as exc:
         return _fail(str(exc))
+    finally:
+        if lock is not None:
+            lock.unlink(missing_ok=True)
     out = Path(args.out) if args.out else out_dir / "verdict.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(verdict, indent=2) + "\n")
