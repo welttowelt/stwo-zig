@@ -97,7 +97,14 @@ jobs:
             [ "$bad" -eq 0 ] || { echo "PR #$pr: $bad failing check(s) — no merge"; continue; }
 
             echo "PR #$pr: all checks green — merging"
-            gh pr merge "$pr" --repo "$REPO" --merge \
-              --subject "$(ghv "$pr" title .title || echo "submission") (#$pr)" || \
-              echo "PR #$pr: merge refused (raced, conflicted, or behind); next sweep retries"
+            if ! gh pr merge "$pr" --repo "$REPO" --merge \
+              --subject "$(ghv "$pr" title .title || echo "submission") (#$pr)"; then
+              # The ruleset requires branches up to date; on this busy repo a
+              # green PR is often BEHIND by the time its checks finish. Update
+              # the branch so the re-run checks green-light the next sweep --
+              # without this, a behind PR retries forever and never merges.
+              echo "PR #$pr: merge refused -- updating branch for the next sweep"
+              gh pr update-branch "$pr" --repo "$REPO" || \
+                echo "PR #$pr: update-branch also refused; next sweep retries"
+            fi
           done
