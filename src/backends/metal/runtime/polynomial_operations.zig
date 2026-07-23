@@ -204,10 +204,10 @@ fn computeQuotientsConfigured(
     for (samples, 0..) |sample, index| {
         const base = index * 8;
         sample_words[base..][0..8].* = .{
-            sample.prx.a.v, sample.prx.b.v,
-            sample.pry.a.v, sample.pry.b.v,
-            sample.pix.a.v, sample.pix.b.v,
-            sample.piy.a.v, sample.piy.b.v,
+            sample.determinant.a.v, sample.determinant.b.v,
+            0,                      0,
+            sample.pix.a.v,         sample.pix.b.v,
+            sample.piy.a.v,         sample.piy.b.v,
         };
     }
 

@@ -191,7 +191,7 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
         for (scratch.row_scratch.domain_points[0..row_count]) |*point| {
             point.* = walk.next();
         }
-        try scratch.row_scratch.prepare(work.workspace, row_count);
+        try scratch.row_scratch.prepareBatchMajor(work.workspace, row_count);
         try scratch.clearNumerators(row_count);
         accumulateTile(work, scratch, tile_start, row_count);
 
@@ -201,17 +201,11 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
             inline for (0..m31.VEC_WIDTH) |lane| {
                 ys[lane] = scratch.row_scratch.domain_points[row + lane].y;
             }
-            var row_inverses: [m31.VEC_WIDTH][]const CM31 = undefined;
-            inline for (0..m31.VEC_WIDTH) |lane| {
-                row_inverses[lane] = scratch.row_scratch.inversesForRow(row + lane) catch
-                    return error.InvalidChunkSize;
-            }
             const quotient = finalizeGroupVec4(
                 work.quotient_constants,
                 m31.loadVec4(&ys),
                 scratch,
                 row,
-                row_inverses,
             );
             inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
                 m31.storeVec4(
@@ -228,12 +222,14 @@ fn executeBatched(work: *Work, scratch: *Scratch) !void {
                     scratch.numerator(batch, 2, row).*,
                     scratch.numerator(batch, 3, row).*,
                 );
+                work.workspace.denominator_inverses[batch] =
+                    scratch.row_scratch.batchMajorInverse(batch, row);
             }
             try writeRow(
                 work,
                 tile_start + row,
                 scratch.row_scratch.domain_points[row].y,
-                try scratch.row_scratch.inversesForRow(row),
+                work.workspace.denominator_inverses,
             );
         }
         try emitTile(work, tile_start, tile_start + row_count);
@@ -496,7 +492,6 @@ fn finalizeGroupVec4(
     ys: m31.Vec4u32,
     scratch: *const Scratch,
     row: usize,
-    row_inverses: [m31.VEC_WIDTH][]const CM31,
 ) [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 {
     var acc: [qm31.SECURE_EXTENSION_DEGREE]m31.Vec4u32 = @splat(@splat(0));
     for (quotient_constants.batch_linear_terms, 0..) |linear_term, batch| {
@@ -514,12 +509,23 @@ fn finalizeGroupVec4(
                 lt,
             );
         }
-        var inv_re: [m31.VEC_WIDTH]u32 = undefined;
-        var inv_im: [m31.VEC_WIDTH]u32 = undefined;
-        inline for (0..m31.VEC_WIDTH) |lane| {
-            inv_re[lane] = row_inverses[lane][batch].a.v;
-            inv_im[lane] = row_inverses[lane][batch].b.v;
-        }
+        const inverse_words: [*]const M31 = @ptrCast(
+            scratch.row_scratch.batchMajorInversePtr(batch, row),
+        );
+        const inverse_lo = m31.loadVec4(inverse_words);
+        const inverse_hi = m31.loadVec4(inverse_words + m31.VEC_WIDTH);
+        const inv_re = @shuffle(
+            u32,
+            inverse_lo,
+            inverse_hi,
+            @Vector(4, i32){ 0, 2, -1, -3 },
+        );
+        const inv_im = @shuffle(
+            u32,
+            inverse_lo,
+            inverse_hi,
+            @Vector(4, i32){ 1, 3, -2, -4 },
+        );
         const q0 = mulCM31Vec4(diff[0], diff[1], inv_re, inv_im);
         const q1 = mulCM31Vec4(diff[2], diff[3], inv_re, inv_im);
         acc[0] = m31.addVec4(acc[0], q0.re);
@@ -788,18 +794,21 @@ test "packed finalize matches scalar finalizeRowQuotients for all batch counts" 
                 inverses[row][batch] = CM31.fromM31(nextM31(&rng_state), nextM31(&rng_state));
             }
         }
+        scratch.row_scratch.prepared_rows = row_capacity;
+        scratch.row_scratch.inverse_layout = .batch_major;
+        for (0..batch_count) |batch| {
+            for (0..row_capacity) |row| {
+                scratch.row_scratch.denominator_inverses[batch * row_capacity + row] =
+                    inverses[row][batch];
+            }
+        }
 
         for ([_]usize{ 0, 4 }) |row| {
-            var row_inverses: [m31.VEC_WIDTH][]const CM31 = undefined;
-            inline for (0..m31.VEC_WIDTH) |lane| {
-                row_inverses[lane] = inverses[row + lane];
-            }
             const packed_q = finalizeGroupVec4(
                 &constants,
                 m31.loadVec4(ys[row..].ptr),
                 &scratch,
                 row,
-                row_inverses,
             );
             inline for (0..m31.VEC_WIDTH) |lane| {
                 var numerators: [3]QM31 = undefined;
