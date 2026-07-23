@@ -76,6 +76,21 @@ test "blake2s backend: four-way terminal compression matches scalar messages" {
     }
 }
 
+test "blake2s backend: eight-way terminal compression matches scalar messages" {
+    var prng = std.Random.DefaultPrng.init(0x3863_6f6d_7072_6573);
+    var prefix: [64]u8 = undefined;
+    var blocks: [8][64]u8 = undefined;
+    prng.random().bytes(prefix[0..]);
+    for (&blocks) |*block| prng.random().bytes(block[0..]);
+
+    const seed = Blake2sHasher.seedAfterFixed64(&prefix);
+    const batched = Blake2sHasher.hashFinal64FromSeed8(seed, &blocks);
+    for (blocks, 0..) |block, lane| {
+        const expected = Blake2sHasher.hashFinal64FromSeed(seed, &block);
+        try std.testing.expectEqualSlices(u8, expected[0..], batched[lane][0..]);
+    }
+}
+
 test "blake2s backend: four-way equal messages match seeded scalar stream" {
     var prng = std.Random.DefaultPrng.init(0x6c65_6166_345f_7369);
     var prefix: [64]u8 = undefined;

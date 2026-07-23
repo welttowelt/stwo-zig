@@ -89,6 +89,10 @@ pub const QM31 = struct {
         return self.c0.isZero() and self.c1.isZero();
     }
 
+    pub inline fn isBase(self: QM31) bool {
+        return self.c0.b.isZero() and self.c1.isZero();
+    }
+
     pub inline fn eql(lhs: QM31, rhs: QM31) bool {
         // Compare field limbs explicitly. Aggregate equality and byte views of
         // optimized by-value stack copies both miscompile under Zig 0.15.2.
@@ -151,6 +155,18 @@ pub const QM31 = struct {
     }
 
     pub inline fn mul(lhs: QM31, rhs: QM31) QM31 {
+        @setEvalBranchQuota(8_000);
+        // Domain evaluators promote committed M31 columns into QM31 so they
+        // can share one constraint API with OODS evaluation. Preserve that
+        // sparse structure: multiplying by a base-field operand needs four
+        // base products instead of the generic extension product's nine.
+        // Stable call sites make the branch predictable, while full-extension
+        // values retain the exact Karatsuba path below.
+        if (!@inComptime()) {
+            if (rhs.isBase()) return lhs.mulM31(rhs.c0.a);
+            if (lhs.isBase()) return rhs.mulM31(lhs.c0.a);
+        }
+
         // Karatsuba over CM31:
         // (a + bu) * (c + du) = (ac + rbd) + ((a+b)(c+d)-ac-bd)u.
         const ac = lhs.c0.mul(rhs.c0);
@@ -183,6 +199,8 @@ pub const QM31 = struct {
     }
 
     pub inline fn square(self: QM31) QM31 {
+        if (self.isBase()) return QM31.fromBase(self.c0.a.square());
+
         const a2 = self.c0.square();
         const b2 = self.c1.square();
         const ab = self.c0.mul(self.c1);
@@ -304,6 +322,20 @@ test "qm31: mul and square match schoolbook reference" {
         const b = randElem(rng);
         try std.testing.expect(a.mul(b).eql(mulReference(a, b)));
         try std.testing.expect(a.square().eql(squareReference(a)));
+    }
+}
+
+test "qm31: sparse base multiplication and squaring preserve generic field results" {
+    var prng = std.Random.DefaultPrng.init(0x7c15_a1e4_9913_04bd);
+    const rng = prng.random();
+    var i: usize = 0;
+    while (i < 3_000) : (i += 1) {
+        const full = randElem(rng);
+        const base = randM31(rng);
+        const lifted = QM31.fromBase(base);
+        try std.testing.expect(full.mul(lifted).eql(mulReference(full, lifted)));
+        try std.testing.expect(lifted.mul(full).eql(mulReference(lifted, full)));
+        try std.testing.expect(lifted.square().eql(squareReference(lifted)));
     }
 }
 
