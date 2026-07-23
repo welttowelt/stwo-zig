@@ -491,8 +491,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             try builder.commit(channel);
         }
 
-        pub fn roots(self: Self, allocator: std.mem.Allocator) !TreeVec(H.Hash) {
-            return scheme_views.roots(H, self, allocator);
+        pub fn roots(self: *Self, allocator: std.mem.Allocator) !TreeVec(H.Hash) {
+            try deferred_commit.resolveObserved(self, allocator);
+            return scheme_views.roots(H, self.*, allocator);
         }
 
         /// Returns committed columns as prover-air `Poly` views.
