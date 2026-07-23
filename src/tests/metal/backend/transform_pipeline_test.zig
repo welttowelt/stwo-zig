@@ -113,7 +113,9 @@ test "metal: forced combined circle LDE and Merkle matches generic path" {
     defer runtime.deinit();
 
     const column_count = 64;
-    const base_log_size: u32 = 16;
+    // Log 18 is the smallest admitted wide shape whose four output quarters
+    // force the paired 512-thread expansion/high-transform path.
+    const base_log_size: u32 = 18;
     const extended_log_size = base_log_size + 1;
     const base_len = @as(usize, 1) << @intCast(base_log_size);
     const extended_len = @as(usize, 1) << @intCast(extended_log_size);

@@ -4,6 +4,24 @@
 #include "stwo_zig/circle.metal"
 #endif
 
+inline void circle_rfft_high_fused_sparse(
+    device uint *arena,
+    device const uint *destination_offsets,
+    device const uint *twiddles,
+    uint log_size,
+    uint lowest_stage,
+    uint layer_count,
+    uint column_count,
+    uint inverse_mode,
+    uint lane,
+    uint2 group_position,
+    threadgroup uint *tile,
+    device const uint *source,
+    device const uint *source_offsets,
+    uint source_log_size,
+    uint expansion_mode
+);
+
 kernel void stwo_zig_circle_ifft_first(
     device uint *values [[buffer(0)]],
     device const uint *twiddles [[buffer(1)]],
@@ -106,8 +124,21 @@ kernel void stwo_zig_circle_expand_coefficients(
     constant uint &column_count [[buffer(7)]],
     constant uint &scale_factor [[buffer(8)]],
     constant uint &fuse_top_two [[buffer(9)]],
-    uint2 position [[thread_position_in_grid]]
+    uint2 position [[thread_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint2 group [[threadgroup_position_in_grid]],
+    threadgroup uint *tile [[threadgroup(0)]]
 ) {
+    if (fuse_top_two == 2u || fuse_top_two == 3u) {
+        uint layer_count = extended_log_size - 14u;
+        circle_rfft_high_fused_sparse(
+            extended, destination_offsets, twiddles, extended_log_size, 12u,
+            layer_count, column_count, 0u, lane, group, tile,
+            coefficients, source_offsets, base_log_size,
+            fuse_top_two == 3u ? 2u : 1u
+        );
+        return;
+    }
     uint extended_len = 1u << extended_log_size;
     uint base_len = 1u << base_log_size;
     if (position.y >= column_count) return;
@@ -450,20 +481,6 @@ kernel void stwo_zig_circle_rfft_radix4_sparse(
     arena[idx3] = m31_sub(ac_diff, lower);
 }
 
-inline void circle_rfft_high_fused_sparse(
-    device uint *arena,
-    device const uint *destination_offsets,
-    device const uint *twiddles,
-    uint log_size,
-    uint lowest_stage,
-    uint layer_count,
-    uint column_count,
-    uint inverse_mode,
-    uint lane,
-    uint2 group_position,
-    threadgroup uint *tile
-);
-
 kernel void stwo_zig_circle_rfft_last_sparse(
     device uint *arena [[buffer(0)]],
     device const uint *destination_offsets [[buffer(1)]],
@@ -482,7 +499,8 @@ kernel void stwo_zig_circle_rfft_last_sparse(
         uint lowest_stage = (column_config >> 14u) & 31u;
         circle_rfft_high_fused_sparse(
             arena, destination_offsets, twiddles, log_size, lowest_stage,
-            layer_count, column_count, inverse_mode, lane, group, tile
+            layer_count, column_count, inverse_mode, lane, group, tile,
+            arena, destination_offsets, 0u, 0u
         );
         return;
     }
