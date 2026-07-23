@@ -93,14 +93,95 @@ fn detectWorkerCount() usize {
         } else |_| {}
     }
 
-    const cpu_count = std.Thread.getCpuCount() catch return 1;
+    // Apple parts may expose more than one fast-core tier. In particular,
+    // newer Max parts report both "Super" and "Performance" levels before
+    // the "Efficiency" level. Treating perflevel0 as the whole fast-core
+    // population can therefore leave most high-performance CPUs idle.
+    const fast_cores = detectFastCoreCount();
+    const cpu_count = fast_cores orelse (std.Thread.getCpuCount() catch return 1);
     return @min(cpu_count, MAX_WORKERS);
+}
+
+/// Sum every named Apple fast-core tier while excluding Efficiency cores.
+///
+/// The allowlist is deliberately fail-closed: an unknown topology name or a
+/// partial sysctl read returns null, and the caller preserves the prior total-
+/// logical-CPU behavior. This avoids silently under-subscribing a future Apple
+/// topology whose tier names differ.
+fn detectFastCoreCount() ?usize {
+    if (builtin.os.tag != .macos) return null;
+
+    const level_count = readSysctlPositiveInt("hw.nperflevels") orelse return null;
+    var fast_cores: usize = 0;
+    var level: usize = 0;
+    while (level < level_count) : (level += 1) {
+        var name_key_buf: [64]u8 = undefined;
+        const name_key = std.fmt.bufPrintZ(
+            &name_key_buf,
+            "hw.perflevel{d}.name",
+            .{level},
+        ) catch return null;
+        var count_key_buf: [64]u8 = undefined;
+        const count_key = std.fmt.bufPrintZ(
+            &count_key_buf,
+            "hw.perflevel{d}.logicalcpu",
+            .{level},
+        ) catch return null;
+
+        var name_buf: [64]u8 = undefined;
+        var name_len: usize = name_buf.len;
+        const name_rc = std.c.sysctlbyname(
+            name_key,
+            &name_buf,
+            &name_len,
+            null,
+            0,
+        );
+        if (name_rc != 0 or name_len == 0 or name_len > name_buf.len) return null;
+        const name = std.mem.sliceTo(name_buf[0..name_len], 0);
+        const logical_cpus = readSysctlPositiveInt(count_key) orelse return null;
+
+        if (isFastCoreTier(name)) {
+            fast_cores = std.math.add(usize, fast_cores, logical_cpus) catch return null;
+        } else if (!std.mem.eql(u8, name, "Efficiency")) {
+            return null;
+        }
+    }
+    return if (fast_cores > 0) fast_cores else null;
+}
+
+fn readSysctlPositiveInt(name: [:0]const u8) ?usize {
+    var value: c_int = 0;
+    var len: usize = @sizeOf(c_int);
+    const rc = std.c.sysctlbyname(name, &value, &len, null, 0);
+    if (rc != 0 or len != @sizeOf(c_int) or value <= 0) return null;
+    return @intCast(value);
+}
+
+fn isFastCoreTier(name: []const u8) bool {
+    return std.mem.eql(u8, name, "Super") or
+        std.mem.eql(u8, name, "Performance");
 }
 
 // Tests
 test "work_pool: detectWorkerCount returns positive" {
     const n = detectWorkerCount();
     try std.testing.expect(n >= 1);
+}
+
+test "work_pool: Apple fast-tier names are explicit" {
+    try std.testing.expect(isFastCoreTier("Super"));
+    try std.testing.expect(isFastCoreTier("Performance"));
+    try std.testing.expect(!isFastCoreTier("Efficiency"));
+    try std.testing.expect(!isFastCoreTier("Unknown"));
+}
+
+test "work_pool: Apple fast-core probe is complete and bounded" {
+    if (builtin.os.tag != .macos) return;
+    const fast_cores = detectFastCoreCount() orelse return error.MissingFastCoreTopology;
+    const total_cores = try std.Thread.getCpuCount();
+    try std.testing.expect(fast_cores >= 1);
+    try std.testing.expect(fast_cores <= total_cores);
 }
 
 test "work_pool: getGlobalPool returns null in test mode" {
