@@ -2223,8 +2223,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2547,8 +2547,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2734,8 +2734,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -2952,8 +2952,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -3275,8 +3275,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -5579,8 +5579,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6040,8 +6040,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6158,8 +6158,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6444,8 +6444,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -6942,8 +6942,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7297,8 +7297,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7448,8 +7448,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7489,8 +7489,8 @@
      "audit": {
       "audit_age": {
        "base_commit": "8e58d7015e28a312eddc6f1eacc10e0c08ea85cc",
-       "commits": 247,
-       "seconds": 140110
+       "commits": 253,
+       "seconds": 143948
       },
       "audited_score": 1.0,
       "audited_through": null,
@@ -7595,7 +7595,7 @@
  },
  "feed_schema_version": 3,
  "history": {
-  "comparisons": 31,
+  "comparisons": 32,
   "runs": [
    {
     "bundle": false,
@@ -7734,30 +7734,91 @@
     "kind": "native_proof_cross_backend_matrix_v6",
     "report_sha256": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466",
     "run_id": "2026-07-21-192812-matrix-v6-483bca66"
+   },
+   {
+    "bundle": true,
+    "kind": "native_proof_cross_backend_matrix_v6",
+    "report_sha256": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120",
+    "run_id": "2026-07-23-072542-matrix-v6-a01299b4"
    }
   ]
  },
  "latest_matrix": {
-  "generated_at": "2026-07-21T19:28:12.518673+00:00",
+  "generated_at": "2026-07-23T07:25:42.433730+00:00",
   "protocol": "native_proof_cross_backend_matrix_v6",
-  "repo_commit": "483bca66ea55c7e82f6b47985f08da9484db139e",
+  "repo_commit": "a01299b4c42ce8bb2a201a28dab4bf4ddd6ec180",
   "rows": [
    {
-    "committed_trace_cells": 524288,
-    "headline_eligible": false,
+    "committed_trace_cells": 8192,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 2.1916822198485355,
-      "peak_rss_mib": 25.61,
-      "prove_ms": 7.475625,
-      "request_ms": 8.329396,
+      "native_mhz": 0.927310880957427,
+      "peak_rss_mib": 10.08,
+      "prove_ms": 1.10427,
+      "request_ms": 1.264188,
+      "request_resources": {
+       "canonical_proof_bytes": 24965,
+       "complete": true,
+       "cycles": 242290524,
+       "energy_nj": 203572294,
+       "instructions": 498836613,
+       "lifetime_peak_physical_footprint_bytes": 9749272,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
+     },
+     "metal": {
+      "cpu_fallbacks_per_proof": 0.0,
+      "metal_dispatches_per_proof": 18.0,
+      "native_mhz": 0.2365265217278896,
+      "peak_rss_mib": 27.44,
+      "prove_ms": 4.329354,
+      "request_ms": 4.502771,
+      "request_resources": {
+       "canonical_proof_bytes": 24965,
+       "complete": true,
+       "cycles": 297356853,
+       "energy_nj": 229480309,
+       "instructions": 511705022,
+       "lifetime_peak_physical_footprint_bytes": 151307320,
+       "measured_samples": 10,
+       "measured_warmups": 10,
+       "measurement_scope": "verified_process_request_batch",
+       "source": "darwin_proc_pid_rusage_v6",
+       "unavailable_reason": null
+      }
+     }
+    },
+    "name": "wide_fibonacci",
+    "native_unit": "trace_rows",
+    "native_units": 1024,
+    "parameters": {
+     "log_n_rows": 10,
+     "sequence_len": 8
+    },
+    "proof_bytes": 24965,
+    "proof_parity": true
+   },
+   {
+    "committed_trace_cells": 524288,
+    "headline_eligible": true,
+    "lanes": {
+     "cpu": {
+      "native_mhz": 2.5399453503664926,
+      "peak_rss_mib": 26.58,
+      "prove_ms": 6.450541,
+      "request_ms": 6.907959,
       "request_resources": {
        "canonical_proof_bytes": 41840,
        "complete": true,
-       "cycles": 2624461544,
-       "energy_nj": 2680733067,
-       "instructions": 7953444589,
-       "lifetime_peak_physical_footprint_bytes": 26280992,
+       "cycles": 2271541059,
+       "energy_nj": 2010243048,
+       "instructions": 5708991194,
+       "lifetime_peak_physical_footprint_bytes": 27280392,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7768,17 +7829,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 22.0,
-      "native_mhz": 2.055399482853799,
-      "peak_rss_mib": 38.34,
-      "prove_ms": 7.97225,
-      "request_ms": 8.783522,
+      "native_mhz": 2.0746578022231352,
+      "peak_rss_mib": 39.64,
+      "prove_ms": 7.897396,
+      "request_ms": 8.3585,
       "request_resources": {
        "canonical_proof_bytes": 41840,
        "complete": true,
-       "cycles": 739351264,
-       "energy_nj": 672928757,
-       "instructions": 2192779511,
-       "lifetime_peak_physical_footprint_bytes": 169919448,
+       "cycles": 495827937,
+       "energy_nj": 424573200,
+       "instructions": 955543791,
+       "lifetime_peak_physical_footprint_bytes": 171017224,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7799,20 +7860,20 @@
    },
    {
     "committed_trace_cells": 4194304,
-    "headline_eligible": true,
+    "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.6909135403087436,
-      "peak_rss_mib": 92.05,
-      "prove_ms": 38.76198,
-      "request_ms": 52.081501,
+      "native_mhz": 3.6873775629559002,
+      "peak_rss_mib": 100.94,
+      "prove_ms": 17.773146,
+      "request_ms": 18.766417,
       "request_resources": {
        "canonical_proof_bytes": 60249,
        "complete": true,
-       "cycles": 16650018011,
-       "energy_nj": 16280967964,
-       "instructions": 48213755761,
-       "lifetime_peak_physical_footprint_bytes": 96027800,
+       "cycles": 12318526217,
+       "energy_nj": 9869395816,
+       "instructions": 30065512962,
+       "lifetime_peak_physical_footprint_bytes": 105465248,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7822,18 +7883,18 @@
      },
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
-      "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 0.8413145230395018,
-      "peak_rss_mib": 130.48,
-      "prove_ms": 77.897146,
-      "request_ms": 90.874896,
+      "metal_dispatches_per_proof": 25.0,
+      "native_mhz": 3.4010808691554892,
+      "peak_rss_mib": 133.73,
+      "prove_ms": 19.27475,
+      "request_ms": 20.352709,
       "request_resources": {
        "canonical_proof_bytes": 60249,
        "complete": true,
-       "cycles": 7427474578,
-       "energy_nj": 7752974746,
-       "instructions": 13089009167,
-       "lifetime_peak_physical_footprint_bytes": 288376080,
+       "cycles": 1106905252,
+       "energy_nj": 1012042928,
+       "instructions": 2582800293,
+       "lifetime_peak_physical_footprint_bytes": 291521856,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7854,20 +7915,20 @@
    },
    {
     "committed_trace_cells": 49152,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.422536333482135,
-      "peak_rss_mib": 22.56,
-      "prove_ms": 4.787103,
-      "request_ms": 5.0755,
+      "native_mhz": 3.7519311623717257,
+      "peak_rss_mib": 26.06,
+      "prove_ms": 4.366854,
+      "request_ms": 4.66248,
       "request_resources": {
        "canonical_proof_bytes": 46446,
        "complete": true,
-       "cycles": 1699069312,
-       "energy_nj": 1306375420,
-       "instructions": 4305716909,
-       "lifetime_peak_physical_footprint_bytes": 23036864,
+       "cycles": 1565601441,
+       "energy_nj": 1315029642,
+       "instructions": 3573932973,
+       "lifetime_peak_physical_footprint_bytes": 26657776,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7878,17 +7939,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 3.22430825006939,
-      "peak_rss_mib": 28.56,
-      "prove_ms": 5.083646,
-      "request_ms": 5.430021,
+      "native_mhz": 2.4191811574675715,
+      "peak_rss_mib": 28.86,
+      "prove_ms": 6.772646,
+      "request_ms": 7.077729,
       "request_resources": {
        "canonical_proof_bytes": 46446,
        "complete": true,
-       "cycles": 404207695,
-       "energy_nj": 199939396,
-       "instructions": 773438722,
-       "lifetime_peak_physical_footprint_bytes": 161710992,
+       "cycles": 399956908,
+       "energy_nj": 335241677,
+       "instructions": 766965161,
+       "lifetime_peak_physical_footprint_bytes": 162825080,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7910,20 +7971,20 @@
    },
    {
     "committed_trace_cells": 196608,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 4.849005760350369,
-      "peak_rss_mib": 70.38,
-      "prove_ms": 13.515375,
-      "request_ms": 14.029458,
+      "native_mhz": 5.4664015652149605,
+      "peak_rss_mib": 70.52,
+      "prove_ms": 11.988875,
+      "request_ms": 12.555687,
       "request_resources": {
        "canonical_proof_bytes": 54848,
        "complete": true,
-       "cycles": 6164286617,
-       "energy_nj": 5138964567,
-       "instructions": 16347970776,
-       "lifetime_peak_physical_footprint_bytes": 72991296,
+       "cycles": 5435828766,
+       "energy_nj": 4470556786,
+       "instructions": 13253289981,
+       "lifetime_peak_physical_footprint_bytes": 73073384,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7934,17 +7995,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 7.944582048146021,
-      "peak_rss_mib": 43.41,
-      "prove_ms": 8.249146,
-      "request_ms": 8.788437,
+      "native_mhz": 5.5769192420859515,
+      "peak_rss_mib": 41.77,
+      "prove_ms": 11.751291,
+      "request_ms": 12.326416,
       "request_resources": {
        "canonical_proof_bytes": 54848,
        "complete": true,
-       "cycles": 689622251,
-       "energy_nj": 473976074,
-       "instructions": 1553684573,
-       "lifetime_peak_physical_footprint_bytes": 204162176,
+       "cycles": 636644568,
+       "energy_nj": 565719169,
+       "instructions": 1416334087,
+       "lifetime_peak_physical_footprint_bytes": 207946784,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7966,20 +8027,20 @@
    },
    {
     "committed_trace_cells": 131072,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.4320437068002434,
-      "peak_rss_mib": 19.41,
-      "prove_ms": 4.773833,
-      "request_ms": 5.092791,
+      "native_mhz": 3.6665039141682803,
+      "peak_rss_mib": 21.25,
+      "prove_ms": 4.468562,
+      "request_ms": 4.815105,
       "request_resources": {
        "canonical_proof_bytes": 45200,
        "complete": true,
-       "cycles": 1822777661,
-       "energy_nj": 1393666188,
-       "instructions": 4739305981,
-       "lifetime_peak_physical_footprint_bytes": 19727320,
+       "cycles": 1663024123,
+       "energy_nj": 1424774687,
+       "instructions": 3826493733,
+       "lifetime_peak_physical_footprint_bytes": 21529488,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -7990,17 +8051,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 2.1838462466273483,
-      "peak_rss_mib": 29.14,
-      "prove_ms": 7.506833,
-      "request_ms": 8.015375,
+      "native_mhz": 2.3468273899061987,
+      "peak_rss_mib": 29.81,
+      "prove_ms": 6.981375,
+      "request_ms": 7.321791,
       "request_resources": {
        "canonical_proof_bytes": 45200,
        "complete": true,
-       "cycles": 470493016,
-       "energy_nj": 211270609,
-       "instructions": 916151255,
-       "lifetime_peak_physical_footprint_bytes": 162677648,
+       "cycles": 469991994,
+       "energy_nj": 386098549,
+       "instructions": 904470152,
+       "lifetime_peak_physical_footprint_bytes": 163464104,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8020,20 +8081,20 @@
    },
    {
     "committed_trace_cells": 524288,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 4.821652308569622,
-      "peak_rss_mib": 65.58,
-      "prove_ms": 13.593604,
-      "request_ms": 14.139667,
+      "native_mhz": 5.527928218311333,
+      "peak_rss_mib": 70.05,
+      "prove_ms": 11.85575,
+      "request_ms": 12.445792,
       "request_resources": {
        "canonical_proof_bytes": 55401,
        "complete": true,
-       "cycles": 6400883538,
-       "energy_nj": 5565567030,
-       "instructions": 17808100134,
-       "lifetime_peak_physical_footprint_bytes": 68240488,
+       "cycles": 5635295339,
+       "energy_nj": 4689799023,
+       "instructions": 13975216237,
+       "lifetime_peak_physical_footprint_bytes": 72844416,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8044,17 +8105,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 7.534458030785769,
-      "peak_rss_mib": 46.0,
-      "prove_ms": 8.698187,
-      "request_ms": 9.251646,
+      "native_mhz": 5.081531431041736,
+      "peak_rss_mib": 48.84,
+      "prove_ms": 12.897042,
+      "request_ms": 13.510458,
       "request_resources": {
        "canonical_proof_bytes": 55401,
        "complete": true,
-       "cycles": 767075770,
-       "energy_nj": 533635537,
-       "instructions": 1762699199,
-       "lifetime_peak_physical_footprint_bytes": 208683896,
+       "cycles": 744174565,
+       "energy_nj": 625762905,
+       "instructions": 1577070690,
+       "lifetime_peak_physical_footprint_bytes": 211502136,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8074,20 +8135,20 @@
    },
    {
     "committed_trace_cells": 49152,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 3.4210217649415,
-      "peak_rss_mib": 23.84,
-      "prove_ms": 4.789292,
-      "request_ms": 5.048729,
+      "native_mhz": 3.7746149729179566,
+      "peak_rss_mib": 24.23,
+      "prove_ms": 4.340625,
+      "request_ms": 4.630063,
       "request_resources": {
        "canonical_proof_bytes": 40082,
        "complete": true,
-       "cycles": 1650654938,
-       "energy_nj": 1267541395,
-       "instructions": 4273173009,
-       "lifetime_peak_physical_footprint_bytes": 24363968,
+       "cycles": 1534932614,
+       "energy_nj": 1305862925,
+       "instructions": 3530286493,
+       "lifetime_peak_physical_footprint_bytes": 24724440,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8098,17 +8159,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 24.0,
-      "native_mhz": 2.3272758815809844,
-      "peak_rss_mib": 28.16,
-      "prove_ms": 7.063771,
-      "request_ms": 7.468604,
+      "native_mhz": 2.4001387628398287,
+      "peak_rss_mib": 28.38,
+      "prove_ms": 6.826291,
+      "request_ms": 7.104104,
       "request_resources": {
        "canonical_proof_bytes": 40082,
        "complete": true,
-       "cycles": 337052499,
-       "energy_nj": 161777419,
-       "instructions": 736632113,
-       "lifetime_peak_physical_footprint_bytes": 161252264,
+       "cycles": 378490665,
+       "energy_nj": 311610186,
+       "instructions": 725406428,
+       "lifetime_peak_physical_footprint_bytes": 162579392,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8133,17 +8194,17 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 4.8262021438410745,
-      "peak_rss_mib": 61.81,
-      "prove_ms": 13.57923,
-      "request_ms": 14.200792,
+      "native_mhz": 5.380146534278428,
+      "peak_rss_mib": 77.81,
+      "prove_ms": 12.181229,
+      "request_ms": 12.860687,
       "request_resources": {
        "canonical_proof_bytes": 60502,
        "complete": true,
-       "cycles": 6121968599,
-       "energy_nj": 5173088597,
-       "instructions": 16359046130,
-       "lifetime_peak_physical_footprint_bytes": 64226312,
+       "cycles": 5454153615,
+       "energy_nj": 4509985968,
+       "instructions": 13251175962,
+       "lifetime_peak_physical_footprint_bytes": 80921632,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8154,17 +8215,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 26.0,
-      "native_mhz": 8.2378952058246,
-      "peak_rss_mib": 43.56,
-      "prove_ms": 7.955438,
-      "request_ms": 8.572021,
+      "native_mhz": 5.417832931242594,
+      "peak_rss_mib": 41.5,
+      "prove_ms": 12.096354,
+      "request_ms": 12.781854,
       "request_resources": {
        "canonical_proof_bytes": 60502,
        "complete": true,
-       "cycles": 653180365,
-       "energy_nj": 518463896,
-       "instructions": 1570080665,
-       "lifetime_peak_physical_footprint_bytes": 204276840,
+       "cycles": 678051590,
+       "energy_nj": 571540625,
+       "instructions": 1422018212,
+       "lifetime_peak_physical_footprint_bytes": 207684616,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8189,17 +8250,17 @@
     "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.5325363083876076,
-      "peak_rss_mib": 36.45,
-      "prove_ms": 19.22875,
-      "request_ms": 22.907417,
+      "native_mhz": 1.0289995340266704,
+      "peak_rss_mib": 41.94,
+      "prove_ms": 9.951417,
+      "request_ms": 13.837937,
       "request_resources": {
        "canonical_proof_bytes": 97973,
        "complete": true,
-       "cycles": 3410429038,
-       "energy_nj": 3680630109,
-       "instructions": 8506969994,
-       "lifetime_peak_physical_footprint_bytes": 37569448,
+       "cycles": 1723120815,
+       "energy_nj": 1987036072,
+       "instructions": 5698423282,
+       "lifetime_peak_physical_footprint_bytes": 43123552,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8210,17 +8271,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 18.0,
-      "native_mhz": 1.338102505318534,
-      "peak_rss_mib": 64.94,
-      "prove_ms": 7.656104,
-      "request_ms": 11.478584,
+      "native_mhz": 0.8400320874264805,
+      "peak_rss_mib": 62.62,
+      "prove_ms": 12.190042,
+      "request_ms": 16.109875,
       "request_resources": {
        "canonical_proof_bytes": 97973,
        "complete": true,
-       "cycles": 949207986,
-       "energy_nj": 746244845,
-       "instructions": 1887519946,
-       "lifetime_peak_physical_footprint_bytes": 191071216,
+       "cycles": 937643674,
+       "energy_nj": 808461627,
+       "instructions": 1792181882,
+       "lifetime_peak_physical_footprint_bytes": 188351496,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8244,17 +8305,17 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 1.8779742255906877,
-      "peak_rss_mib": 109.92,
-      "prove_ms": 34.897271,
-      "request_ms": 63.22627,
+      "native_mhz": 4.179093478642152,
+      "peak_rss_mib": 157.06,
+      "prove_ms": 15.682021,
+      "request_ms": 46.246333,
       "request_resources": {
        "canonical_proof_bytes": 152455,
        "complete": true,
-       "cycles": 23560212489,
-       "energy_nj": 19961285916,
-       "instructions": 45029240907,
-       "lifetime_peak_physical_footprint_bytes": 114967992,
+       "cycles": 11148168555,
+       "energy_nj": 9523755829,
+       "instructions": 23967387432,
+       "lifetime_peak_physical_footprint_bytes": 164119728,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8265,17 +8326,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 20.0,
-      "native_mhz": 2.0493934332789236,
-      "peak_rss_mib": 210.88,
-      "prove_ms": 31.994604,
-      "request_ms": 60.313854,
+      "native_mhz": 2.74916110040626,
+      "peak_rss_mib": 211.83,
+      "prove_ms": 23.838771,
+      "request_ms": 54.556979,
       "request_resources": {
        "canonical_proof_bytes": 152455,
        "complete": true,
-       "cycles": 4495628401,
-       "energy_nj": 4066344231,
-       "instructions": 7186651674,
-       "lifetime_peak_physical_footprint_bytes": 345900472,
+       "cycles": 4438035236,
+       "energy_nj": 3845016768,
+       "instructions": 6481291523,
+       "lifetime_peak_physical_footprint_bytes": 347096528,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8296,20 +8357,20 @@
    },
    {
     "committed_trace_cells": 161792,
-    "headline_eligible": false,
+    "headline_eligible": true,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.18546119368447678,
-      "peak_rss_mib": 15.61,
-      "prove_ms": 5.521375,
-      "request_ms": 6.647687,
+      "native_mhz": 0.3307259430414211,
+      "peak_rss_mib": 21.62,
+      "prove_ms": 3.096229,
+      "request_ms": 4.293125,
       "request_resources": {
        "canonical_proof_bytes": 112834,
        "complete": true,
-       "cycles": 736244470,
-       "energy_nj": 663864473,
-       "instructions": 1819181515,
-       "lifetime_peak_physical_footprint_bytes": 15499912,
+       "cycles": 481932336,
+       "energy_nj": 525717767,
+       "instructions": 1384551358,
+       "lifetime_peak_physical_footprint_bytes": 21725808,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8320,17 +8381,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 15.0,
-      "native_mhz": 0.16818739193148946,
-      "peak_rss_mib": 38.97,
-      "prove_ms": 6.0915,
-      "request_ms": 7.238084,
+      "native_mhz": 0.21046831526507204,
+      "peak_rss_mib": 39.25,
+      "prove_ms": 4.944667,
+      "request_ms": 6.130541,
       "request_resources": {
        "canonical_proof_bytes": 112834,
        "complete": true,
-       "cycles": 479103860,
-       "energy_nj": 331080903,
-       "instructions": 1174500603,
-       "lifetime_peak_physical_footprint_bytes": 163447672,
+       "cycles": 459278250,
+       "energy_nj": 448863092,
+       "instructions": 1065458130,
+       "lifetime_peak_physical_footprint_bytes": 163906400,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8353,17 +8414,17 @@
     "headline_eligible": false,
     "lanes": {
      "cpu": {
-      "native_mhz": 0.326374696461963,
-      "peak_rss_mib": 48.88,
-      "prove_ms": 25.1,
-      "request_ms": 30.996375,
+      "native_mhz": 0.6406168734634443,
+      "peak_rss_mib": 38.05,
+      "prove_ms": 12.787687,
+      "request_ms": 19.08125,
       "request_resources": {
        "canonical_proof_bytes": 124194,
        "complete": true,
-       "cycles": 4599093023,
-       "energy_nj": 5132652356,
-       "instructions": 11891634472,
-       "lifetime_peak_physical_footprint_bytes": 50529264,
+       "cycles": 2388236777,
+       "energy_nj": 2875248069,
+       "instructions": 8266209015,
+       "lifetime_peak_physical_footprint_bytes": 39043936,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8374,17 +8435,17 @@
      "metal": {
       "cpu_fallbacks_per_proof": 0.0,
       "metal_dispatches_per_proof": 18.0,
-      "native_mhz": 0.9017501547903772,
-      "peak_rss_mib": 73.5,
-      "prove_ms": 9.084604,
-      "request_ms": 14.985563,
+      "native_mhz": 0.6790147922453778,
+      "peak_rss_mib": 73.27,
+      "prove_ms": 12.064541,
+      "request_ms": 18.356813,
       "request_resources": {
        "canonical_proof_bytes": 124194,
        "complete": true,
-       "cycles": 1308478516,
-       "energy_nj": 1200957274,
-       "instructions": 3194185347,
-       "lifetime_peak_physical_footprint_bytes": 200131616,
+       "cycles": 1304050137,
+       "energy_nj": 1326248322,
+       "instructions": 3096792597,
+       "lifetime_peak_physical_footprint_bytes": 200066080,
        "measured_samples": 10,
        "measured_warmups": 10,
        "measurement_scope": "verified_process_request_batch",
@@ -8403,12 +8464,12 @@
     "proof_parity": true
    }
   ],
-  "run_id": "2026-07-21-192812-matrix-v6-483bca66"
+  "run_id": "2026-07-23-072542-matrix-v6-a01299b4"
  },
  "metal_resident_progress": {
   "cpu_fallbacks_per_proof_median": 0.0,
-  "rows_total": 12,
-  "rows_with_zero_fallbacks": 12
+  "rows_total": 13,
+  "rows_with_zero_fallbacks": 13
  },
  "notes_count": 5,
  "project": {
@@ -8881,11 +8942,11 @@
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict-core_metal-huge.json": "e5db7996a61ae86fa817f2275d1fa9f5e11516ba57ee48410d2e54999f7bef20",
    "autoresearch/submissions/2026-07-23-metal-resident-transform-fusion-final/verdict.json": "01916173f3c1a0abd0f3e4977860810079af312681ca195bfc9eb2cb32af7363",
    "autoresearch/submissions/2026-07-23-riscv-shared-prover-vectorization/verdict.json": "3720982b4caad48341426705fd1e3655d0bad042ad4240d7c6a5ca943679f92e",
-   "vectors/reports/benchmark_history/index.json": "8a925c126250082d68bfca24baca1187dfd9e13b6b9cc9d6a78216af896f0a3b",
-   "vectors/reports/benchmark_history/runs/2026-07-21-192812-matrix-v6-483bca66/report.json": "53eee11540ad7976beb9c4e95773afd55a0da69676f7c58e469f670a26ac9466"
+   "vectors/reports/benchmark_history/index.json": "a7cb1b2c5cb6fc645066dccbc430e552a16d558022cb2412a037db5832d036a1",
+   "vectors/reports/benchmark_history/runs/2026-07-23-072542-matrix-v6-a01299b4/report.json": "4d021098c0c1450e9875d4b93f3468019f2bf946740b83e32f41be416cf2e120"
   },
-  "repo_commit": "7b37db035f65",
-  "repo_commit_time": "2026-07-23T07:42:37Z"
+  "repo_commit": "b8dc598da0aa",
+  "repo_commit_time": "2026-07-23T09:46:35+01:00"
  },
  "references": {
   "metal_calibration_epoch_2": {
