@@ -8,7 +8,8 @@ const std = @import("std");
 const circle = @import("../../circle.zig");
 const constraints = @import("../../constraints.zig");
 const cm31_mod = @import("../../fields/cm31.zig");
-const m31_mod = @import("../../fields/m31.zig");
+const fields = @import("../../fields/mod.zig");
+const m31_mod = fields.m31;
 const qm31_mod = @import("../../fields/qm31.zig");
 const samples = @import("samples.zig");
 
@@ -263,25 +264,35 @@ fn denominatorValuesIntoFromComponents(
 
 fn batchInverseIntoCM31(values: []const CM31, out: []CM31) !void {
     if (values.len != out.len) return error.ShapeMismatch;
-    if (values.len == 0) return;
+    fields.batchInverseInPlace(CM31, values, out) catch return error.DivisionByZero;
+}
 
-    out[0] = CM31.one();
-    var i: usize = 1;
-    while (i < values.len) : (i += 1) {
-        out[i] = out[i - 1].mul(values[i - 1]);
+test "CM31 batch inversion matches independent inverses" {
+    const lengths = [_]usize{ 1, 2, 3, 7, 8, 16, 24, 31, 32, 40, 63, 64 };
+    var values: [64]CM31 = undefined;
+    var inverses: [64]CM31 = undefined;
+    for (&values, 0..) |*value, i| {
+        value.* = CM31.fromM31(
+            M31.fromU64(17 * i + 3),
+            M31.fromU64(29 * i + 5),
+        );
     }
-
-    var inv_total = out[values.len - 1].mul(values[values.len - 1]).inv() catch {
-        return error.DivisionByZero;
-    };
-
-    var j: usize = values.len;
-    while (j > 0) {
-        j -= 1;
-        const prefix = if (j == 0) CM31.one() else out[j];
-        out[j] = inv_total.mul(prefix);
-        inv_total = inv_total.mul(values[j]);
+    for (lengths) |len| {
+        try batchInverseIntoCM31(values[0..len], inverses[0..len]);
+        for (values[0..len], inverses[0..len]) |value, inverse| {
+            try std.testing.expect(value.mul(inverse).eql(CM31.one()));
+        }
     }
+}
+
+test "CM31 batch inversion rejects a zero lane product" {
+    var values = [_]CM31{CM31.one()} ** 16;
+    var inverses: [16]CM31 = undefined;
+    values[11] = CM31.zero();
+    try std.testing.expectError(
+        error.DivisionByZero,
+        batchInverseIntoCM31(&values, &inverses),
+    );
 }
 
 /// Computes one quotient row using caller-provided reusable scratch.
