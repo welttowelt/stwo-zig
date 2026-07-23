@@ -5,6 +5,7 @@ const scheme = @import("scheme.zig");
 pub const quotient_ops = scheme.quotient_ops;
 pub const CommitmentSchemeError = scheme.CommitmentSchemeError;
 pub const ColumnEvaluation = scheme.ColumnEvaluation;
+pub const ColumnSource = @import("column_source.zig").ColumnSource;
 
 pub fn CommitmentTreeProver(comptime H: type) type {
     return scheme.CommitmentTreeProver(H);

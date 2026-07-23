@@ -128,7 +128,7 @@ pub fn interpolateFromEvaluation(
 pub fn interpolateAndSplitFromEvaluation(
     allocator: std.mem.Allocator,
     domain: CircleDomain,
-    values: *const SecureColumnByCoords,
+    values: *SecureColumnByCoords,
 ) !SecureCirclePoly.SplitPair {
     var twiddle_tree_owned = try twiddles_mod.precomputeM31(allocator, domain.half_coset);
     defer twiddles_mod.deinitM31(allocator, &twiddle_tree_owned);
@@ -147,7 +147,7 @@ pub fn interpolateAndSplitFromEvaluation(
 pub fn interpolateAndSplitFromEvaluationWithTwiddles(
     allocator: std.mem.Allocator,
     domain: CircleDomain,
-    values: *const SecureColumnByCoords,
+    values: *SecureColumnByCoords,
     twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
 ) !SecureCirclePoly.SplitPair {
     return interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
@@ -165,21 +165,25 @@ pub fn interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
     comptime B: type,
     allocator: std.mem.Allocator,
     domain: CircleDomain,
-    values: *const SecureColumnByCoords,
+    values: *SecureColumnByCoords,
     twiddle_tree: twiddles_mod.TwiddleTree([]const M31),
 ) !SecureCirclePoly.SplitPair {
     if (domain.size() != values.len() or values.len() < 2) return SecurePolyError.ShapeMismatch;
 
-    if (!evaluationIsConstant(values)) {
-        if (comptime B != void and @hasDecl(B, "interpolateSecureComposition")) {
-            if (try B.interpolateSecureComposition(
-                allocator,
-                values.columns[0..],
-                domain,
-                twiddle_tree,
-            )) return splitCoefficientColumns(allocator, values);
+    if (comptime B != void and @hasDecl(B, "interpolateSecureComposition")) {
+        if (try B.interpolateSecureComposition(
+            allocator,
+            values,
+            domain,
+            twiddle_tree,
+        )) {
+            if (values.representation == .coefficients)
+                return splitCoefficientColumnsBorrowed(values);
+            return splitCoefficientColumns(allocator, values);
         }
+    }
 
+    if (!evaluationIsConstant(values)) {
         var polynomial = try interpolateFromEvaluationWithTwiddles(
             allocator,
             domain,
@@ -214,6 +218,23 @@ pub fn interpolateAndSplitFromEvaluationWithTwiddlesForBackend(
         initialized += 1;
     }
 
+    return .{
+        .left = try SecureCirclePoly.init(left_polys),
+        .right = try SecureCirclePoly.init(right_polys),
+    };
+}
+
+fn splitCoefficientColumnsBorrowed(
+    values: *const SecureColumnByCoords,
+) !SecureCirclePoly.SplitPair {
+    if (values.representation != .coefficients) return SecurePolyError.ShapeMismatch;
+    const half_len = values.len() / 2;
+    var left_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    var right_polys: [qm31.SECURE_EXTENSION_DEGREE]CircleCoefficients = undefined;
+    for (values.columns, 0..) |column, coordinate| {
+        left_polys[coordinate] = try CircleCoefficients.initBorrowed(column[0..half_len]);
+        right_polys[coordinate] = try CircleCoefficients.initBorrowed(column[half_len..]);
+    }
     return .{
         .left = try SecureCirclePoly.init(left_polys),
         .right = try SecureCirclePoly.init(right_polys),

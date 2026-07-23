@@ -40,6 +40,7 @@ pub fn tryPrecommitted(
     retention_policy: anytype,
     twiddle_source: anytype,
     source_backing_buffers: ?[][]@import("stwo_core").fields.m31.M31,
+    source: @import("column_source.zig").ColumnSource,
 ) !?commitment_tree.CommitmentTreeProverForBackend(B, H) {
     if (comptime !@hasDecl(B, "prepareAndCommitOwned")) return null;
     // The public commit contract owns `owned_columns` on every error.  A
@@ -58,6 +59,34 @@ pub fn tryPrecommitted(
         retention_policy,
         twiddle_source,
         source_backing_buffers,
+        source,
+    )) orelse return null;
+    return commitment_tree.CommitmentTreeProverForBackend(B, H).initPrecommitted(
+        prepared.columns,
+        prepared.coefficients,
+        prepared.column_backing_buffers,
+        prepared.coefficient_backing_buffers,
+        prepared.commitment,
+    );
+}
+
+pub fn tryPrecommittedPolys(
+    comptime B: type,
+    comptime H: type,
+    allocator: std.mem.Allocator,
+    polys: []const @import("../poly/circle/mod.zig").CircleCoefficients,
+    log_blowup_factor: u32,
+    retention_policy: anytype,
+    twiddle_source: anytype,
+) !?commitment_tree.CommitmentTreeProverForBackend(B, H) {
+    if (comptime !@hasDecl(B, "prepareAndCommitPolys")) return null;
+    const prepared = (try B.prepareAndCommitPolys(
+        H,
+        allocator,
+        polys,
+        log_blowup_factor,
+        retention_policy,
+        twiddle_source,
     )) orelse return null;
     return commitment_tree.CommitmentTreeProverForBackend(B, H).initPrecommitted(
         prepared.columns,

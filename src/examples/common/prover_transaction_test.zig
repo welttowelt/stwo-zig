@@ -80,6 +80,26 @@ const FakeEngine = struct {
         return commit(scheme, allocator, columns, recorder, channel);
     }
 
+    pub fn commitPreparedWithBacking(
+        scheme: *Scheme,
+        allocator: std.mem.Allocator,
+        columns: []ColumnEvaluation,
+        backing_buffers: ?[][]M31,
+        source: prover_pcs.ColumnSource,
+        recorder: ?*stage_profile.Recorder,
+        channel: *Channel,
+    ) !void {
+        try std.testing.expect(source.isMaterialized());
+        return commitWithBacking(
+            scheme,
+            allocator,
+            columns,
+            backing_buffers,
+            recorder,
+            channel,
+        );
+    }
+
     pub fn prove(
         allocator: std.mem.Allocator,
         _: []const prover_component.ComponentProver,

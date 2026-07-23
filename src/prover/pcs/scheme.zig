@@ -45,6 +45,7 @@ pub const CommitmentSchemeError = error{
 };
 
 const CoefficientRetentionPolicy = column_storage.CoefficientRetentionPolicy;
+const ColumnSource = @import("column_source.zig").ColumnSource;
 
 pub const ColumnEvaluation = commitment_tree.ColumnEvaluation;
 
@@ -187,9 +188,33 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             recorder: ?*stage_profile.Recorder,
             channel: anytype,
         ) !void {
+            return self.commitOwnedPreparedWithRecorderAndBacking(
+                allocator,
+                input_columns,
+                input_backing_buffers,
+                .materialized,
+                recorder,
+                channel,
+            );
+        }
+
+        /// Commits columns whose values may be represented by an explicit
+        /// structural producer. Adopting backends can encode that producer in
+        /// the commitment epoch; all other paths materialize it before reading
+        /// or detaching the values.
+        pub fn commitOwnedPreparedWithRecorderAndBacking(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            input_columns: []ColumnEvaluation,
+            input_backing_buffers: ?[][]M31,
+            input_source: ColumnSource,
+            recorder: ?*stage_profile.Recorder,
+            channel: anytype,
+        ) !void {
             var owned_columns = input_columns;
             var backing_buffers = input_backing_buffers;
-            if (column_preparation.columnEvaluationsAreConstant(owned_columns)) {
+            const source = input_source;
+            if (source.isMaterialized() and column_preparation.columnEvaluationsAreConstant(owned_columns)) {
                 if (backing_buffers) |buffers| {
                     const detached = backed_columns.detach(allocator, owned_columns) catch |err| {
                         backed_columns.free(allocator, owned_columns, buffers);
@@ -203,7 +228,9 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             }
             // Auto-dispatch to streaming for large column sets (bounds peak memory).
             const backend_prefers_monolithic = comptime @hasDecl(B, "preferMonolithicCommit") and B.preferMonolithicCommit;
-            if (owned_columns.len >= streaming_column_threshold and !backend_prefers_monolithic) {
+            if (source.isMaterialized() and owned_columns.len >= streaming_column_threshold and
+                !backend_prefers_monolithic)
+            {
                 if (backing_buffers) |buffers| {
                     const detached = backed_columns.detach(allocator, owned_columns) catch |err| {
                         backed_columns.free(allocator, owned_columns, buffers);
@@ -230,6 +257,7 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                 self.coefficient_retention_policy,
                 &self.twiddle_source,
                 backing_buffers,
+                source,
             )) |committed| {
                 var tree = committed;
                 errdefer tree.deinit(allocator);
@@ -237,6 +265,23 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
                     try B.failAfterOwnershipTransferForTesting();
                 }
                 return self.appendCommittedTree(allocator, tree, channel);
+            }
+
+            if (!source.isMaterialized()) {
+                if (comptime !@hasDecl(B, "materializeColumnSource")) {
+                    if (backing_buffers) |buffers|
+                        backed_columns.free(allocator, owned_columns, buffers)
+                    else
+                        column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+                    return error.UnsupportedColumnSource;
+                }
+                B.materializeColumnSource(owned_columns, source) catch |err| {
+                    if (backing_buffers) |buffers|
+                        backed_columns.free(allocator, owned_columns, buffers)
+                    else
+                        column_storage.freeOwnedColumnEvaluations(allocator, owned_columns);
+                    return err;
+                };
             }
 
             // A shared arena cannot flow into generic code that frees each
@@ -299,6 +344,19 @@ pub fn CommitmentSchemeProver(comptime B: type, comptime H: type, comptime MC: t
             channel: anytype,
         ) !void {
             const blowup = self.config.fri_config.log_blowup_factor;
+            if (try commit_dispatch.tryPrecommittedPolys(
+                B,
+                H,
+                allocator,
+                polys,
+                blowup,
+                self.coefficient_retention_policy,
+                &self.twiddle_source,
+            )) |committed| {
+                var tree = committed;
+                errdefer tree.deinit(allocator);
+                return self.appendCommittedTree(allocator, tree, channel);
+            }
             const columns = try circle_transforms.extendCoefficientColumnsByGroupForBackend(
                 B,
                 allocator,
