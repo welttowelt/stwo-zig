@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const core_shader_abi: u32 = 8;
+pub const core_shader_abi: u32 = 9;
 pub const witness_codegen_support_version: u64 = 6;
 
 pub const CompileProfile = struct {
@@ -89,8 +89,11 @@ pub const exports = [_]Export{
     .{ .name = "stwo_zig_composition_random_powers", .owner = .composition },
     .{ .name = "stwo_zig_composition_ext_params", .owner = .composition },
     .{ .name = "stwo_zig_circle_ifft_fused_tail", .owner = .circle_transform },
+    .{ .name = "stwo_zig_circle_ifft_fused_tail_wide", .owner = .circle_transform },
+    .{ .name = "stwo_zig_quadratic_recurrence_ifft_fused_wide", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_rfft_fused_tail", .owner = .circle_transform },
     .{ .name = "stwo_zig_circle_rfft_fused_tail_sparse", .owner = .circle_transform },
+    .{ .name = "stwo_zig_circle_rfft_fused_tail_sparse_wide", .owner = .circle_transform },
     .{ .name = "stwo_zig_relation_fused", .owner = .relation },
     .{ .name = "stwo_zig_relation_block_scan", .owner = .relation },
     .{ .name = "stwo_zig_relation_scan_blocks", .owner = .relation },
@@ -363,7 +366,7 @@ fn kernelDeclaration(source: []const u8, name: []const u8) ![]const u8 {
 }
 
 test "Native core source exactly covers its non-Cairo export ABI" {
-    try std.testing.expectEqual(@as(usize, 79), native_exports.len);
+    try std.testing.expectEqual(@as(usize, 82), native_exports.len);
     try std.testing.expectEqual(native_exports.len, std.mem.count(u8, native_amalgamated_source, "kernel void "));
     try std.testing.expect(std.mem.indexOf(u8, native_amalgamated_source, "shaders/cairo/") == null);
     for (native_support_headers) |unit| try std.testing.expect(std.mem.indexOf(u8, unit.path, "/cairo/") == null);
@@ -414,7 +417,7 @@ test "metal shader manifest exactly covers source and runtime exports" {
 }
 
 test "commitment shader bindings match core ABI version 5" {
-    try std.testing.expectEqual(@as(u32, 8), core_shader_abi);
+    try std.testing.expectEqual(@as(u32, 9), core_shader_abi);
     const bindings = [_]struct { kernel: []const u8, argument: []const u8 }{
         .{ .kernel = "stwo_zig_blake2s_leaves", .argument = "prefix_bytes [[buffer(7)]]" },
         .{ .kernel = "stwo_zig_blake2s_parents", .argument = "prefix_bytes [[buffer(4)]]" },
@@ -572,7 +575,7 @@ test "circle transforms are isolated with standalone dependencies and fused ABI"
         try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(circle_transform_source, entry.name));
         try std.testing.expectEqual(@as(usize, 1), countKernelDeclarations(amalgamated_source, entry.name));
     }
-    try std.testing.expectEqual(@as(usize, 19), owned);
+    try std.testing.expectEqual(@as(usize, 22), owned);
     const dependencies = [_][]const u8{ "base.metal", "m31.metal", "circle.metal" };
     for (dependencies) |dependency| {
         try std.testing.expect(std.mem.indexOf(u8, circle_transform_source, dependency) != null);

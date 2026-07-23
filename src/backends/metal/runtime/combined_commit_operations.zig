@@ -26,7 +26,49 @@ pub fn transformCircleLdeAndCommit(
     node_seed: [8]u32,
     domain_prefix_bytes: u32,
 ) (MetalError || std.mem.Allocator.Error)!LdeCommitResult {
-    if (source_columns.len < 64 or source_columns.len != base_columns.len or
+    return transformCircleLdeAndCommitPrepared(
+        self,
+        allocator,
+        source_columns,
+        base_columns,
+        extended_columns,
+        transform_buffer,
+        extended_start,
+        extended_stride,
+        inverse_twiddles,
+        forward_twiddles,
+        base_log_size,
+        extended_log_size,
+        leaf_seed,
+        node_seed,
+        domain_prefix_bytes,
+        null,
+        false,
+    );
+}
+
+pub fn transformCircleLdeAndCommitPrepared(
+    self: *Runtime,
+    allocator: std.mem.Allocator,
+    source_columns: []const []const M31,
+    base_columns: []const []M31,
+    extended_columns: []const []M31,
+    transform_buffer: []M31,
+    extended_start: usize,
+    extended_stride: usize,
+    inverse_twiddles: []const M31,
+    forward_twiddles: []const M31,
+    base_log_size: u32,
+    extended_log_size: u32,
+    leaf_seed: [8]u32,
+    node_seed: [8]u32,
+    domain_prefix_bytes: u32,
+    deferred_recipe: ?[7]u32,
+    coefficients_ready: bool,
+) (MetalError || std.mem.Allocator.Error)!LdeCommitResult {
+    const supported_column_count = source_columns.len == 8 or
+        (source_columns.len >= 64 and source_columns.len <= 256);
+    if (!supported_column_count or source_columns.len != base_columns.len or
         base_columns.len != extended_columns.len or base_log_size < 16 or
         extended_log_size != base_log_size + 1 or extended_log_size >= 31 or
         extended_start > std.math.maxInt(u32) or extended_stride > std.math.maxInt(u32) or
@@ -66,13 +108,23 @@ pub fn transformCircleLdeAndCommit(
         base_ptrs[index] = @ptrCast(base.ptr);
     }
 
-    const scale_factor = (M31.fromCanonical(@intCast(base_len)).inv() catch
-        return MetalError.CircleTransformFailed).v;
+    const scale_factor = if (coefficients_ready)
+        M31.one().v
+    else
+        (M31.fromCanonical(@intCast(base_len)).inv() catch
+            return MetalError.CircleTransformFailed).v;
     const transform_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(transform_buffer));
     const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_twiddles));
     const forward_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(forward_twiddles));
     var gpu_ms: f64 = 0;
     var message: [1024]u8 = [_]u8{0} ** 1024;
+    var recipe_storage: [7]u32 = undefined;
+    const recipe_ptr: ?*const [7]u32 = if (deferred_recipe) |recipe| blk: {
+        for (recipe) |value| if (value >= 0x7fffffff)
+            return MetalError.CircleTransformFailed;
+        recipe_storage = recipe;
+        break :blk &recipe_storage;
+    } else null;
     const tree_handle = ffi.stwo_zig_metal_circle_lde_merkle_commit(
         self.handle,
         source_ptrs.ptr,
@@ -87,6 +139,8 @@ pub fn transformCircleLdeAndCommit(
         inverse_words.ptr,
         forward_words.ptr,
         scale_factor,
+        @intFromBool(coefficients_ready),
+        recipe_ptr,
         &leaf_seed,
         &node_seed,
         domain_prefix_bytes,

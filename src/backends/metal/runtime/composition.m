@@ -723,17 +723,29 @@ bool stwo_zig_metal_recurrence_composition(
     const uint32_t *denominator_inverses,
     uint32_t *output_words,
     size_t output_word_count,
+    const uint32_t *inverse_twiddles,
     double *gpu_milliseconds,
     char *error_message,
     size_t error_message_len
 ) {
     if (runtime_ptr == NULL || trace_first == NULL || power_words == NULL ||
-        denominator_inverses == NULL || output_words == NULL || row_count == 0u ||
+        denominator_inverses == NULL || output_words == NULL || inverse_twiddles == NULL ||
+        row_count == 0u || row_count > UINT32_MAX / 4u ||
         column_count < 3u || column_stride < row_count ||
         power_word_count != (column_count - 2u) * 4u ||
         output_word_count != (size_t)row_count * 4u) return false;
     @autoreleasepool {
         StwoZigMetalRuntime *runtime = (__bridge StwoZigMetalRuntime *)runtime_ptr;
+        uint32_t log_size = 0u;
+        uint32_t remaining_rows = row_count;
+        while (remaining_rows > 1u) {
+            if ((remaining_rows & 1u) != 0u) return false;
+            remaining_rows >>= 1u;
+            log_size += 1u;
+        }
+        if (log_size < 11u || log_size >= 31u) return false;
+        uint32_t pair_count = row_count >> 1u;
+        const uint32_t coordinate_count = 4u;
         size_t trace_word_count = (size_t)(column_count - 1u) * column_stride + row_count;
         if (trace_word_count > SIZE_MAX / sizeof(uint32_t) ||
             output_word_count > SIZE_MAX / sizeof(uint32_t)) return false;
@@ -809,10 +821,18 @@ bool stwo_zig_metal_recurrence_composition(
         id<MTLBuffer> powers = [runtime.device newBufferWithBytes:power_words
                                                          length:(NSUInteger)power_word_count * sizeof(uint32_t)
                                                         options:MTLResourceStorageModeShared];
-        if (output == nil || powers == nil) {
+        id<MTLBuffer> inverse_buffer = [runtime.device newBufferWithBytes:inverse_twiddles
+            length:(NSUInteger)pair_count * sizeof(uint32_t)
+            options:MTLResourceStorageModeShared];
+        id<MTLBuffer> coordinate_offsets = [runtime.device newBufferWithLength:
+            coordinate_count * sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        if (output == nil || powers == nil || inverse_buffer == nil || coordinate_offsets == nil) {
             write_error(error_message, error_message_len, @"Metal composition allocation failed");
             return false;
         }
+        uint32_t *offset_words = coordinate_offsets.contents;
+        for (uint32_t coordinate = 0u; coordinate < coordinate_count; ++coordinate)
+            offset_words[coordinate] = coordinate * row_count;
 
         id<MTLCommandBuffer> recurrence_command = [runtime.queue commandBuffer];
         id<MTLComputeCommandEncoder> encoder = [recurrence_command computeCommandEncoder];
@@ -830,6 +850,69 @@ bool stwo_zig_metal_recurrence_composition(
         [encoder dispatchThreads:MTLSizeMake(row_count, 1u, 1u)
              threadsPerThreadgroup:MTLSizeMake(width, 1u, 1u)];
         [encoder endEncoding];
+
+        id<MTLComputeCommandEncoder> fused = [recurrence_command computeCommandEncoder];
+        [fused setComputePipelineState:runtime.circleIfftFused];
+        [fused setBuffer:output offset:0u atIndex:0];
+        [fused setBuffer:output offset:0u atIndex:1];
+        [fused setBuffer:inverse_buffer offset:0u atIndex:2];
+        [fused setBytes:&log_size length:sizeof(log_size) atIndex:3];
+        [fused setBytes:&coordinate_count length:sizeof(coordinate_count) atIndex:4];
+        uint32_t source_mode = 0u;
+        [fused setBytes:&source_mode length:sizeof(source_mode) atIndex:5];
+        [fused dispatchThreadgroups:MTLSizeMake(row_count >> 11u, coordinate_count, 1u)
+            threadsPerThreadgroup:MTLSizeMake(256u, 1u, 1u)];
+        [fused endEncoding];
+
+        MTLSize inverse_grid = MTLSizeMake(pair_count, coordinate_count, 1u);
+        uint32_t inverse_layer = 11u;
+        while (inverse_layer < log_size) {
+            if (inverse_layer + 1u < log_size) {
+                uint32_t layer_mode = inverse_layer | 0x80000000u;
+                id<MTLComputeCommandEncoder> inverse = [recurrence_command computeCommandEncoder];
+                [inverse setComputePipelineState:runtime.circleRfftRadix4Sparse];
+                [inverse setBuffer:output offset:0u atIndex:0];
+                [inverse setBuffer:coordinate_offsets offset:0u atIndex:1];
+                [inverse setBuffer:inverse_buffer offset:0u atIndex:2];
+                [inverse setBytes:&log_size length:sizeof(log_size) atIndex:3];
+                [inverse setBytes:&layer_mode length:sizeof(layer_mode) atIndex:4];
+                [inverse setBytes:&coordinate_count length:sizeof(coordinate_count) atIndex:5];
+                NSUInteger inverse_width = MIN((NSUInteger)256u,
+                    runtime.circleRfftRadix4Sparse.maxTotalThreadsPerThreadgroup);
+                [inverse dispatchThreads:MTLSizeMake(row_count >> 2u, coordinate_count, 1u)
+                    threadsPerThreadgroup:MTLSizeMake(inverse_width, 1u, 1u)];
+                [inverse endEncoding];
+                inverse_layer += 2u;
+                continue;
+            }
+            uint32_t inverse_offset = pair_count - (1u << (log_size - inverse_layer));
+            id<MTLComputeCommandEncoder> inverse = [recurrence_command computeCommandEncoder];
+            [inverse setComputePipelineState:runtime.circleIfftLayer];
+            [inverse setBuffer:output offset:0u atIndex:0];
+            [inverse setBuffer:inverse_buffer offset:0u atIndex:1];
+            [inverse setBytes:&log_size length:sizeof(log_size) atIndex:2];
+            [inverse setBytes:&inverse_layer length:sizeof(inverse_layer) atIndex:3];
+            [inverse setBytes:&inverse_offset length:sizeof(inverse_offset) atIndex:4];
+            [inverse setBytes:&coordinate_count length:sizeof(coordinate_count) atIndex:5];
+            [inverse dispatchThreads:inverse_grid threadsPerThreadgroup:MTLSizeMake(
+                MIN((NSUInteger)256u, runtime.circleIfftLayer.maxTotalThreadsPerThreadgroup),
+                1u, 1u)];
+            [inverse endEncoding];
+            inverse_layer += 1u;
+        }
+
+        uint32_t scale_factor = 1u << (31u - log_size);
+        uint32_t total_values = row_count * coordinate_count;
+        id<MTLComputeCommandEncoder> scale = [recurrence_command computeCommandEncoder];
+        [scale setComputePipelineState:runtime.circleRescale];
+        [scale setBuffer:output offset:0u atIndex:0];
+        [scale setBytes:&total_values length:sizeof(total_values) atIndex:1];
+        [scale setBytes:&scale_factor length:sizeof(scale_factor) atIndex:2];
+        [scale dispatchThreads:MTLSizeMake(total_values, 1u, 1u)
+            threadsPerThreadgroup:MTLSizeMake(
+                MIN((NSUInteger)256u, runtime.circleRescale.maxTotalThreadsPerThreadgroup),
+                1u, 1u)];
+        [scale endEncoding];
         [recurrence_command commit];
         [recurrence_command waitUntilCompleted];
         if (recurrence_command.status == MTLCommandBufferStatusError) {

@@ -13,13 +13,14 @@ pub fn computeCompositionEvaluation(
     residency_handles: []const ?*anyopaque,
     composition_twiddles: ?prover.poly.twiddles.TwiddleTree([]const core.fields.m31.M31),
 ) !?prover.secure_column.SecureColumnByCoords {
-    _ = composition_twiddles;
+    const twiddle_tree = composition_twiddles orelse return null;
     return secure_composition.evaluateLargeRecurrenceComposition(
         allocator,
         components,
         random_coeff,
         trace,
         residency_handles,
+        twiddle_tree,
     );
 }
 
@@ -31,7 +32,7 @@ pub fn interpolateSecureComposition(
 ) !bool {
     return secure_composition.interpolateLargeSecureComposition(
         allocator,
-        values.columns[0..],
+        values,
         domain,
         twiddle_tree,
     );
