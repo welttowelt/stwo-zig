@@ -188,7 +188,7 @@ test "metal: quotient residency has no runtime-wide discovery surface" {
     try std.testing.expect(std.mem.indexOf(u8, runtime_source, "compositionTraceBuffer") == null);
     try std.testing.expect(std.mem.indexOf(u8, quotient_source, "resident_tree_handles") != null);
     try std.testing.expect(std.mem.indexOf(u8, quotient_source, "runtimeOwner != runtime") != null);
-    const composition_source = @embedFile("../../../backends/metal/runtime/composition.m");
+    const composition_source = @embedFile("../../../backends/metal/runtime/composition_recurrence.m");
     try std.testing.expect(std.mem.indexOf(u8, composition_source, "resident_tree_handle") != null);
     try std.testing.expect(std.mem.indexOf(u8, composition_source, "runtimeOwner != runtime") != null);
 }

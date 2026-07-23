@@ -10,6 +10,7 @@ const fields = @import("stwo_core").fields;
 const m31 = @import("stwo_core").fields.m31;
 const qm31 = @import("stwo_core").fields.qm31;
 const circle = @import("stwo_core").circle;
+const canonic = @import("stwo_core").poly.circle.canonic;
 const line = @import("stwo_core").poly.line;
 const secure_column = @import("stwo_prover_impl").secure_column;
 const merkle_prover = @import("stwo_prover_impl").vcs_lifted.prover;
@@ -328,7 +329,7 @@ test "metal: FRI backend hook retains folded coordinates and records fused epoch
     try std.testing.expectEqualSlices(u8, &cpu_tree.root(), &result.tree.root());
 }
 
-test "metal: line FRI cascade preserves every root, challenge, and final value" {
+test "metal: combined circle and line FRI cascade matches the generic path" {
     const allocator = std.testing.allocator;
     var runtime = try runtime_mod.Runtime.init();
     defer runtime.deinit();
@@ -339,22 +340,36 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
     const source_count: usize = @as(usize, 1) << source_log;
     const final_count: usize = @as(usize, 1) << final_log;
     const domain = try line.LineDomain.init(circle.Coset.halfOdds(source_log));
+    const circle_domain = canonic.CanonicCoset.new(source_log + 1).circleDomain();
 
     const source_values = try allocator.alloc(QM31, source_count);
     defer allocator.free(source_values);
-    for (source_values, 0..) |*value, index| {
-        value.* = QM31.fromU32Unchecked(
-            @intCast((index * 17 + 3) % m31.Modulus),
-            @intCast((index * 29 + 5) % m31.Modulus),
-            @intCast((index * 43 + 7) % m31.Modulus),
-            @intCast((index * 61 + 11) % m31.Modulus),
-        );
+    const circle_values = try allocator.alloc(M31, circle_domain.size() * 4);
+    defer allocator.free(circle_values);
+    var circle_columns: [4][]M31 = undefined;
+    for (&circle_columns, 0..) |*column, coordinate| {
+        column.* = circle_values[coordinate * circle_domain.size() .. (coordinate + 1) * circle_domain.size()];
+        for (column.*, 0..) |*value, index| {
+            value.* = M31.fromCanonical(
+                @intCast((coordinate * 65537 + index * 8191 + 43) % m31.Modulus),
+            );
+        }
     }
 
     var initial_channel = channel_blake2s.Blake2sChannel{};
     initial_channel.mixU32s(&.{ 0x1234_5678, 0x9abc_def0, 0x55aa_00ff });
-    _ = initial_channel.drawSecureFelt();
+    const circle_alpha = initial_channel.drawSecureFelt();
     var expected_channel = initial_channel;
+    var circle_workspace = try core_fri.FoldCircleWorkspace.init(allocator, source_count);
+    defer circle_workspace.deinit(allocator);
+    try core_fri.foldCircleColumnsIntoLineWithWorkspace(
+        allocator,
+        source_values,
+        circle_columns,
+        circle_domain,
+        circle_alpha,
+        &circle_workspace,
+    );
 
     const inverse_values = try allocator.alloc(M31, source_count - final_count);
     defer allocator.free(inverse_values);
@@ -412,8 +427,10 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
 
     var source = try runtime.allocateResidentBuffer(source_count * @sizeOf(QM31));
     defer source.deinit();
-    const resident_source: [*]QM31 = @ptrCast(@alignCast(source.contents));
-    @memcpy(resident_source[0..source_count], source_values);
+    var circle_source = try runtime.allocateResidentBuffer(circle_values.len * @sizeOf(M31));
+    defer circle_source.deinit();
+    const resident_circle_source: [*]M31 = @ptrCast(@alignCast(circle_source.contents));
+    @memcpy(resident_circle_source[0..circle_values.len], circle_values);
 
     const coordinate_buffers = try allocator.alloc(runtime_mod.ResidentBuffer, layer_count);
     defer allocator.free(coordinate_buffers);
@@ -441,13 +458,24 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
     }
     channel_state[8] = initial_channel.n_draws;
     const inverse_words = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(inverse_values));
+    const initial_coset = domain.coset();
     const result = try runtime.foldFriLineCascade(
         allocator,
         source.handle,
         source_count,
+        circle_source.handle,
+        blk: {
+            const coordinates = circle_alpha.toM31Array();
+            break :blk .{
+                coordinates[0].v,
+                coordinates[1].v,
+                coordinates[2].v,
+                coordinates[3].v,
+            };
+        },
         inverse_words,
-        0,
-        0,
+        @intCast(initial_coset.initial_index.v),
+        @intCast(initial_coset.step_size.v),
         coordinate_handles,
         final_destination.handle,
         Hasher.leafSeed(),
@@ -462,8 +490,8 @@ test "metal: line FRI cascade preserves every root, challenge, and final value" 
 
     try std.testing.expectEqual(@as(u64, 1), result.stats.command_buffers);
     try std.testing.expectEqual(@as(u64, 1), result.stats.wait_count);
-    try std.testing.expectEqual(@as(u64, 1), result.stats.compute_encoders);
-    try std.testing.expectEqual(@as(u64, 20), result.stats.dispatches);
+    try std.testing.expectEqual(@as(u64, 2), result.stats.compute_encoders);
+    try std.testing.expectEqual(@as(u64, 22), result.stats.dispatches);
     for (result.trees, expected_roots) |tree, expected_root| {
         const actual_root = try tree.root();
         try std.testing.expectEqualSlices(u8, &expected_root, &actual_root.hash);
