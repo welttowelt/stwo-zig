@@ -20,6 +20,7 @@ fn run(
     comptime normalize: bool,
     normalization: M31,
     comptime duplicate_upper_from_lower: bool,
+    duplicated_half_source: ?[]const M31,
 ) void {
     std.debug.assert(log_size < @bitSizeOf(usize));
     std.debug.assert(values.len == @as(usize, 1) << @intCast(log_size));
@@ -27,6 +28,10 @@ fn run(
     std.debug.assert(twiddles.len >= pair_count);
     std.debug.assert(!normalize or inverse_transform);
     std.debug.assert(!duplicate_upper_from_lower or (!inverse_transform and !normalize));
+    std.debug.assert(duplicate_upper_from_lower or duplicated_half_source == null);
+    if (duplicated_half_source) |source| {
+        std.debug.assert(source.len == values.len / 2);
+    }
 
     const lowest_stage = if (inverse_transform) stage else stage - 2;
     std.debug.assert(canFuseThreeLayersPacked(lowest_stage));
@@ -46,11 +51,12 @@ fn run(
         const group = group_cursor;
         const base = group << @intCast(lowest_stage + 3);
         const load_base = if (duplicate_upper_from_lower and group == 1) 0 else base;
+        const load_ptr = if (duplicated_half_source) |source| source.ptr else values.ptr;
         var lane: usize = 0;
         while (lane < distance) : (lane += PW) {
             var tuple: [8]m31.PackedM31 = undefined;
             inline for (0..8) |item| {
-                tuple[item] = m31.loadPacked(values.ptr + load_base + lane + item * distance);
+                tuple[item] = m31.loadPacked(load_ptr + load_base + lane + item * distance);
             }
 
             inline for (0..3) |step| {
@@ -109,7 +115,7 @@ pub fn forward(
     highest_stage: u32,
     twiddles: []const M31,
 ) void {
-    run(values, log_size, highest_stage, twiddles, false, false, M31.one(), false);
+    run(values, log_size, highest_stage, twiddles, false, false, M31.one(), false, null);
 }
 
 pub fn forwardFromDuplicatedHalf(
@@ -118,7 +124,20 @@ pub fn forwardFromDuplicatedHalf(
     highest_stage: u32,
     twiddles: []const M31,
 ) void {
-    run(values, log_size, highest_stage, twiddles, false, false, M31.one(), true);
+    run(values, log_size, highest_stage, twiddles, false, false, M31.one(), true, null);
+}
+
+/// Expands the first fused forward pass directly from immutable coefficients.
+/// The destination may be entirely uninitialized: both output groups read the
+/// same half-sized source that the skipped zero-padded layer would duplicate.
+pub fn forwardFromHalfSource(
+    values: []M31,
+    source: []const M31,
+    log_size: u32,
+    highest_stage: u32,
+    twiddles: []const M31,
+) void {
+    run(values, log_size, highest_stage, twiddles, false, false, M31.one(), true, source);
 }
 
 pub fn inverse(
@@ -127,7 +146,7 @@ pub fn inverse(
     lowest_stage: u32,
     itwiddles: []const M31,
 ) void {
-    run(values, log_size, lowest_stage, itwiddles, true, false, M31.one(), false);
+    run(values, log_size, lowest_stage, itwiddles, true, false, M31.one(), false, null);
 }
 
 pub fn inverseNormalized(
@@ -137,5 +156,5 @@ pub fn inverseNormalized(
     itwiddles: []const M31,
     normalization: M31,
 ) void {
-    run(values, log_size, lowest_stage, itwiddles, true, true, normalization, false);
+    run(values, log_size, lowest_stage, itwiddles, true, true, normalization, false, null);
 }

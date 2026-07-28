@@ -131,6 +131,7 @@ pub inline fn fftLayerLoopForwardM31(
 pub const canFuseThreeLayersPacked = radix8.canFuseThreeLayersPacked;
 pub const fftThreeLayersForwardPackedM31 = radix8.forward;
 pub const fftThreeLayersForwardPackedM31FromDuplicatedHalf = radix8.forwardFromDuplicatedHalf;
+pub const fftThreeLayersForwardPackedM31FromHalfSource = radix8.forwardFromHalfSource;
 pub const fftThreeLayersInversePackedM31 = radix8.inverse;
 pub const fftThreeLayersInversePackedM31Normalized = radix8.inverseNormalized;
 
@@ -703,6 +704,18 @@ test "packed radix-8 pass matches three independent stages" {
     @memcpy(actual, input);
     fftThreeLayersForwardPackedM31(expected, log_size, 8, twiddles);
     fftThreeLayersForwardPackedM31FromDuplicatedHalf(actual, log_size, 8, twiddles);
+    try std.testing.expectEqualSlices(M31, expected, actual);
+
+    // The direct-source variant must ignore both halves of its destination and
+    // produce the exact staged expansion from the retained coefficients.
+    const source = input[0 .. value_count / 2];
+    @memcpy(expected[0 .. value_count / 2], source);
+    @memcpy(expected[value_count / 2 ..], source);
+    for (actual) |*value| {
+        value.* = M31.fromCanonical(random.intRangeLessThan(u32, 0, m31.Modulus));
+    }
+    fftThreeLayersForwardPackedM31(expected, log_size, 8, twiddles);
+    fftThreeLayersForwardPackedM31FromHalfSource(actual, source, log_size, 8, twiddles);
     try std.testing.expectEqualSlices(M31, expected, actual);
 
     const inverse_stages = [_]u32{ 3, 7 };

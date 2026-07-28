@@ -456,6 +456,9 @@ pub const evaluateBuffersWithTwiddles = transforms.evaluateBuffersWithTwiddles;
 
 pub const evaluateExtensionBuffersWithTwiddles = transforms.evaluateExtensionBuffersWithTwiddles;
 
+pub const evaluateExtensionBuffersFromCoefficientSourcesWithTwiddles =
+    transforms.evaluateExtensionBuffersFromCoefficientSourcesWithTwiddles;
+
 fn checkedPow2(log_size: u32) PolyError!usize {
     if (log_size >= @bitSizeOf(usize)) return PolyError.InvalidLogSize;
     return @as(usize, 1) << @intCast(log_size);

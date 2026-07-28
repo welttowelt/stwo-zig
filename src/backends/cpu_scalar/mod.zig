@@ -186,9 +186,10 @@ pub const CpuBackend = struct {
                     job.err = err;
                     return;
                 };
-                @memcpy(job.extended[0..job.base.len], job.base);
+                const coefficient_sources = [_][]const M31{job.base};
                 var extended_batch = [_][]M31{job.extended};
-                prover.poly.circle.poly.evaluateExtensionBuffersWithTwiddles(
+                prover.poly.circle.poly.evaluateExtensionBuffersFromCoefficientSourcesWithTwiddles(
+                    &coefficient_sources,
                     &extended_batch,
                     job.extended_domain,
                     job.extended_twiddles,

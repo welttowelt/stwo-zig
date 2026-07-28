@@ -531,7 +531,7 @@ pub fn evaluateBuffersWithTwiddles(
         return;
     }
 
-    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 0, false);
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 0, false, null);
 }
 
 /// Batched forward evaluation for buffers whose upper halves are known to be
@@ -552,7 +552,42 @@ pub fn evaluateExtensionBuffersWithTwiddles(
         }
         return evaluateBuffersWithTwiddles(values_batch, domain, twiddle_tree);
     }
-    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 1, true);
+    try evaluateBuffersTailLayers(values_batch, domain, twiddle_tree, 1, true, null);
+}
+
+/// Batched 2x extension that reads retained coefficients directly into the
+/// first fused forward pass. Unlike `evaluateExtensionBuffersWithTwiddles`,
+/// the destination lower halves need not be initialized.
+pub fn evaluateExtensionBuffersFromCoefficientSourcesWithTwiddles(
+    coefficient_sources: []const []const M31,
+    values_batch: []const []M31,
+    domain: CircleDomain,
+    twiddle_tree: M31TwiddleTree,
+) PolyError!void {
+    if (coefficient_sources.len == 0 or coefficient_sources.len != values_batch.len) {
+        return PolyError.InvalidLength;
+    }
+    for (coefficient_sources, values_batch) |source, values| {
+        if (source.len > std.math.maxInt(usize) / 2 or source.len * 2 != values.len) {
+            return PolyError.InvalidLength;
+        }
+    }
+    if (!domain.half_coset.isDoublingOf(twiddle_tree.root_coset)) return PolyError.InvalidLogSize;
+    if (domain.logSize() <= 2) {
+        for (coefficient_sources, values_batch) |source, values| {
+            @memcpy(values[0..source.len], source);
+            @memset(values[source.len..], M31.zero());
+        }
+        return evaluateBuffersWithTwiddles(values_batch, domain, twiddle_tree);
+    }
+    try evaluateBuffersTailLayers(
+        values_batch,
+        domain,
+        twiddle_tree,
+        1,
+        true,
+        coefficient_sources,
+    );
 }
 
 fn evaluateBuffersTailLayers(
@@ -561,6 +596,7 @@ fn evaluateBuffersTailLayers(
     twiddle_tree: M31TwiddleTree,
     skip_layers: u32,
     duplicate_upper_from_lower: bool,
+    duplicated_half_sources: ?[]const []const M31,
 ) PolyError!void {
     const line_log_size = domain.half_coset.logSize();
     const twiddle_len = twiddle_tree.twiddles.len;
@@ -579,9 +615,14 @@ fn evaluateBuffersTailLayers(
         layer_idx >= 5 and
         fft_kernels.canFuseThreeLayersPacked(layer_idx - 2);
     if (expand_on_first_radix and !first_pass_is_packed_radix8) {
-        for (values_batch) |values| {
+        for (values_batch, 0..) |values, index| {
             const half = values.len / 2;
-            @memcpy(values[half..], values[0..half]);
+            if (duplicated_half_sources) |sources| {
+                @memcpy(values[0..half], sources[index]);
+                @memcpy(values[half..], sources[index]);
+            } else {
+                @memcpy(values[half..], values[0..half]);
+            }
         }
         expand_on_first_radix = false;
     }
@@ -589,14 +630,24 @@ fn evaluateBuffersTailLayers(
         if (layer_idx >= 5 and
             fft_kernels.canFuseThreeLayersPacked(layer_idx - 2))
         {
-            for (values_batch) |values| {
+            for (values_batch, 0..) |values, index| {
                 if (expand_on_first_radix) {
-                    fft_kernels.fftThreeLayersForwardPackedM31FromDuplicatedHalf(
-                        values,
-                        domain.logSize(),
-                        layer_idx,
-                        twiddle_tree.twiddles,
-                    );
+                    if (duplicated_half_sources) |sources| {
+                        fft_kernels.fftThreeLayersForwardPackedM31FromHalfSource(
+                            values,
+                            sources[index],
+                            domain.logSize(),
+                            layer_idx,
+                            twiddle_tree.twiddles,
+                        );
+                    } else {
+                        fft_kernels.fftThreeLayersForwardPackedM31FromDuplicatedHalf(
+                            values,
+                            domain.logSize(),
+                            layer_idx,
+                            twiddle_tree.twiddles,
+                        );
+                    }
                 } else {
                     fft_kernels.fftThreeLayersForwardPackedM31(
                         values,
