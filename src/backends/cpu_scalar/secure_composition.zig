@@ -47,10 +47,109 @@ const Worker = struct {
     fn run(self: *Worker) void {
         const half = self.row_count / 2;
         var row = self.row_start;
-        // Two independent packed row groups break the 98-column recurrence's
-        // multiply dependency chain. This keeps both integer SIMD multiply
-        // pipes occupied without the register spills seen in wider FFT
-        // radix experiments.
+        // Three independent packed row groups expose additional instruction
+        // parallelism across the 98-column recurrence without changing any
+        // row's arithmetic order. Exact two- and one-group tails below keep
+        // arbitrary worker partitions in bounds.
+        while (row + 3 * m31.PACK_WIDTH <= self.row_end) : (row += 3 * m31.PACK_WIDTH) {
+            var a0 = m31.loadPacked(self.first_column + row);
+            var b0 = m31.loadPacked(self.first_column + self.column_stride + row);
+            var a1 = m31.loadPacked(self.first_column + row + m31.PACK_WIDTH);
+            var b1 = m31.loadPacked(
+                self.first_column + self.column_stride + row + m31.PACK_WIDTH,
+            );
+            var a2 = m31.loadPacked(self.first_column + row + 2 * m31.PACK_WIDTH);
+            var b2 = m31.loadPacked(
+                self.first_column + self.column_stride + row + 2 * m31.PACK_WIDTH,
+            );
+            var a0_squared = m31.mulPacked(a0, a0);
+            var b0_squared = m31.mulPacked(b0, b0);
+            var a1_squared = m31.mulPacked(a1, a1);
+            var b1_squared = m31.mulPacked(b1, b1);
+            var a2_squared = m31.mulPacked(a2, a2);
+            var b2_squared = m31.mulPacked(b2, b2);
+            var accumulators0: [qm31.SECURE_EXTENSION_DEGREE]PackedM31 = .{
+                @splat(0), @splat(0), @splat(0), @splat(0),
+            };
+            var accumulators1: [qm31.SECURE_EXTENSION_DEGREE]PackedM31 = .{
+                @splat(0), @splat(0), @splat(0), @splat(0),
+            };
+            var accumulators2: [qm31.SECURE_EXTENSION_DEGREE]PackedM31 = .{
+                @splat(0), @splat(0), @splat(0), @splat(0),
+            };
+
+            var column: usize = 2;
+            while (column < self.column_count) : (column += 1) {
+                const column_start = self.first_column + column * self.column_stride + row;
+                const c0 = m31.loadPacked(column_start);
+                const c1 = m31.loadPacked(column_start + m31.PACK_WIDTH);
+                const c2 = m31.loadPacked(column_start + 2 * m31.PACK_WIDTH);
+                const recurrence0 = m31.subPacked(
+                    c0,
+                    m31.addPacked(a0_squared, b0_squared),
+                );
+                const recurrence1 = m31.subPacked(
+                    c1,
+                    m31.addPacked(a1_squared, b1_squared),
+                );
+                const recurrence2 = m31.subPacked(
+                    c2,
+                    m31.addPacked(a2_squared, b2_squared),
+                );
+                const power = self.powers[self.column_count - 1 - column];
+                inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                    const coefficient = power.coordinates[coordinate];
+                    accumulators0[coordinate] = m31.addPacked(
+                        accumulators0[coordinate],
+                        m31.mulPacked(recurrence0, coefficient),
+                    );
+                    accumulators1[coordinate] = m31.addPacked(
+                        accumulators1[coordinate],
+                        m31.mulPacked(recurrence1, coefficient),
+                    );
+                    accumulators2[coordinate] = m31.addPacked(
+                        accumulators2[coordinate],
+                        m31.mulPacked(recurrence2, coefficient),
+                    );
+                }
+                a0 = b0;
+                b0 = c0;
+                a1 = b1;
+                b1 = c1;
+                a2 = b2;
+                b2 = c2;
+                a0_squared = b0_squared;
+                a1_squared = b1_squared;
+                a2_squared = b2_squared;
+                if (column + 1 < self.column_count) {
+                    b0_squared = m31.mulPacked(c0, c0);
+                    b1_squared = m31.mulPacked(c1, c1);
+                    b2_squared = m31.mulPacked(c2, c2);
+                }
+            }
+
+            const denominator0 = self.denominator_inverses[@intFromBool(row >= half)];
+            const denominator1 = self.denominator_inverses[
+                @intFromBool(row + m31.PACK_WIDTH >= half)
+            ];
+            const denominator2 = self.denominator_inverses[
+                @intFromBool(row + 2 * m31.PACK_WIDTH >= half)
+            ];
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                m31.storePacked(
+                    self.outputs[coordinate] + row,
+                    m31.mulPacked(accumulators0[coordinate], denominator0),
+                );
+                m31.storePacked(
+                    self.outputs[coordinate] + row + m31.PACK_WIDTH,
+                    m31.mulPacked(accumulators1[coordinate], denominator1),
+                );
+                m31.storePacked(
+                    self.outputs[coordinate] + row + 2 * m31.PACK_WIDTH,
+                    m31.mulPacked(accumulators2[coordinate], denominator2),
+                );
+            }
+        }
         while (row + 2 * m31.PACK_WIDTH <= self.row_end) : (row += 2 * m31.PACK_WIDTH) {
             var a0 = m31.loadPacked(self.first_column + row);
             var b0 = m31.loadPacked(self.first_column + self.column_stride + row);
@@ -158,6 +257,90 @@ const Worker = struct {
         }
     }
 };
+
+test "secure composition triple-chain schedule matches scalar recurrence with exact tails" {
+    const row_count = 56;
+    const column_count = 9;
+    var trace: [row_count * column_count]M31 = undefined;
+    for (0..column_count) |column| {
+        for (0..row_count) |row| {
+            trace[column * row_count + row] = M31.fromU64(
+                @as(u64, column + 3) * 1_000_003 + @as(u64, row + 5) * 97,
+            );
+        }
+    }
+
+    var powers: [column_count - 2]PackedPower = undefined;
+    var scalar_powers: [column_count - 2][qm31.SECURE_EXTENSION_DEGREE]M31 = undefined;
+    for (&powers, &scalar_powers, 0..) |*packed_power, *scalar_power, power_index| {
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            const value = M31.fromU64(
+                @as(u64, power_index + 2) * 131 + @as(u64, coordinate + 1) * 17,
+            );
+            scalar_power[coordinate] = value;
+            packed_power.coordinates[coordinate] = m31.splatPacked(value);
+        }
+    }
+
+    const denominator_scalars = [2]M31{
+        M31.fromCanonical(3),
+        M31.fromCanonical(5),
+    };
+    var outputs: [qm31.SECURE_EXTENSION_DEGREE][row_count]M31 = undefined;
+    var output_pointers: [qm31.SECURE_EXTENSION_DEGREE][*]M31 = undefined;
+    inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+        output_pointers[coordinate] = outputs[coordinate][0..].ptr;
+    }
+
+    const ranges = [_][2]usize{
+        .{ 0, 12 },
+        .{ 12, 28 },
+        .{ 28, 48 },
+        .{ 48, 56 },
+    };
+    for (ranges) |range| {
+        var worker = Worker{
+            .first_column = trace[0..].ptr,
+            .outputs = output_pointers,
+            .powers = powers[0..],
+            .denominator_inverses = .{
+                m31.splatPacked(denominator_scalars[0]),
+                m31.splatPacked(denominator_scalars[1]),
+            },
+            .row_count = row_count,
+            .column_count = column_count,
+            .column_stride = row_count,
+            .row_start = range[0],
+            .row_end = range[1],
+        };
+        worker.run();
+    }
+
+    for (0..row_count) |row| {
+        var a = trace[row];
+        var b = trace[row_count + row];
+        var accumulators = [_]M31{M31.zero()} ** qm31.SECURE_EXTENSION_DEGREE;
+        for (2..column_count) |column| {
+            const c = trace[column * row_count + row];
+            const recurrence = c.sub(a.square().add(b.square()));
+            const power = scalar_powers[column_count - 1 - column];
+            inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+                accumulators[coordinate] = accumulators[coordinate].add(
+                    recurrence.mul(power[coordinate]),
+                );
+            }
+            a = b;
+            b = c;
+        }
+        const denominator = denominator_scalars[@intFromBool(row >= row_count / 2)];
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            try std.testing.expectEqual(
+                accumulators[coordinate].mul(denominator),
+                outputs[coordinate][row],
+            );
+        }
+    }
+}
 
 pub fn evaluateLargeRecurrenceComposition(
     allocator: std.mem.Allocator,
