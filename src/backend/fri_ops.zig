@@ -22,13 +22,6 @@ pub fn FoldLineAndCommitResult(comptime Tree: type) type {
     };
 }
 
-pub fn SecureColumnAndCommitResult(comptime Tree: type) type {
-    return struct {
-        column: secure_column.SecureColumnByCoords,
-        tree: Tree,
-    };
-}
-
 /// Validates a backend's explicitly claimed FRI folding capability.
 ///
 /// When `enabled` is true, required declarations are:
@@ -39,7 +32,6 @@ pub fn SecureColumnAndCommitResult(comptime Tree: type) type {
 /// independently optional because the generic prover has complete fallbacks:
 ///   - `secureColumnForMerkle(allocator, evaluation) !SecureColumnByCoords`
 ///   - `secureColumnFromLine(evaluation) !SecureColumnByCoords` (legacy fallback)
-///   - `materializeSecureColumnAndCommit(...) !SecureColumnAndCommitResult(MerkleTree(H))`
 ///   - `foldLineAndCommitNext(...) !FoldLineAndCommitResult(MerkleTree(H))`
 pub fn assertCapability(
     comptime B: type,

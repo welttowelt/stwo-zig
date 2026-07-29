@@ -306,11 +306,18 @@ pub const CpuBackend = struct {
         return MerkleTree(H).commitWithLazyQuotients(allocator, provider, out_column);
     }
 
+    fn SecureColumnAndCommitResult(comptime H: type) type {
+        return struct {
+            column: prover_impl.secure_column.SecureColumnByCoords,
+            tree: MerkleTree(H),
+        };
+    }
+
     pub fn materializeSecureColumnAndCommit(
         comptime H: type,
         allocator: std.mem.Allocator,
         evaluation: prover_impl.line.LineEvaluation,
-    ) !@import("stwo_backend_contracts").fri_ops.SecureColumnAndCommitResult(MerkleTree(H)) {
+    ) !SecureColumnAndCommitResult(H) {
         var coordinates = try prover_impl.secure_column.SecureColumnByCoords.uninitialized(
             allocator,
             evaluation.len(),
