@@ -2,9 +2,12 @@
 
 const std = @import("std");
 const m31 = @import("stwo_core").fields.m31;
+const qm31 = @import("stwo_core").fields.qm31;
+const secure_column = @import("stwo_prover_engine").secure_column;
 const prover_mod = @import("stwo_prover_engine").vcs_lifted.prover;
 
 const M31 = m31.M31;
+const QM31 = qm31.QM31;
 const MerkleProverLifted = prover_mod.MerkleProverLifted;
 
 test "prover vcs_lifted: root is stable across large-layer worker-count overrides" {
@@ -303,4 +306,51 @@ test "prover vcs_lifted: streaming committer empty columns" {
     defer streaming_prover.deinit(alloc);
 
     try std.testing.expectEqualSlices(u8, expected_root[0..], streaming_prover.root()[0..]);
+}
+
+test "prover vcs_lifted: fused secure materialization matches legacy commitment" {
+    const Hasher = @import("stwo_core").vcs_lifted.blake2_merkle.Blake2sMerkleHasher;
+    const Prover = MerkleProverLifted(Hasher);
+    const alloc = std.testing.allocator;
+
+    for ([_]usize{ 4, 1 << 11 }) |value_count| {
+        const values = try alloc.alloc(QM31, value_count);
+        defer alloc.free(values);
+        for (values, 0..) |*value, row| {
+            value.* = QM31.fromU32Unchecked(
+                @intCast(1 + (row * 17) % 1_000_003),
+                @intCast(3 + (row * 29) % 1_000_033),
+                @intCast(5 + (row * 43) % 1_000_037),
+                @intCast(7 + (row * 61) % 1_000_081),
+            );
+        }
+
+        var legacy_column = try secure_column.SecureColumnByCoords.fromSecureSlice(alloc, values);
+        defer legacy_column.deinit(alloc);
+        const legacy_columns = [_][]const M31{
+            legacy_column.columns[0],
+            legacy_column.columns[1],
+            legacy_column.columns[2],
+            legacy_column.columns[3],
+        };
+        var legacy_tree = try Prover.commit(alloc, &legacy_columns);
+        defer legacy_tree.deinit(alloc);
+
+        var fused_column = try secure_column.SecureColumnByCoords.uninitialized(alloc, value_count);
+        defer fused_column.deinit(alloc);
+        var fused_tree = try Prover.commitWithSecureValues(alloc, values, &fused_column);
+        defer fused_tree.deinit(alloc);
+
+        inline for (0..qm31.SECURE_EXTENSION_DEGREE) |coordinate| {
+            try std.testing.expectEqualSlices(
+                M31,
+                legacy_column.columns[coordinate],
+                fused_column.columns[coordinate],
+            );
+        }
+        try std.testing.expectEqual(legacy_tree.layers.len, fused_tree.layers.len);
+        for (legacy_tree.layers, fused_tree.layers) |legacy_layer, fused_layer| {
+            try std.testing.expectEqualSlices(Hasher.Hash, legacy_layer, fused_layer);
+        }
+    }
 }

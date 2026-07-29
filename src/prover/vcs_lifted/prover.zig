@@ -14,8 +14,10 @@ const leaves_mod = @import("leaves.zig");
 const expand_mod = @import("expand.zig");
 const layers_mod = @import("layers.zig");
 const parameters = @import("parameters.zig");
+const secure_value_leaves = @import("secure_value_leaves.zig");
 
 const M31 = m31.M31;
+const QM31 = qm31.QM31;
 const SecureColumnByCoords = secure_column.SecureColumnByCoords;
 
 pub fn MerkleProverLifted(comptime H: type) type {
@@ -103,6 +105,35 @@ pub fn MerkleProverLifted(comptime H: type) type {
                 columns,
                 merkleWorkerOverride(allocator),
                 reuseAvailablePool(allocator),
+            );
+        }
+
+        /// Materializes secure-field rows into coordinate columns and hashes
+        /// each Merkle leaf from the same loaded row. Upper-layer construction
+        /// remains identical to `commit`.
+        pub fn commitWithSecureValues(
+            allocator: std.mem.Allocator,
+            values: []const QM31,
+            out_column: *SecureColumnByCoords,
+        ) !Self {
+            if (values.len == 0 or !std.math.isPowerOfTwo(values.len) or
+                out_column.len() != values.len)
+            {
+                return error.InvalidColumnSize;
+            }
+
+            const layer_alloc = layerAllocator(allocator);
+            const leaves = try secure_value_leaves.build(
+                H,
+                layer_alloc,
+                values,
+                out_column,
+            );
+            return buildTreeFromOwnedLeaves(
+                allocator,
+                layer_alloc,
+                leaves,
+                @intCast(std.math.log2_int(usize, values.len)),
             );
         }
 

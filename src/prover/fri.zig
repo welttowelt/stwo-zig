@@ -10,6 +10,7 @@ const circle_domain = @import("stwo_core").poly.circle.domain;
 const queries_mod = @import("stwo_core").queries;
 const vcs_lifted_verifier = @import("stwo_core").vcs_lifted.verifier;
 const fri_lazy_commit = @import("pcs/fri_lazy_commit.zig");
+const fri_layer_commit = @import("pcs/fri_layer_commit.zig");
 const prover_line = @import("line.zig");
 const quotient_ops = @import("pcs/quotient_ops.zig");
 const secure_column = @import("secure_column.zig");
@@ -492,28 +493,18 @@ pub fn FriProver(comptime B: type, comptime H: type, comptime MC: type) type {
             errdefer if (pending_tree) |*tree| tree.deinit(allocator);
             errdefer if (pending_column) |*column| column.deinit(allocator);
             while (layer_evaluation.len() > config.lastLayerDomainSize()) {
-                var secure_values = pending_column orelse if (comptime @hasDecl(B, "secureColumnForMerkle"))
-                    try B.secureColumnForMerkle(allocator, layer_evaluation)
-                else if (comptime @hasDecl(B, "secureColumnFromLine"))
-                    try B.secureColumnFromLine(layer_evaluation)
-                else
-                    try secure_column.SecureColumnByCoords.fromSecureSlice(
-                        allocator,
-                        layer_evaluation.values,
-                    );
-                pending_column = null;
+                const committed = try fri_layer_commit.materializeAndCommit(
+                    B,
+                    H,
+                    allocator,
+                    layer_evaluation,
+                    &pending_column,
+                    &pending_tree,
+                );
+                var secure_values = committed.column;
+                var merkle_tree = committed.tree;
                 var layer_appended = false;
                 errdefer if (!layer_appended) secure_values.deinit(allocator);
-
-                const coord_refs = [_][]const M31{
-                    secure_values.columns[0],
-                    secure_values.columns[1],
-                    secure_values.columns[2],
-                    secure_values.columns[3],
-                };
-                var merkle_tree = pending_tree orelse
-                    try B.commitMerkle(H, allocator, coord_refs[0..]);
-                pending_tree = null;
                 errdefer if (!layer_appended) merkle_tree.deinit(allocator);
 
                 MC.mixRoot(channel, merkle_tree.root());
