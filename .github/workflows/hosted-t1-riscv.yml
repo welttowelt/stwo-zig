@@ -32,6 +32,7 @@ jobs:
           jq -e '
             .schema == "stwo-riscv-hosted-t1-run-binding/v1" and
             .controller.branch == "agent/hosted-t1-riscv-elide-table-previous-93f2f621" and
+            .controller.harness_git_automaintenance_disabled == true and
             .candidate.branch == "agent/riscv-elide-table-previous-93f2f621" and
             .candidate.changed_paths == [
               "src/frontends/riscv/air/lookups/tables/component.zig",
@@ -228,6 +229,12 @@ jobs:
 
       - name: Validate the locked harness
         working-directory: ${{ runner.temp }}/candidate
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: gc.auto
+          GIT_CONFIG_VALUE_0: "0"
+          GIT_CONFIG_KEY_1: maintenance.auto
+          GIT_CONFIG_VALUE_1: "false"
         run: |
           set -o pipefail
           python3 -m unittest discover -s autoresearch/tests -v \
