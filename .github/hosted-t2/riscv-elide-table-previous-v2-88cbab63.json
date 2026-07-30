@@ -1,0 +1,73 @@
+{
+  "schema": "stwo-riscv-hosted-t2-run-binding/v1",
+  "controller": {
+    "branch": "agent/hosted-t2-riscv-elide-table-previous-v2-88cbab63",
+    "workflow_source_commit": "0000000000000000000000000000000000000000",
+    "workflow_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "candidate": {
+    "branch": "agent/riscv-elide-table-previous-v2-88cbab63",
+    "commit": "6647504ca1d43a04ece369ca50658bdefcd292f3",
+    "tree": "4759823d00ac36c772d3360bd6448b5282043333",
+    "diff_sha256": "6a6b8a1b143e553a33aedb4deec1bad3221d96ad179ec24bb3ab7d105925583f",
+    "source_sha256": {
+      "src/frontends/riscv/air/lookups/tables/component.zig": "377115d8a9b839006c6e0a35128977cf76478ed33ecfe7c4dc5d49271487d667",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig": "8fbc91a0472e68b82ff1966662ce58e945f0d7b8651347fcb0fb9ca99cd6af7a",
+      "src/frontends/riscv/prover/proof_finalize.zig": "d7f54a36f35cad68fec973681ac9644500418707b2a2f863818dc536830b2492"
+    },
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "88cbab6323519ba0a9c190d75757bd6e4a7ad792",
+    "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
+  },
+  "preregistration": {
+    "sha256": "4eb6d37a73991ef57e0208b62a48fc8830225bfaf88fcb69f446b61429345bea",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
+  },
+  "t1_gate": {
+    "run_id": "30572990292",
+    "run_attempt": "1",
+    "run_url": "https://github.com/welttowelt/stwo-zig/actions/runs/30572990292",
+    "job_id": "90974184513",
+    "workflow_conclusion": "success",
+    "controller_commit": "c3de1c1d31ada748863a04d013c746b01ba8cdb6",
+    "artifact_id": "8772034526",
+    "artifact_name": "autoresearch-riscv-hosted-t1-30572990292-1",
+    "artifact_archive_digest": "1f816c3e85fa011905e6aa4a191779a39cb6b998dbb7cd714020c3aaff33e087",
+    "result_sha256": "78548703e2461742a45c21715c9af7912aa378344770074254f7ee045229b475",
+    "input_binding_sha256": "d708d1fe7b4f92b57b45a35c980d02bb68d738a244ce330cce2fa7f043443222",
+    "packet_manifest_sha256": "c89ea66c9fb7c5dd477ceb27035e5237cee54e7b341246d4ede2a3b10696c0b8",
+    "binding_audit_sha256": "16b0aa7b38fb012d76005eb4ed1882cc69b028d12c4ace0cb1dde73afc8a64fb",
+    "independent_audit_sha256": "77593a0617578b1d8522852f0477b05c856614d987e66a20c333c1df6deb973b",
+    "r_geomean": 0.9329431520029501,
+    "ci": [
+      0.9296400246960064,
+      0.9369200177771441
+    ],
+    "theta": 0.01,
+    "aa_dispersion": 0.002362,
+    "measurement_seconds": 223.77708095200012,
+    "within_cost_target": true,
+    "ranks": false,
+    "workload_count": 6,
+    "all_workloads_decisive_clear": true
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "tier": "T2",
+    "board": "riscv",
+    "class": "small",
+    "dimension": "time",
+    "scope": "s3",
+    "guards": "auto",
+    "fast_boundary": false,
+    "t2_cost_target_seconds": 2700
+  }
+}

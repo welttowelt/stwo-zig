@@ -6,6 +6,7 @@ on:
       - agent/hosted-t2-riscv-elide-table-previous-v2-88cbab63
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -25,6 +26,7 @@ jobs:
       - name: Bind controller, candidate, frontier, and T1 gate
         env:
           EXPECTED_CONTROLLER_BRANCH: agent/hosted-t2-riscv-elide-table-previous-v2-88cbab63
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           binding=".github/hosted-t2/riscv-elide-table-previous-v2-88cbab63.json"
@@ -48,9 +50,12 @@ jobs:
             .experiment.guards == "auto" and
             .experiment.fast_boundary == false and
             .experiment.t2_cost_target_seconds == 2700 and
-            .t1_gate.run_id == "30567033722" and
+            .t1_gate.run_id == "30572990292" and
             .t1_gate.run_attempt == "1" and
             .t1_gate.workflow_conclusion == "success" and
+            .t1_gate.controller_commit == "c3de1c1d31ada748863a04d013c746b01ba8cdb6" and
+            .t1_gate.artifact_id == "8772034526" and
+            .t1_gate.artifact_name == "autoresearch-riscv-hosted-t1-30572990292-1" and
             .t1_gate.within_cost_target == true and
             .t1_gate.ranks == false and
             .t1_gate.all_workloads_decisive_clear == true and
@@ -68,7 +73,16 @@ jobs:
           candidate_diff_sha256=$(jq -er '.candidate.diff_sha256' "$binding")
           frontier_commit=$(jq -er '.frontier.commit' "$binding")
           frontier_tree=$(jq -er '.frontier.tree' "$binding")
+          t1_run_id=$(jq -er '.t1_gate.run_id' "$binding")
+          t1_job_id=$(jq -er '.t1_gate.job_id' "$binding")
+          t1_artifact_id=$(jq -er '.t1_gate.artifact_id' "$binding")
+          t1_artifact_name=$(jq -er '.t1_gate.artifact_name' "$binding")
+          t1_artifact_digest=$(jq -er '.t1_gate.artifact_archive_digest' "$binding")
           t1_result_sha256=$(jq -er '.t1_gate.result_sha256' "$binding")
+          t1_input_binding_sha256=$(jq -er '.t1_gate.input_binding_sha256' "$binding")
+          t1_packet_manifest_sha256=$(jq -er '.t1_gate.packet_manifest_sha256' "$binding")
+          t1_binding_audit_sha256=$(jq -er '.t1_gate.binding_audit_sha256' "$binding")
+          t1_independent_audit_sha256=$(jq -er '.t1_gate.independent_audit_sha256' "$binding")
 
           test "$controller_branch" = "$EXPECTED_CONTROLLER_BRANCH"
           test "$GITHUB_REF" = "refs/heads/$EXPECTED_CONTROLLER_BRANCH"
@@ -84,9 +98,15 @@ jobs:
             test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
           done
           for value in "$expected_workflow_sha256" "$candidate_diff_sha256" \
-            "$t1_result_sha256"; do
+            "$t1_artifact_digest" "$t1_result_sha256" \
+            "$t1_input_binding_sha256" "$t1_packet_manifest_sha256" \
+            "$t1_binding_audit_sha256" "$t1_independent_audit_sha256"; do
             test "${#value}" -eq 64
             test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
+          done
+          for value in "$t1_run_id" "$t1_job_id" "$t1_artifact_id"; do
+            test -n "$value"
+            test -z "$(printf '%s' "$value" | tr -d '0-9')"
           done
 
           git cat-file -e "${workflow_source_commit}^{commit}"
@@ -95,6 +115,89 @@ jobs:
             sha256sum .github/workflows/hosted-t2-riscv.yml | cut -d' ' -f1
           )
           test "$actual_workflow_sha256" = "$expected_workflow_sha256"
+
+          t1_run=$(
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$t1_run_id"
+          )
+          jq -e \
+            --arg branch \
+              "agent/hosted-t1-riscv-elide-table-previous-v2-88cbab63" \
+            --arg head_sha "c3de1c1d31ada748863a04d013c746b01ba8cdb6" \
+            '.status == "completed" and
+             .conclusion == "success" and
+             .run_attempt == 1 and
+             .head_branch == $branch and
+             .head_sha == $head_sha' \
+            <<<"$t1_run" >/dev/null
+          t1_jobs=$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$t1_run_id/attempts/1/jobs?per_page=100"
+          )
+          jq -e --argjson job_id "$t1_job_id" \
+            'any(.jobs[];
+              .id == $job_id and
+              .name == "t1" and
+              .status == "completed" and
+              .conclusion == "success")' \
+            <<<"$t1_jobs" >/dev/null
+          t1_artifacts=$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$t1_run_id/artifacts?per_page=100"
+          )
+          jq -e \
+            --argjson artifact_id "$t1_artifact_id" \
+            --arg name "$t1_artifact_name" \
+            --arg digest "sha256:$t1_artifact_digest" \
+            'any(.artifacts[];
+              .id == $artifact_id and
+              .name == $name and
+              .digest == $digest and
+              .expired == false)' \
+            <<<"$t1_artifacts" >/dev/null
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$t1_artifact_id/zip" \
+            > "$RUNNER_TEMP/t1.zip"
+          test "$(
+            sha256sum "$RUNNER_TEMP/t1.zip" | cut -d' ' -f1
+          )" = "$t1_artifact_digest"
+          mkdir -p "$RUNNER_TEMP/t1-gate"
+          unzip -q "$RUNNER_TEMP/t1.zip" -d "$RUNNER_TEMP/t1-gate"
+          test "$(
+            sha256sum "$RUNNER_TEMP/t1-gate/t1-result.json" | cut -d' ' -f1
+          )" = "$t1_result_sha256"
+          test "$(
+            sha256sum "$RUNNER_TEMP/t1-gate/input-binding.json" | cut -d' ' -f1
+          )" = "$t1_input_binding_sha256"
+          jq -e \
+            --arg candidate "$candidate_commit" \
+            --arg frontier "$frontier_commit" \
+            --arg controller "c3de1c1d31ada748863a04d013c746b01ba8cdb6" \
+            --arg run_id "$t1_run_id" \
+            '.candidate.commit == $candidate and
+             .frontier.commit == $frontier and
+             .runtime.controller_commit == $controller and
+             .runtime.run_id == $run_id and
+             .runtime.run_attempt == "1"' \
+            "$RUNNER_TEMP/t1-gate/input-binding.json" >/dev/null
+          jq -e \
+            --argjson r_geomean "$(jq -er '.t1_gate.r_geomean' "$binding")" \
+            --argjson ci "$(jq -ec '.t1_gate.ci' "$binding")" \
+            '.schema == "stwo_perf_ladder_t1_estimate_v1" and
+             .tier == "T1" and
+             .board == "riscv" and
+             .workload_class == "small" and
+             .boundary == "prove_ms" and
+             .ranks == false and
+             .within_cost_target == true and
+             .r_geomean == $r_geomean and
+             .ci == $ci and
+             (.per_workload | length) == 6 and
+             all(.per_workload[];
+               .rounds == 3 and
+               .sequential_stop.decision == "decisive_clear" and
+               .sequential_stop.theta_bar == 0.99 and
+               .ci[1] < 0.99)' \
+            "$RUNNER_TEMP/t1-gate/t1-result.json" >/dev/null
 
           git fetch --no-tags origin \
             "+refs/heads/$candidate_branch:refs/remotes/origin/$candidate_branch"
