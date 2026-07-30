@@ -98,21 +98,23 @@ pub fn generate(
         );
         for (inverses[0..chunk_len], counter.values[row_start .. row_start + chunk_len], 0..) |denominator_inverse, multiplicity, local_row| {
             const row = row_start + local_row;
+            const previous_value = accumulator.toM31Array();
             accumulator = accumulator.add(QM31.fromBase(multiplicity).neg().mul(denominator_inverse));
             const current = accumulator.toM31Array();
             const dst = table.map(row);
-            for (0..N_COLUMNS) |coordinate| columns[coordinate][dst] = current[coordinate];
+            for (0..N_COLUMNS) |coordinate| {
+                columns[coordinate][dst] = current[coordinate];
+                previous[coordinate][dst] = previous_value[coordinate];
+            }
         }
         row_start += chunk_len;
     }
 
-    for (0..size) |row| {
-        const dst = table.map(row);
-        const prior = table.map((row + size - 1) % size);
-        for (0..N_COLUMNS) |coordinate| {
-            previous[coordinate][dst] = columns[coordinate][prior];
-        }
-    }
+    // The running accumulator already supplied every non-cyclic previous row
+    // in the generation pass. Only logical row zero wraps to the final claim.
+    const wrapped_previous = accumulator.toM31Array();
+    const first = table.map(0);
+    for (0..N_COLUMNS) |coordinate| previous[coordinate][first] = wrapped_previous[coordinate];
     return .{ .columns = columns, .previous = previous, .claim = accumulator };
 }
 
