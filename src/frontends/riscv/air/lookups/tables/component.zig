@@ -18,7 +18,6 @@ const interaction = @import("interaction.zig");
 const schema = @import("schema.zig");
 
 const CirclePointQM31 = circle.CirclePointQM31;
-const EMPTY_PREVIOUS: [interaction.N_COLUMNS][]const M31 = .{&.{}} ** interaction.N_COLUMNS;
 
 pub const ConstructionMetadata = struct {
     kind: schema.Kind,
@@ -52,7 +51,6 @@ pub const LookupTableComponent = struct {
     interaction_col_offset: usize,
     relations: *const relations_mod.Relations,
     claim: QM31,
-    previous: [interaction.N_COLUMNS][]const M31 = EMPTY_PREVIOUS,
 
     const Adapter = core_air_derive.ComponentAdapter(
         @This(),
@@ -78,8 +76,6 @@ pub const LookupTableComponent = struct {
             interaction_col_offset,
             relations,
             claim,
-            EMPTY_PREVIOUS,
-            false,
         );
     }
 
@@ -91,7 +87,6 @@ pub const LookupTableComponent = struct {
         interaction_col_offset: usize,
         relations: *const relations_mod.Relations,
         claim: QM31,
-        previous: [interaction.N_COLUMNS][]const M31,
     ) !LookupTableComponent {
         return init(
             kind,
@@ -101,8 +96,6 @@ pub const LookupTableComponent = struct {
             interaction_col_offset,
             relations,
             claim,
-            previous,
-            true,
         );
     }
 
@@ -114,8 +107,6 @@ pub const LookupTableComponent = struct {
         interaction_col_offset: usize,
         relations: *const relations_mod.Relations,
         claim: QM31,
-        previous: [interaction.N_COLUMNS][]const M31,
-        require_previous: bool,
     ) !LookupTableComponent {
         if (tuple_col_indices.len != schema.arity(kind)) return error.InvalidTraceShape;
         var stored_indices = [_]usize{0} ** schema.MAX_ARITY;
@@ -126,12 +117,6 @@ pub const LookupTableComponent = struct {
             }
             stored_indices[index] = column;
         }
-        if (require_previous) {
-            const expected_size = schema.size(kind);
-            for (previous) |column| {
-                if (column.len != expected_size) return error.InvalidTraceShape;
-            }
-        }
         return .{
             .kind = kind,
             .is_first_col_idx = is_first_col_idx,
@@ -140,7 +125,6 @@ pub const LookupTableComponent = struct {
             .interaction_col_offset = interaction_col_offset,
             .relations = relations,
             .claim = claim,
-            .previous = previous,
         };
     }
 
@@ -650,34 +634,12 @@ test "lookup table component: constructors fail closed on ambiguous bindings" {
         error.InvalidTraceShape,
         LookupTableComponent.initVerifier(.range_check_8_8, 0, &.{ 0, 1 }, 0, 0, &relations, QM31.zero()),
     );
-    try std.testing.expectError(
-        error.InvalidTraceShape,
-        LookupTableComponent.initProver(
-            .range_check_m31,
-            0,
-            &.{ 1, 2 },
-            0,
-            0,
-            &relations,
-            QM31.zero(),
-            EMPTY_PREVIOUS,
-        ),
-    );
 }
 
-test "lookup table component: prover construction binds exact previous buffers" {
+test "lookup table component: prover derives previous rows without materialized buffers" {
     const allocator = std.testing.allocator;
     const relations = relations_mod.Relations.dummy();
     const kind: schema.Kind = .range_check_m31;
-    const previous_column = try allocator.alloc(M31, schema.size(kind));
-    defer allocator.free(previous_column);
-    @memset(previous_column, M31.zero());
-    const previous = [_][]const M31{
-        previous_column,
-        previous_column,
-        previous_column,
-        previous_column,
-    };
     const component = try LookupTableComponent.initProver(
         kind,
         0,
@@ -686,9 +648,16 @@ test "lookup table component: prover construction binds exact previous buffers" 
         4,
         &relations,
         QM31.zero(),
-        previous,
     );
+    try std.testing.expect(!@hasField(LookupTableComponent, "previous"));
     const prover = component.asProverComponent();
     try std.testing.expectEqual(@as(usize, 1), prover.nConstraints());
     try std.testing.expectEqual(@as(u32, 16), prover.maxConstraintLogDegreeBound());
+    var masks = try prover.maskPoints(
+        allocator,
+        circle.SECURE_FIELD_CIRCLE_GEN,
+        prover.maxConstraintLogDegreeBound(),
+    );
+    defer masks.deinitDeep(allocator);
+    for (masks.items[2]) |column| try std.testing.expectEqual(@as(usize, 2), column.len);
 }

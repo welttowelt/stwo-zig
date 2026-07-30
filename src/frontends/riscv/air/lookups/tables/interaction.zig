@@ -12,16 +12,14 @@ const counter_mod = @import("counter.zig");
 const schema = @import("schema.zig");
 
 pub const N_COLUMNS: usize = 4;
-pub const Previous = [N_COLUMNS][]M31;
 pub const CHUNK_ROWS: usize = 4096;
 
 pub const Result = struct {
     columns: [N_COLUMNS][]M31,
-    previous: Previous,
     claim: QM31,
 
-    /// Moves the current cumulative columns out for commitment. Previous-row
-    /// masks and the claim remain owned by this result until `deinit`.
+    /// Moves the current cumulative columns out for commitment. The claim
+    /// remains owned by this result until `deinit`.
     pub fn takeColumns(self: *Result) [N_COLUMNS][]M31 {
         const result = self.columns;
         self.columns = .{&.{}} ** N_COLUMNS;
@@ -30,7 +28,6 @@ pub const Result = struct {
 
     pub fn deinit(self: *Result, allocator: std.mem.Allocator) void {
         freeColumns(allocator, &self.columns);
-        freeColumns(allocator, &self.previous);
         self.* = undefined;
     }
 };
@@ -70,8 +67,6 @@ pub fn generate(
     if (counter.values.len != size) return error.InvalidTraceShape;
     var columns = try allocateColumns(allocator, size);
     errdefer freeColumns(allocator, &columns);
-    var previous = try allocateColumns(allocator, size);
-    errdefer freeColumns(allocator, &previous);
     const table = try infra.BitReversalTable.init(allocator, schema.logSize(counter.kind));
     defer table.deinit(allocator);
 
@@ -105,15 +100,7 @@ pub fn generate(
         }
         row_start += chunk_len;
     }
-
-    for (0..size) |row| {
-        const dst = table.map(row);
-        const prior = table.map((row + size - 1) % size);
-        for (0..N_COLUMNS) |coordinate| {
-            previous[coordinate][dst] = columns[coordinate][prior];
-        }
-    }
-    return .{ .columns = columns, .previous = previous, .claim = accumulator };
+    return .{ .columns = columns, .claim = accumulator };
 }
 
 /// Shared on-domain/OODS table AIR identity.
@@ -186,36 +173,26 @@ fn generateFullDomainReference(
 
     var columns = try allocateColumns(allocator, size);
     errdefer freeColumns(allocator, &columns);
-    var previous = try allocateColumns(allocator, size);
-    errdefer freeColumns(allocator, &previous);
     const table = try infra.BitReversalTable.init(allocator, schema.logSize(counter.kind));
     defer table.deinit(allocator);
     for (0..size) |row| {
         const dst = table.map(row);
         const current = sums[row].toM31Array();
-        const prior = sums[(row + size - 1) % size].toM31Array();
         for (0..N_COLUMNS) |coordinate| {
             columns[coordinate][dst] = current[coordinate];
-            previous[coordinate][dst] = prior[coordinate];
         }
     }
-    return .{ .columns = columns, .previous = previous, .claim = accumulator };
+    return .{ .columns = columns, .claim = accumulator };
 }
 
 fn expectEqualResults(expected: *const Result, actual: *const Result) !void {
     try std.testing.expect(expected.claim.eql(actual.claim));
     for (0..N_COLUMNS) |coordinate| {
         try std.testing.expectEqual(expected.columns[coordinate].len, actual.columns[coordinate].len);
-        try std.testing.expectEqual(expected.previous[coordinate].len, actual.previous[coordinate].len);
         try std.testing.expect(std.mem.eql(
             u8,
             std.mem.sliceAsBytes(expected.columns[coordinate]),
             std.mem.sliceAsBytes(actual.columns[coordinate]),
-        ));
-        try std.testing.expect(std.mem.eql(
-            u8,
-            std.mem.sliceAsBytes(expected.previous[coordinate]),
-            std.mem.sliceAsBytes(actual.previous[coordinate]),
         ));
     }
 }
@@ -297,10 +274,7 @@ test "generated singleton column closes one signed range M31 request" {
         generated.columns[3][last],
     );
     try std.testing.expect(claim_from_column.eql(generated.claim));
-    for (0..N_COLUMNS) |coordinate| {
-        const previous_row = table.map(schema.size(.range_check_m31) - 2);
-        try std.testing.expect(generated.previous[coordinate][last].eql(generated.columns[coordinate][previous_row]));
-    }
+    try std.testing.expect(!@hasField(Result, "previous"));
 
     const owned_columns = generated.takeColumns();
     defer freeColumns(allocator, &owned_columns);
@@ -309,31 +283,31 @@ test "generated singleton column closes one signed range M31 request" {
         try std.testing.expectEqual(schema.size(.range_check_m31), column.len);
     }
     try std.testing.expect(generated.claim.eql(claim_from_column));
-    for (generated.previous) |column| {
-        try std.testing.expectEqual(schema.size(.range_check_m31), column.len);
-    }
 }
 
-test "chunked table interaction is byte-identical across inversion boundaries" {
+test "chunked table interaction is byte-identical for every schema across inversion boundaries" {
     const allocator = std.testing.allocator;
     const relations = relations_mod.Relations.dummy();
-    var counter = try counter_mod.Counter.init(allocator, .range_check_m31);
-    defer counter.deinit(allocator);
-    const size = schema.size(counter.kind);
-    try std.testing.expect(size > 2 * CHUNK_ROWS);
-    counter.values[0] = M31.one();
-    counter.values[CHUNK_ROWS - 1] = M31.fromU64(2).neg();
-    counter.values[CHUNK_ROWS] = M31.fromU64(3);
-    counter.values[CHUNK_ROWS + 1] = M31.fromU64(4).neg();
-    counter.values[2 * CHUNK_ROWS - 1] = M31.fromU64(5);
-    counter.values[2 * CHUNK_ROWS] = M31.fromU64(6).neg();
-    counter.values[size - 1] = M31.fromU64(7);
+    for (0..schema.KIND_COUNT) |kind_index| {
+        const kind: schema.Kind = @enumFromInt(kind_index);
+        var counter = try counter_mod.Counter.init(allocator, kind);
+        defer counter.deinit(allocator);
+        const size = schema.size(kind);
+        try std.testing.expect(size > 2 * CHUNK_ROWS);
+        counter.values[0] = M31.one();
+        counter.values[CHUNK_ROWS - 1] = M31.fromU64(2).neg();
+        counter.values[CHUNK_ROWS] = M31.fromU64(3);
+        counter.values[CHUNK_ROWS + 1] = M31.fromU64(4).neg();
+        counter.values[2 * CHUNK_ROWS - 1] = M31.fromU64(5);
+        counter.values[2 * CHUNK_ROWS] = M31.fromU64(6).neg();
+        counter.values[size - 1] = M31.fromU64(7);
 
-    var expected = try generateFullDomainReference(allocator, &counter, &relations);
-    defer expected.deinit(allocator);
-    var actual = try generate(allocator, &counter, &relations);
-    defer actual.deinit(allocator);
-    try expectEqualResults(&expected, &actual);
+        var expected = try generateFullDomainReference(allocator, &counter, &relations);
+        defer expected.deinit(allocator);
+        var actual = try generate(allocator, &counter, &relations);
+        defer actual.deinit(allocator);
+        try expectEqualResults(&expected, &actual);
+    }
 }
 
 fn generateForAllocationTest(
