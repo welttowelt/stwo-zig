@@ -2,8 +2,8 @@
   "schema": "stwo-riscv-hosted-t2-run-binding/v1",
   "controller": {
     "branch": "agent/hosted-t2-riscv-elide-table-previous-v2-88cbab63",
-    "workflow_source_commit": "0000000000000000000000000000000000000000",
-    "workflow_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflow_source_commit": "cd18fc2e9e7dae00549c17dedd8eabd5d2f8d55a",
+    "workflow_sha256": "130563f098d111cfba2062edfb8e4858c234ffa05d97ed5291c2aaf8c09acebc"
   },
   "candidate": {
     "branch": "agent/riscv-elide-table-previous-v2-88cbab63",
