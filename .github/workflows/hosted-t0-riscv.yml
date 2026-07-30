@@ -3,13 +3,13 @@ name: autoresearch-hosted-t0-riscv
 on:
   push:
     branches:
-      - agent/hosted-t0-riscv-217e392e
+      - agent/hosted-t0-riscv-prove-217e392e
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t0-riscv-217e392e
+  group: autoresearch-hosted-t0-riscv-prove-217e392e
   cancel-in-progress: false
 
 jobs:
@@ -24,14 +24,14 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-217e392e
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-prove-217e392e
         run: |
           set -euo pipefail
-          binding=".github/hosted-t0/riscv-table-previous-fusion-217e392e.json"
+          binding=".github/hosted-t0/riscv-table-previous-fusion-prove-217e392e.json"
           test -f "$binding"
           jq -e '
             .schema == "stwo-riscv-hosted-t0-run-binding/v2" and
-            .controller.branch == "agent/hosted-t0-riscv-217e392e" and
+            .controller.branch == "agent/hosted-t0-riscv-prove-217e392e" and
             .candidate.branch == "agent/riscv-table-previous-fusion-217e392e" and
             .candidate.changed_paths == [
               "src/frontends/riscv/air/lookups/tables/interaction.zig"
@@ -39,7 +39,7 @@ jobs:
             .toolchain.zig == "0.15.2" and
             .experiment.board == "riscv" and
             .experiment.class == "small" and
-            .experiment.phase == "riscv_interaction_commit" and
+            .experiment.phase == "prove" and
             .experiment.t0_relative_move_floor == 0.02
           ' "$binding" >/dev/null
 
@@ -176,6 +176,35 @@ jobs:
           )
           PY
 
+      - name: Bind the claimed phase to the live report schema
+        working-directory: ${{ runner.temp }}/candidate
+        run: |
+          set -o pipefail
+          PYTHONPATH=autoresearch/cli python3 - <<'PY' \
+            | tee "$GITHUB_WORKSPACE/hosted-t0/phase-binding.log"
+          from pathlib import Path
+          from stwo_perf import manifest as manifest_mod
+          from stwo_perf import runner
+
+          manifest = manifest_mod.load(Path.cwd())
+          group = manifest.group("riscv")
+          if group.report_schema != "riscv_proof_v2":
+              raise SystemExit(
+                  f"unexpected RISC-V report schema: {group.report_schema!r}"
+              )
+          phases = runner.PHASE_SECONDS_FIELDS.get(group.report_schema, {})
+          if "prove" not in phases:
+              raise SystemExit(
+                  f"claimed phase 'prove' absent from {group.report_schema}: "
+                  f"{sorted(phases)}"
+              )
+          print(
+              "claimed phase binding: PASS "
+              f"(group={group.group_id}, schema={group.report_schema}, "
+              f"phase=prove, measured={sorted(phases)})"
+          )
+          PY
+
       - name: Validate the locked harness
         working-directory: ${{ runner.temp }}/candidate
         run: |
@@ -236,7 +265,7 @@ jobs:
           timeout 1800s python3 autoresearch/cli/stwo-perf ladder t0 \
             --board riscv \
             --class small \
-            --phase riscv_interaction_commit \
+            --phase prove \
             --predecessor "$RUNNER_TEMP/frontier" \
             --out "$GITHUB_WORKSPACE/hosted-t0/t0-result.json" \
             2>&1 | tee "$GITHUB_WORKSPACE/hosted-t0/t0.log"
