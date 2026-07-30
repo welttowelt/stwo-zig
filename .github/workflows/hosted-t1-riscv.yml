@@ -1,19 +1,19 @@
-name: autoresearch-hosted-t0-riscv-elide-table-previous
+name: autoresearch-hosted-t1-riscv-elide-table-previous
 
 on:
   push:
     branches:
-      - agent/hosted-t0-riscv-elide-table-previous-93f2f621
+      - agent/hosted-t1-riscv-elide-table-previous-93f2f621
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t0-riscv-elide-table-previous-93f2f621
+  group: autoresearch-hosted-t1-riscv-elide-table-previous-93f2f621
   cancel-in-progress: false
 
 jobs:
-  t0:
+  t1:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -24,14 +24,14 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-elide-table-previous-93f2f621
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-elide-table-previous-93f2f621
         run: |
           set -euo pipefail
-          binding=".github/hosted-t0/riscv-elide-table-previous-93f2f621.json"
+          binding=".github/hosted-t1/riscv-elide-table-previous-93f2f621.json"
           test -f "$binding"
           jq -e '
-            .schema == "stwo-riscv-hosted-t0-run-binding/v2" and
-            .controller.branch == "agent/hosted-t0-riscv-elide-table-previous-93f2f621" and
+            .schema == "stwo-riscv-hosted-t1-run-binding/v1" and
+            .controller.branch == "agent/hosted-t1-riscv-elide-table-previous-93f2f621" and
             .candidate.branch == "agent/riscv-elide-table-previous-93f2f621" and
             .candidate.changed_paths == [
               "src/frontends/riscv/air/lookups/tables/component.zig",
@@ -42,8 +42,15 @@ jobs:
             .toolchain.zig == "0.15.2" and
             .experiment.board == "riscv" and
             .experiment.class == "small" and
-            .experiment.phase == "prove" and
-            .experiment.t0_relative_move_floor == 0.02
+            .experiment.fast_boundary == false and
+            .experiment.boundary == "verified_request_ms" and
+            .experiment.t1_cost_target_seconds == 300 and
+            .t0_gate.run_id == "30565077179" and
+            .t0_gate.run_attempt == "1" and
+            .t0_gate.pass == true and
+            .t0_gate.correctness_smoke_pass == true and
+            .t0_gate.relative_move >= .t0_gate.min_phase_move and
+            .t0_gate.predecessor_proof_digest == .t0_gate.candidate_proof_digest
           ' "$binding" >/dev/null
 
           controller_branch=$(jq -er '.controller.branch' "$binding")
@@ -57,6 +64,7 @@ jobs:
           preregistration_sha256=$(jq -er '.preregistration.sha256' "$binding")
           preregistration_audit_sha256=$(jq -er '.preregistration.audit_sha256' "$binding")
           candidate_diff_sha256=$(jq -er '.candidate.diff_sha256' "$binding")
+          t0_result_sha256=$(jq -er '.t0_gate.result_sha256' "$binding")
 
           test "$controller_branch" = "$EXPECTED_CONTROLLER_BRANCH"
           test "$GITHUB_REF" = "refs/heads/$EXPECTED_CONTROLLER_BRANCH"
@@ -73,7 +81,8 @@ jobs:
           done
           for value in \
             "$expected_workflow_sha256" "$preregistration_sha256" \
-            "$preregistration_audit_sha256" "$candidate_diff_sha256"; do
+            "$preregistration_audit_sha256" "$candidate_diff_sha256" \
+            "$t0_result_sha256"; do
             test "${#value}" -eq 64
             test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
           done
@@ -81,7 +90,7 @@ jobs:
           git cat-file -e "${workflow_source_commit}^{commit}"
           git merge-base --is-ancestor "$workflow_source_commit" "$GITHUB_SHA"
           actual_workflow_sha256=$(
-            sha256sum .github/workflows/hosted-t0-riscv.yml | cut -d' ' -f1
+            sha256sum .github/workflows/hosted-t1-riscv.yml | cut -d' ' -f1
           )
           test "$actual_workflow_sha256" = "$expected_workflow_sha256"
 
@@ -140,8 +149,8 @@ jobs:
               [.key, .value] | @tsv' "$binding"
           )
 
-          mkdir -p hosted-t0
-          cp "$binding" hosted-t0/run-binding.json
+          mkdir -p hosted-t1
+          cp "$binding" hosted-t1/run-binding.json
           jq \
             --arg controller_commit "$GITHUB_SHA" \
             --arg controller_tree "$(git rev-parse HEAD^{tree})" \
@@ -156,7 +165,7 @@ jobs:
                 run_id: $run_id,
                 run_attempt: $run_attempt
               }
-            }' "$binding" > hosted-t0/input-binding.json
+            }' "$binding" > hosted-t1/input-binding.json
           {
             echo "CANDIDATE_COMMIT=$candidate_commit"
             echo "FRONTIER_COMMIT=$frontier_commit"
@@ -167,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH=autoresearch/cli python3 - <<'PY' \
-            | tee "$GITHUB_WORKSPACE/hosted-t0/source-policy.log"
+            | tee "$GITHUB_WORKSPACE/hosted-t1/source-policy.log"
           from pathlib import Path
           from stwo_perf import manifest as manifest_mod
 
@@ -193,7 +202,7 @@ jobs:
         run: |
           set -o pipefail
           PYTHONPATH=autoresearch/cli python3 - <<'PY' \
-            | tee "$GITHUB_WORKSPACE/hosted-t0/phase-binding.log"
+            | tee "$GITHUB_WORKSPACE/hosted-t1/phase-binding.log"
           from pathlib import Path
           from stwo_perf import manifest as manifest_mod
           from stwo_perf import runner
@@ -222,7 +231,7 @@ jobs:
         run: |
           set -o pipefail
           python3 -m unittest discover -s autoresearch/tests -v \
-            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t0/harness-tests.log"
+            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t1/harness-tests.log"
 
       - name: Install pinned Zig toolchain
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
@@ -247,7 +256,7 @@ jobs:
               zig build test -Doptimize=ReleaseFast
             )
           } 2>&1 |
-            tee "$GITHUB_WORKSPACE/hosted-t0/source-and-package-controls.log"
+            tee "$GITHUB_WORKSPACE/hosted-t1/source-and-package-controls.log"
 
       - name: Run the production RISC-V proof gate
         working-directory: ${{ runner.temp }}/candidate
@@ -259,12 +268,12 @@ jobs:
             python3 scripts/riscv_pr_proof_smoke.py \
               --cli zig-out/bin/stwo-zig-riscv-cpu \
               --artifact-dir \
-                "$GITHUB_WORKSPACE/hosted-t0/riscv-pr-proof-smoke" \
+                "$GITHUB_WORKSPACE/hosted-t1/riscv-pr-proof-smoke" \
               --report-out \
-                "$GITHUB_WORKSPACE/hosted-t0/riscv-pr-proof-smoke.json"
+                "$GITHUB_WORKSPACE/hosted-t1/riscv-pr-proof-smoke.json"
             python3 scripts/riscv_trace_vectors.py
           } 2>&1 |
-            tee "$GITHUB_WORKSPACE/hosted-t0/production-proof-gate.log"
+            tee "$GITHUB_WORKSPACE/hosted-t1/production-proof-gate.log"
 
       - name: Materialize the exact predecessor
         working-directory: ${{ runner.temp }}/candidate
@@ -272,24 +281,23 @@ jobs:
           set -euo pipefail
           git worktree add --detach "$RUNNER_TEMP/frontier" "$FRONTIER_COMMIT"
 
-      - name: Run the one-shot hosted T0
+      - name: Run the hosted T1 ABBA estimate
         working-directory: ${{ runner.temp }}/candidate
         run: |
           set -o pipefail
-          timeout 1800s python3 autoresearch/cli/stwo-perf ladder t0 \
+          timeout 1800s python3 autoresearch/cli/stwo-perf ladder t1 \
             --board riscv \
             --class small \
-            --phase prove \
             --predecessor "$RUNNER_TEMP/frontier" \
-            --out "$GITHUB_WORKSPACE/hosted-t0/t0-result.json" \
-            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t0/t0.log"
+            --out "$GITHUB_WORKSPACE/hosted-t1/t1-result.json" \
+            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t1/t1.log"
 
       - name: Record terminal environment
         if: always()
         run: |
           set -euo pipefail
           workflow_sha256=$(
-            sha256sum .github/workflows/hosted-t0-riscv.yml |
+            sha256sum .github/workflows/hosted-t1-riscv.yml |
               cut -d' ' -f1
           )
           jq -n \
@@ -303,7 +311,7 @@ jobs:
             --arg workflow_sha256 "$workflow_sha256" \
             --arg job_status "${{ job.status }}" \
             '{
-              schema: "stwo-riscv-hosted-t0-environment/v2",
+              schema: "stwo-riscv-hosted-t1-environment/v1",
               completed_at_utc: $completed_at_utc,
               os: $os,
               runner_name: $runner_name,
@@ -313,12 +321,12 @@ jobs:
               workflow_ref: $workflow_ref,
               workflow_sha256: $workflow_sha256,
               job_status: $job_status
-            }' > hosted-t0/environment.json
+            }' > hosted-t1/environment.json
 
-      - name: Upload the complete T0 packet
+      - name: Upload the complete T1 packet
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: autoresearch-riscv-hosted-t0-${{ github.run_id }}-${{ github.run_attempt }}
-          path: hosted-t0/
+          name: autoresearch-riscv-hosted-t1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hosted-t1/
           if-no-files-found: error

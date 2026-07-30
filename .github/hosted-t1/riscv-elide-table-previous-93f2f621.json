@@ -1,9 +1,9 @@
 {
-  "schema": "stwo-riscv-hosted-t0-run-binding/v2",
+  "schema": "stwo-riscv-hosted-t1-run-binding/v1",
   "controller": {
-    "branch": "agent/hosted-t0-riscv-elide-table-previous-93f2f621",
-    "workflow_source_commit": "34733f7d86c6537b216ce00e3ccff01940d9f3c1",
-    "workflow_sha256": "0a75374796e5f9dfdba450c2f5493587712556bf35e9e5c8ff7a1391618b2d5d"
+    "branch": "agent/hosted-t1-riscv-elide-table-previous-93f2f621",
+    "workflow_source_commit": "bb97a3c82c3c0986f67d7ee00d712966102f4a9c",
+    "workflow_sha256": "57c2be976891baa0c1a95351f0f1ed59e794d0ebef1d371632214c68f5d5ca1c"
   },
   "candidate": {
     "branch": "agent/riscv-elide-table-previous-93f2f621",
@@ -43,7 +43,20 @@
   "experiment": {
     "board": "riscv",
     "class": "small",
-    "phase": "prove",
-    "t0_relative_move_floor": 0.02
+    "fast_boundary": false,
+    "boundary": "verified_request_ms",
+    "t1_cost_target_seconds": 300
+  },
+  "t0_gate": {
+    "run_id": "30565077179",
+    "run_attempt": "1",
+    "run_url": "https://github.com/welttowelt/stwo-zig/actions/runs/30565077179",
+    "result_sha256": "dd4393679467c8d4df4d3447d865d6f814378009c2e1ad6580253f3c979d8e47",
+    "pass": true,
+    "relative_move": 0.08493709764743369,
+    "min_phase_move": 0.02,
+    "correctness_smoke_pass": true,
+    "predecessor_proof_digest": "6eb2e569331953b40d14d37d26c5c1276dcb7be7be44eb7c94bc6d12f39917c1",
+    "candidate_proof_digest": "6eb2e569331953b40d14d37d26c5c1276dcb7be7be44eb7c94bc6d12f39917c1"
   }
 }
