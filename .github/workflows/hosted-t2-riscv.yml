@@ -1,0 +1,312 @@
+name: autoresearch-hosted-t2-riscv-elide-table-previous
+
+on:
+  push:
+    branches:
+      - agent/hosted-t2-riscv-elide-table-previous-93f2f621
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autoresearch-hosted-t2-riscv-elide-table-previous-93f2f621
+  cancel-in-progress: false
+
+jobs:
+  t2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - name: Check out the frozen controller
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Bind controller, candidate, frontier, and T1 gate
+        env:
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t2-riscv-elide-table-previous-93f2f621
+        run: |
+          set -euo pipefail
+          binding=".github/hosted-t2/riscv-elide-table-previous-93f2f621.json"
+          test -f "$binding"
+          jq -e '
+            .schema == "stwo-riscv-hosted-t2-run-binding/v1" and
+            .controller.branch == "agent/hosted-t2-riscv-elide-table-previous-93f2f621" and
+            .candidate.branch == "agent/riscv-elide-table-previous-93f2f621" and
+            .candidate.changed_paths == [
+              "src/frontends/riscv/air/lookups/tables/component.zig",
+              "src/frontends/riscv/air/lookups/tables/interaction.zig",
+              "src/frontends/riscv/prover/proof_finalize.zig"
+            ] and
+            (.candidate.source_sha256 | keys) == .candidate.changed_paths and
+            .toolchain.zig == "0.15.2" and
+            .experiment.tier == "T2" and
+            .experiment.board == "riscv" and
+            .experiment.class == "small" and
+            .experiment.dimension == "time" and
+            .experiment.scope == "s3" and
+            .experiment.guards == "auto" and
+            .experiment.fast_boundary == false and
+            .experiment.t2_cost_target_seconds == 2700 and
+            .t1_gate.run_id == "30567033722" and
+            .t1_gate.run_attempt == "1" and
+            .t1_gate.workflow_conclusion == "success" and
+            .t1_gate.within_cost_target == true and
+            .t1_gate.ranks == false and
+            .t1_gate.all_workloads_decisive_clear == true and
+            .t1_gate.workload_count == 6 and
+            .t1_gate.r_geomean < 0.99 and
+            .t1_gate.ci[1] < 0.99
+          ' "$binding" >/dev/null
+
+          controller_branch=$(jq -er '.controller.branch' "$binding")
+          workflow_source_commit=$(jq -er '.controller.workflow_source_commit' "$binding")
+          expected_workflow_sha256=$(jq -er '.controller.workflow_sha256' "$binding")
+          candidate_branch=$(jq -er '.candidate.branch' "$binding")
+          candidate_commit=$(jq -er '.candidate.commit' "$binding")
+          candidate_tree=$(jq -er '.candidate.tree' "$binding")
+          candidate_diff_sha256=$(jq -er '.candidate.diff_sha256' "$binding")
+          frontier_commit=$(jq -er '.frontier.commit' "$binding")
+          frontier_tree=$(jq -er '.frontier.tree' "$binding")
+          t1_result_sha256=$(jq -er '.t1_gate.result_sha256' "$binding")
+
+          test "$controller_branch" = "$EXPECTED_CONTROLLER_BRANCH"
+          test "$GITHUB_REF" = "refs/heads/$EXPECTED_CONTROLLER_BRANCH"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "$candidate_branch" in
+            agent/*) ;;
+            *) exit 1 ;;
+          esac
+          for value in \
+            "$workflow_source_commit" "$candidate_commit" "$candidate_tree" \
+            "$frontier_commit" "$frontier_tree"; do
+            test "${#value}" -eq 40
+            test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
+          done
+          for value in "$expected_workflow_sha256" "$candidate_diff_sha256" \
+            "$t1_result_sha256"; do
+            test "${#value}" -eq 64
+            test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
+          done
+
+          git cat-file -e "${workflow_source_commit}^{commit}"
+          git merge-base --is-ancestor "$workflow_source_commit" "$GITHUB_SHA"
+          actual_workflow_sha256=$(
+            sha256sum .github/workflows/hosted-t2-riscv.yml | cut -d' ' -f1
+          )
+          test "$actual_workflow_sha256" = "$expected_workflow_sha256"
+
+          git fetch --no-tags origin \
+            "+refs/heads/$candidate_branch:refs/remotes/origin/$candidate_branch"
+          test "$(git rev-parse "refs/remotes/origin/$candidate_branch")" = \
+            "$candidate_commit"
+          git cat-file -e "${frontier_commit}^{commit}"
+          git merge-base --is-ancestor "$frontier_commit" "$candidate_commit"
+          git worktree add --detach "$RUNNER_TEMP/candidate" "$candidate_commit"
+
+          test "$(git -C "$RUNNER_TEMP/candidate" rev-parse HEAD)" = \
+            "$candidate_commit"
+          test "$(git -C "$RUNNER_TEMP/candidate" rev-parse HEAD^{tree})" = \
+            "$candidate_tree"
+          test "$(
+            git -C "$RUNNER_TEMP/candidate" rev-parse "${frontier_commit}^{tree}"
+          )" = "$frontier_tree"
+          actual_paths=$(
+            git -C "$RUNNER_TEMP/candidate" diff --name-only --no-renames \
+              "$frontier_commit" "$candidate_commit"
+          )
+          expected_paths=$(jq -r '.candidate.changed_paths[]' "$binding")
+          test "$actual_paths" = "$expected_paths"
+          actual_diff_sha256=$(
+            git -C "$RUNNER_TEMP/candidate" \
+              diff --binary --full-index --no-renames \
+              "$frontier_commit" "$candidate_commit" |
+              sha256sum | cut -d' ' -f1
+          )
+          test "$actual_diff_sha256" = "$candidate_diff_sha256"
+          while IFS=$'\t' read -r path expected_source_sha256; do
+            test "$(git -C "$RUNNER_TEMP/candidate" ls-tree "$candidate_commit" -- \
+              "$path" | cut -d' ' -f1)" = "100644"
+            actual_source_sha256=$(
+              sha256sum "$RUNNER_TEMP/candidate/$path" | cut -d' ' -f1
+            )
+            test "$actual_source_sha256" = "$expected_source_sha256"
+          done < <(
+            jq -r '.candidate.source_sha256 | to_entries[] |
+              [.key, .value] | @tsv' "$binding"
+          )
+
+          mkdir -p hosted-t2
+          cp "$binding" hosted-t2/run-binding.json
+          jq \
+            --arg controller_commit "$GITHUB_SHA" \
+            --arg controller_tree "$(git rev-parse HEAD^{tree})" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            '. + {
+              runtime: {
+                controller_commit: $controller_commit,
+                controller_tree: $controller_tree,
+                workflow_ref: $workflow_ref,
+                run_id: $run_id,
+                run_attempt: $run_attempt
+              }
+            }' "$binding" > hosted-t2/input-binding.json
+          {
+            echo "CANDIDATE_COMMIT=$candidate_commit"
+            echo "FRONTIER_COMMIT=$frontier_commit"
+          } >> "$GITHUB_ENV"
+
+      - name: Enforce board-aware source policy
+        working-directory: ${{ runner.temp }}/candidate
+        run: |
+          set -o pipefail
+          PYTHONPATH=autoresearch/cli python3 - <<'PY' \
+            | tee "$GITHUB_WORKSPACE/hosted-t2/source-policy.log"
+          from pathlib import Path
+          from stwo_perf import manifest as manifest_mod
+
+          changed = [
+              "src/frontends/riscv/air/lookups/tables/component.zig",
+              "src/frontends/riscv/air/lookups/tables/interaction.zig",
+              "src/frontends/riscv/prover/proof_finalize.zig",
+          ]
+          manifest = manifest_mod.load(Path.cwd())
+          violations, strays = manifest.classify_touched(changed, board="riscv")
+          if violations:
+              raise SystemExit(f"locked paths changed: {violations}")
+          if strays:
+              raise SystemExit(f"paths outside riscv editable set: {strays}")
+          selected = manifest.group("riscv").guard_registry
+          print(
+              "board-aware source policy: PASS "
+              f"(board=riscv, editable_paths=3, guard_registry={selected!r})"
+          )
+          PY
+
+      - name: Validate the locked harness
+        working-directory: ${{ runner.temp }}/candidate
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: gc.auto
+          GIT_CONFIG_VALUE_0: "0"
+          GIT_CONFIG_KEY_1: maintenance.auto
+          GIT_CONFIG_VALUE_1: "false"
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s autoresearch/tests -v \
+            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t2/harness-tests.log"
+
+      - name: Install pinned Zig toolchain
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+
+      - name: Run source and package controls
+        working-directory: ${{ runner.temp }}/candidate
+        run: |
+          set -euo pipefail
+          {
+            zig version
+            zig fmt --check \
+              src/frontends/riscv/air/lookups/tables/component.zig \
+              src/frontends/riscv/air/lookups/tables/interaction.zig \
+              src/frontends/riscv/prover/proof_finalize.zig
+            git diff --check "$FRONTIER_COMMIT" "$CANDIDATE_COMMIT"
+            python3 scripts/check_source_conformance.py
+            python3 scripts/check_riscv_cpu_product.py
+            (
+              cd src/frontends/riscv
+              zig build test -Doptimize=ReleaseFast
+            )
+          } 2>&1 |
+            tee "$GITHUB_WORKSPACE/hosted-t2/source-and-package-controls.log"
+
+      - name: Prepare the exact candidate and predecessor
+        working-directory: ${{ runner.temp }}/candidate
+        run: |
+          set -euo pipefail
+          python3 autoresearch/cli/stwo-perf setup --board riscv
+          git worktree add --detach "$RUNNER_TEMP/frontier" "$FRONTIER_COMMIT"
+
+      - name: Run the full T2 claimed evaluation
+        working-directory: ${{ runner.temp }}/candidate
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: gc.auto
+          GIT_CONFIG_VALUE_0: "0"
+          GIT_CONFIG_KEY_1: maintenance.auto
+          GIT_CONFIG_VALUE_1: "false"
+        run: |
+          set -o pipefail
+          timeout 3300s python3 autoresearch/cli/stwo-perf run \
+            --scope s3 \
+            --board riscv \
+            --class small \
+            --dimension time \
+            --guards auto \
+            --predecessor "$RUNNER_TEMP/frontier" \
+            --out "$GITHUB_WORKSPACE/hosted-t2/verdict.json" \
+            2>&1 | tee "$GITHUB_WORKSPACE/hosted-t2/t2.log"
+
+      - name: Validate terminal verdict identity
+        run: |
+          set -euo pipefail
+          verdict=hosted-t2/verdict.json
+          test -f "$verdict"
+          jq -e \
+            --arg candidate "$CANDIDATE_COMMIT" \
+            --arg frontier "$FRONTIER_COMMIT" '
+            .schema_version == 1 and
+            .kind == "claimed" and
+            .repo_commit == $candidate and
+            .predecessor_commit == $frontier and
+            .scope == "s3" and
+            .declared_objective.workload_class == "small" and
+            .declared_objective.dimension == "time" and
+            (.score.per_workload | length) == 6 and
+            (.guards | length) == 6 and
+            (.gates | keys) == ["G1", "G2", "G3", "G4", "G5"] and
+            .search_health.decision.recorded_before_measurement == true
+          ' "$verdict" >/dev/null
+          shasum -a 256 "$verdict" > hosted-t2/verdict.sha256
+
+      - name: Record terminal environment
+        if: always()
+        run: |
+          set -euo pipefail
+          workflow_sha256=$(
+            sha256sum .github/workflows/hosted-t2-riscv.yml |
+              cut -d' ' -f1
+          )
+          jq -n \
+            --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg os "$(uname -srvmo)" \
+            --arg runner_name "$RUNNER_NAME" \
+            --arg runner_arch "$RUNNER_ARCH" \
+            --arg controller_commit "$GITHUB_SHA" \
+            --arg controller_tree "$(git rev-parse HEAD^{tree})" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
+            --arg workflow_sha256 "$workflow_sha256" \
+            --arg job_status "${{ job.status }}" \
+            '{
+              schema: "stwo-riscv-hosted-t2-environment/v1",
+              completed_at_utc: $completed_at_utc,
+              os: $os,
+              runner_name: $runner_name,
+              runner_arch: $runner_arch,
+              controller_commit: $controller_commit,
+              controller_tree: $controller_tree,
+              workflow_ref: $workflow_ref,
+              workflow_sha256: $workflow_sha256,
+              job_status: $job_status
+            }' > hosted-t2/environment.json
+
+      - name: Upload the complete T2 packet
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: autoresearch-riscv-hosted-t2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hosted-t2/
+          if-no-files-found: error
