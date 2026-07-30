@@ -1,0 +1,36 @@
+{
+  "schema": "stwo-riscv-hosted-t0-run-binding/v2",
+  "controller": {
+    "branch": "agent/hosted-t0-riscv-92a31e6a",
+    "workflow_source_commit": "b3b1118fb8710095eb6e9f6cb085df567260eaed",
+    "workflow_sha256": "09eeec15f23edbc13778e955037a6a5d73ea317bfb47a1d99c6aa2eac129c7b3"
+  },
+  "candidate": {
+    "branch": "agent/riscv-table-previous-fusion-92a31e6a",
+    "commit": "35a30db9bb57de10e4465bf4e18c1d47fd446d7b",
+    "tree": "647840bf58aa516cd2023941082c83344b1690a7",
+    "diff_sha256": "35058f32233d7a7d6e18818b9739d63bcedc578e6f78673bc7fad0a4392b858f",
+    "source_sha256": "2d94b36d49827ba1add7827316717a4eed9e9cf3a70304695e1af125de1066c5",
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/interaction.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "92a31e6aeaf245bac6e00331ac24442479f5b814",
+    "tree": "f682a92114e2fd1452abd3cc64f77e136847d9ec"
+  },
+  "preregistration": {
+    "sha256": "dad19b2198cb7dce2813b53fcc89985a8a94b0da9482948b8281e700b5d78169",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912",
+    "prior_infrastructure_audit_sha256": "7b72f3bfb40a7afbe4c24e26c6e57a499e4bfd3dc4b7cfc2756c3154117191b6"
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "board": "riscv",
+    "class": "small",
+    "phase": "riscv_interaction_commit",
+    "t0_relative_move_floor": 0.02
+  }
+}
