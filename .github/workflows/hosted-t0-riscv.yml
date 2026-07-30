@@ -1,15 +1,15 @@
-name: autoresearch-hosted-t0-riscv
+name: autoresearch-hosted-t0-riscv-elide-table-previous
 
 on:
   push:
     branches:
-      - agent/hosted-t0-riscv-prove-93f2f621
+      - agent/hosted-t0-riscv-elide-table-previous-93f2f621
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t0-riscv-prove-93f2f621
+  group: autoresearch-hosted-t0-riscv-elide-table-previous-93f2f621
   cancel-in-progress: false
 
 jobs:
@@ -24,18 +24,21 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-prove-93f2f621
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-elide-table-previous-93f2f621
         run: |
           set -euo pipefail
-          binding=".github/hosted-t0/riscv-table-previous-fusion-prove-93f2f621.json"
+          binding=".github/hosted-t0/riscv-elide-table-previous-93f2f621.json"
           test -f "$binding"
           jq -e '
             .schema == "stwo-riscv-hosted-t0-run-binding/v2" and
-            .controller.branch == "agent/hosted-t0-riscv-prove-93f2f621" and
-            .candidate.branch == "agent/riscv-table-previous-fusion-93f2f621" and
+            .controller.branch == "agent/hosted-t0-riscv-elide-table-previous-93f2f621" and
+            .candidate.branch == "agent/riscv-elide-table-previous-93f2f621" and
             .candidate.changed_paths == [
-              "src/frontends/riscv/air/lookups/tables/interaction.zig"
+              "src/frontends/riscv/air/lookups/tables/component.zig",
+              "src/frontends/riscv/air/lookups/tables/interaction.zig",
+              "src/frontends/riscv/prover/proof_finalize.zig"
             ] and
+            (.candidate.source_sha256 | keys) == .candidate.changed_paths and
             .toolchain.zig == "0.15.2" and
             .experiment.board == "riscv" and
             .experiment.class == "small" and
@@ -54,7 +57,6 @@ jobs:
           preregistration_sha256=$(jq -er '.preregistration.sha256' "$binding")
           preregistration_audit_sha256=$(jq -er '.preregistration.audit_sha256' "$binding")
           candidate_diff_sha256=$(jq -er '.candidate.diff_sha256' "$binding")
-          candidate_source_sha256=$(jq -er '.candidate.source_sha256' "$binding")
 
           test "$controller_branch" = "$EXPECTED_CONTROLLER_BRANCH"
           test "$GITHUB_REF" = "refs/heads/$EXPECTED_CONTROLLER_BRANCH"
@@ -71,8 +73,7 @@ jobs:
           done
           for value in \
             "$expected_workflow_sha256" "$preregistration_sha256" \
-            "$preregistration_audit_sha256" "$candidate_diff_sha256" \
-            "$candidate_source_sha256"; do
+            "$preregistration_audit_sha256" "$candidate_diff_sha256"; do
             test "${#value}" -eq 64
             test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
           done
@@ -104,20 +105,20 @@ jobs:
             git -C "$RUNNER_TEMP/candidate" diff --name-only --no-renames \
               "$frontier_commit" "$candidate_commit"
           )
-          test "$actual_paths" = \
-            "src/frontends/riscv/air/lookups/tables/interaction.zig"
-          frontier_mode=$(
-            git -C "$RUNNER_TEMP/candidate" ls-tree "$frontier_commit" -- \
-              src/frontends/riscv/air/lookups/tables/interaction.zig |
-              cut -d' ' -f1
-          )
-          candidate_mode=$(
-            git -C "$RUNNER_TEMP/candidate" ls-tree "$candidate_commit" -- \
-              src/frontends/riscv/air/lookups/tables/interaction.zig |
-              cut -d' ' -f1
-          )
-          test "$frontier_mode" = "100644"
-          test "$candidate_mode" = "$frontier_mode"
+          expected_paths=$(jq -r '.candidate.changed_paths[]' "$binding")
+          test "$actual_paths" = "$expected_paths"
+          while IFS= read -r path; do
+            frontier_mode=$(
+              git -C "$RUNNER_TEMP/candidate" ls-tree "$frontier_commit" -- \
+                "$path" | cut -d' ' -f1
+            )
+            candidate_mode=$(
+              git -C "$RUNNER_TEMP/candidate" ls-tree "$candidate_commit" -- \
+                "$path" | cut -d' ' -f1
+            )
+            test "$frontier_mode" = "100644"
+            test "$candidate_mode" = "$frontier_mode"
+          done < <(jq -r '.candidate.changed_paths[]' "$binding")
           actual_diff_sha256=$(
             git -C "$RUNNER_TEMP/candidate" \
               diff --binary --full-index --no-renames \
@@ -125,12 +126,19 @@ jobs:
               sha256sum | cut -d' ' -f1
           )
           test "$actual_diff_sha256" = "$candidate_diff_sha256"
-          source_path="$RUNNER_TEMP/candidate/src/frontends/riscv/air/lookups/tables/interaction.zig"
-          actual_source_sha256=$(
-            sha256sum "$source_path" |
-              cut -d' ' -f1
+          while IFS=$'\t' read -r path expected_source_sha256; do
+            test "${#expected_source_sha256}" -eq 64
+            test -z "$(
+              printf '%s' "$expected_source_sha256" | tr -d '0-9a-f'
+            )"
+            actual_source_sha256=$(
+              sha256sum "$RUNNER_TEMP/candidate/$path" | cut -d' ' -f1
+            )
+            test "$actual_source_sha256" = "$expected_source_sha256"
+          done < <(
+            jq -r '.candidate.source_sha256 | to_entries[] |
+              [.key, .value] | @tsv' "$binding"
           )
-          test "$actual_source_sha256" = "$candidate_source_sha256"
 
           mkdir -p hosted-t0
           cp "$binding" hosted-t0/run-binding.json
@@ -163,7 +171,11 @@ jobs:
           from pathlib import Path
           from stwo_perf import manifest as manifest_mod
 
-          changed = ["src/frontends/riscv/air/lookups/tables/interaction.zig"]
+          changed = [
+              "src/frontends/riscv/air/lookups/tables/component.zig",
+              "src/frontends/riscv/air/lookups/tables/interaction.zig",
+              "src/frontends/riscv/prover/proof_finalize.zig",
+          ]
           manifest = manifest_mod.load(Path.cwd())
           violations, strays = manifest.classify_touched(changed, board="riscv")
           if violations:
@@ -172,7 +184,7 @@ jobs:
               raise SystemExit(f"paths outside riscv editable set: {strays}")
           print(
               "board-aware source policy: PASS "
-              "(board=riscv, one editable path, mode=100644)"
+              "(board=riscv, three editable paths, mode=100644)"
           )
           PY
 
@@ -224,7 +236,9 @@ jobs:
           {
             zig version
             zig fmt --check \
-              src/frontends/riscv/air/lookups/tables/interaction.zig
+              src/frontends/riscv/air/lookups/tables/component.zig \
+              src/frontends/riscv/air/lookups/tables/interaction.zig \
+              src/frontends/riscv/prover/proof_finalize.zig
             git diff --check "$FRONTIER_COMMIT" "$CANDIDATE_COMMIT"
             python3 scripts/check_source_conformance.py
             python3 scripts/check_riscv_cpu_product.py
