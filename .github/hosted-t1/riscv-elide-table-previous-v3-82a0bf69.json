@@ -1,14 +1,14 @@
 {
   "schema": "stwo-riscv-hosted-t1-run-binding/v1",
   "controller": {
-    "branch": "agent/hosted-t1-riscv-elide-table-previous-v2-88cbab63",
-    "workflow_source_commit": "6adb96d2e242a1c0fc818e4155c87c65478969b1",
-    "workflow_sha256": "f41d0f936625d5a53f61fdc1bbcaa37abf225e12acaccced05469efa08823227",
+    "branch": "agent/hosted-t1-riscv-elide-table-previous-v3-82a0bf69",
+    "workflow_source_commit": "90d57879a7d6f6eebfed5a7de62fee058379be26",
+    "workflow_sha256": "6f64823c85d3b0a01f007b88708c578ef1029c9a7dc689fadcd00ea1b59bc1e9",
     "harness_git_automaintenance_disabled": true
   },
   "candidate": {
-    "branch": "agent/riscv-elide-table-previous-v2-88cbab63",
-    "commit": "6647504ca1d43a04ece369ca50658bdefcd292f3",
+    "branch": "agent/riscv-elide-table-previous-v3-82a0bf69",
+    "commit": "280a6df9d36b972ce760322b2cffe4ae6d111123",
     "tree": "4759823d00ac36c772d3360bd6448b5282043333",
     "diff_sha256": "6a6b8a1b143e553a33aedb4deec1bad3221d96ad179ec24bb3ab7d105925583f",
     "source_sha256": {
@@ -23,11 +23,11 @@
     ]
   },
   "frontier": {
-    "commit": "88cbab6323519ba0a9c190d75757bd6e4a7ad792",
+    "commit": "82a0bf6913ebbb6104428365904c6c91f714029b",
     "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
   },
   "preregistration": {
-    "sha256": "4eb6d37a73991ef57e0208b62a48fc8830225bfaf88fcb69f446b61429345bea",
+    "sha256": "be6ccf54c0487c07d95e7c1646302567d8947b8c855766f1de4ecef7f8fa7946",
     "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
   },
   "local_controls": {
