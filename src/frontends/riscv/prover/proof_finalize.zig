@@ -117,7 +117,6 @@ pub fn prove(
                 interaction_offset,
                 relations,
                 interaction_claim.lookup_claims[i],
-                constPrev(workspace.table_results[table_index].previous),
             );
             components.push(components.table[table_index].asProverComponent());
             main_offset += desc.n_columns;
