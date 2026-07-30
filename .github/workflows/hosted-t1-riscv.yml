@@ -46,7 +46,7 @@ jobs:
             .experiment.fast_boundary == false and
             .experiment.boundary == "verified_request_ms" and
             .experiment.t1_cost_target_seconds == 300 and
-            .t0_gate.run_id == "30565077179" and
+            .t0_gate.run_id == "30571160707" and
             .t0_gate.run_attempt == "1" and
             .t0_gate.pass == true and
             .t0_gate.correctness_smoke_pass == true and
