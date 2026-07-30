@@ -2,7 +2,7 @@
   "schema": "stwo-riscv-hosted-t1-run-binding/v1",
   "controller": {
     "branch": "agent/hosted-t1-riscv-elide-table-previous-93f2f621",
-    "workflow_source_commit": "bb97a3c82c3c0986f67d7ee00d712966102f4a9c",
+    "workflow_source_commit": "e4455bc0e43816c0aef6dcb4ddc584ec195b1324",
     "workflow_sha256": "57c2be976891baa0c1a95351f0f1ed59e794d0ebef1d371632214c68f5d5ca1c"
   },
   "candidate": {
