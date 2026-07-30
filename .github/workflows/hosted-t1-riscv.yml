@@ -3,13 +3,13 @@ name: autoresearch-hosted-t1-riscv-elide-table-previous
 on:
   push:
     branches:
-      - agent/hosted-t1-riscv-elide-table-previous-v2-88cbab63
+      - agent/hosted-t1-riscv-elide-table-previous-v3-82a0bf69
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t1-riscv-elide-table-previous-v2-88cbab63
+  group: autoresearch-hosted-t1-riscv-elide-table-previous-v3-82a0bf69
   cancel-in-progress: false
 
 jobs:
@@ -24,16 +24,16 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-elide-table-previous-v2-88cbab63
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-elide-table-previous-v3-82a0bf69
         run: |
           set -euo pipefail
-          binding=".github/hosted-t1/riscv-elide-table-previous-v2-88cbab63.json"
+          binding=".github/hosted-t1/riscv-elide-table-previous-v3-82a0bf69.json"
           test -f "$binding"
           jq -e '
             .schema == "stwo-riscv-hosted-t1-run-binding/v1" and
-            .controller.branch == "agent/hosted-t1-riscv-elide-table-previous-v2-88cbab63" and
+            .controller.branch == "agent/hosted-t1-riscv-elide-table-previous-v3-82a0bf69" and
             .controller.harness_git_automaintenance_disabled == true and
-            .candidate.branch == "agent/riscv-elide-table-previous-v2-88cbab63" and
+            .candidate.branch == "agent/riscv-elide-table-previous-v3-82a0bf69" and
             .candidate.changed_paths == [
               "src/frontends/riscv/air/lookups/tables/component.zig",
               "src/frontends/riscv/air/lookups/tables/interaction.zig",
