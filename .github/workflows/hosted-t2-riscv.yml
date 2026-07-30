@@ -124,11 +124,11 @@ jobs:
               sha256sum | cut -d' ' -f1
           )
           test "$actual_diff_sha256" = "$candidate_diff_sha256"
-          while IFS=$'\t' read -r path expected_source_sha256; do
+          while IFS=$'\t' read -r source_file expected_source_sha256; do
             test "$(git -C "$RUNNER_TEMP/candidate" ls-tree "$candidate_commit" -- \
-              "$path" | cut -d' ' -f1)" = "100644"
+              "$source_file" | cut -d' ' -f1)" = "100644"
             actual_source_sha256=$(
-              sha256sum "$RUNNER_TEMP/candidate/$path" | cut -d' ' -f1
+              sha256sum "$RUNNER_TEMP/candidate/$source_file" | cut -d' ' -f1
             )
             test "$actual_source_sha256" = "$expected_source_sha256"
           done < <(
