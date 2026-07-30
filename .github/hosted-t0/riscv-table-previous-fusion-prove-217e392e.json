@@ -1,0 +1,55 @@
+{
+  "schema": "stwo-riscv-hosted-t0-run-binding/v2",
+  "controller": {
+    "branch": "agent/hosted-t0-riscv-prove-217e392e",
+    "workflow_source_commit": "bdd2eb2c156aeaf0dabd4ac0728ff8a90719112a",
+    "workflow_sha256": "ab99f4c75e3a0d9d9f07bdd6bd137b6f13cec7c782beaa6c5e408bd511fedda5"
+  },
+  "candidate": {
+    "branch": "agent/riscv-table-previous-fusion-217e392e",
+    "commit": "78863908352e8a6b5d58bc7c6772cf42b40ebc1e",
+    "tree": "986a07ed6043ae337780ce9f30dc687eeff97661",
+    "diff_sha256": "35058f32233d7a7d6e18818b9739d63bcedc578e6f78673bc7fad0a4392b858f",
+    "source_sha256": "2d94b36d49827ba1add7827316717a4eed9e9cf3a70304695e1af125de1066c5",
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/interaction.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "217e392e4f226f8f30b411a1c8df595f349360de",
+    "tree": "9441cb3ab49f2b5a287d7b1d28254a51861055ff"
+  },
+  "preregistration": {
+    "sha256": "25d5b85012a67654c954939a4a54b44fcecb9e8fa6e11d8ef6623aa03b542589",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912",
+    "prior_audit_failed_verdict_sha256": "12c2526683fac3daeb22f3fa88092e4f8bbfcbd4252c4d399c39053922429098"
+  },
+  "infrastructure_repair": {
+    "merged_pull_request": 156,
+    "merge_commit": "217e392e4f226f8f30b411a1c8df595f349360de",
+    "superseded_pull_request": 160,
+    "consumed_runs": [
+      {
+        "id": 30550838778,
+        "classification": "unknown",
+        "reused": false,
+        "reclassified": false
+      },
+      {
+        "id": 30555357372,
+        "classification": "audit-failed",
+        "reused": false,
+        "reclassified": false
+      }
+    ]
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "board": "riscv",
+    "class": "small",
+    "phase": "prove",
+    "t0_relative_move_floor": 0.02
+  }
+}
