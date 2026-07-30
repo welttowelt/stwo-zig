@@ -1,0 +1,41 @@
+{
+  "schema": "stwo-riscv-hosted-t0-run-binding/v2",
+  "controller": {
+    "branch": "agent/hosted-t0-riscv-elide-table-previous-v2-88cbab63",
+    "workflow_source_commit": "ac4139e9a5823e752755dba2600d0c0f0643f935",
+    "workflow_sha256": "7a85ae1ef92ba2fcf1792b926e1e777bed95ea17224d18092e6c7df6c7a3bc26"
+  },
+  "candidate": {
+    "branch": "agent/riscv-elide-table-previous-v2-88cbab63",
+    "commit": "6647504ca1d43a04ece369ca50658bdefcd292f3",
+    "tree": "4759823d00ac36c772d3360bd6448b5282043333",
+    "diff_sha256": "6a6b8a1b143e553a33aedb4deec1bad3221d96ad179ec24bb3ab7d105925583f",
+    "source_sha256": {
+      "src/frontends/riscv/air/lookups/tables/component.zig": "377115d8a9b839006c6e0a35128977cf76478ed33ecfe7c4dc5d49271487d667",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig": "8fbc91a0472e68b82ff1966662ce58e945f0d7b8651347fcb0fb9ca99cd6af7a",
+      "src/frontends/riscv/prover/proof_finalize.zig": "d7f54a36f35cad68fec973681ac9644500418707b2a2f863818dc536830b2492"
+    },
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "88cbab6323519ba0a9c190d75757bd6e4a7ad792",
+    "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
+  },
+  "preregistration": {
+    "sha256": "4eb6d37a73991ef57e0208b62a48fc8830225bfaf88fcb69f446b61429345bea",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "board": "riscv",
+    "class": "small",
+    "phase": "prove",
+    "t0_relative_move_floor": 0.02
+  }
+}
