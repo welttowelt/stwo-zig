@@ -1,15 +1,15 @@
-name: autoresearch-hosted-t0-riscv-wide-c8c66437
+name: autoresearch-hosted-t0-riscv-wide-c8c66437-v2
 
 on:
   push:
     branches:
-      - agent/hosted-t0-riscv-wide-c8c66437
+      - agent/hosted-t0-riscv-wide-c8c66437-v2
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t0-riscv-wide-c8c66437
+  group: autoresearch-hosted-t0-riscv-wide-c8c66437-v2
   cancel-in-progress: false
 
 jobs:
@@ -24,15 +24,27 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-wide-c8c66437
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t0-riscv-wide-c8c66437-v2
         run: |
           set -euo pipefail
-          binding=".github/hosted-t0/riscv-wide-c8c66437.json"
+          mkdir -p hosted-t0
+          binding=".github/hosted-t0/riscv-wide-c8c66437-v2.json"
           test -f "$binding"
           jq -e '
             .schema == "stwo-riscv-hosted-t0-run-binding/v2" and
-            .controller.branch == "agent/hosted-t0-riscv-wide-c8c66437" and
+            .controller.branch == "agent/hosted-t0-riscv-wide-c8c66437-v2" and
             .candidate.branch == "agent/riscv-parallel-fixed-tables-successor-280a6df9" and
+            .candidate.modified_paths == [
+              "src/frontends/riscv/air/lookups/tables/component.zig",
+              "src/frontends/riscv/air/lookups/tables/interaction.zig",
+              "src/frontends/riscv/mod.zig",
+              "src/frontends/riscv/prover/interaction_trace.zig",
+              "src/frontends/riscv/prover/proof_finalize.zig",
+              "src/frontends/riscv/testing.zig"
+            ] and
+            .candidate.added_paths == [
+              "src/frontends/riscv/prover/interaction_table_tasks.zig"
+            ] and
             .candidate.changed_paths == [
               "src/frontends/riscv/air/lookups/tables/component.zig",
               "src/frontends/riscv/air/lookups/tables/interaction.zig",
@@ -120,8 +132,15 @@ jobs:
               git -C "$RUNNER_TEMP/candidate" ls-tree "$candidate_commit" -- \
                 "$path" | cut -d' ' -f1
             )
-            test "$frontier_mode" = "100644"
-            test "$candidate_mode" = "$frontier_mode"
+            test "$candidate_mode" = "100644"
+            case "$path" in
+              src/frontends/riscv/prover/interaction_table_tasks.zig)
+                test -z "$frontier_mode"
+                ;;
+              *)
+                test "$frontier_mode" = "100644"
+                ;;
+            esac
           done < <(jq -r '.candidate.changed_paths[]' "$binding")
           actual_diff_sha256=$(
             git -C "$RUNNER_TEMP/candidate" \
@@ -144,7 +163,6 @@ jobs:
               [.key, .value] | @tsv' "$binding"
           )
 
-          mkdir -p hosted-t0
           cp "$binding" hosted-t0/run-binding.json
           jq \
             --arg controller_commit "$GITHUB_SHA" \
