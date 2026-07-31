@@ -1,0 +1,118 @@
+{
+  "schema": "stwo-riscv-hosted-t1-run-binding/v2",
+  "controller": {
+    "branch": "agent/hosted-t1-riscv-wide-c8c66437-v2",
+    "workflow_source_commit": "3d0fae6d4f0958e099c47d97124d8e5f24ca9977",
+    "workflow_sha256": "8f8b03231056bd8b03a9795b147214af32a5fcc2a2b908bbed9a8b068a23fd8b",
+    "runner_sha256": "2bede6274419338e71049995f2c5945cc7442814df060e30df55b6f3104d9ed6",
+    "harness_git_automaintenance_disabled": true
+  },
+  "candidate": {
+    "branch": "agent/riscv-parallel-fixed-tables-successor-280a6df9",
+    "commit": "c8c66437f2b7dd1736f30a4b94bc3bc741f3aa7e",
+    "tree": "64716d0a05a58b6d692b2e2703cb9f2a93d5b978",
+    "diff_sha256": "ed162c0ec93ffbb4a031d00b77e37088317b9a5f7257cb60e8a40699c2169fd5",
+    "source_sha256": {
+      "src/frontends/riscv/air/lookups/tables/component.zig": "377115d8a9b839006c6e0a35128977cf76478ed33ecfe7c4dc5d49271487d667",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig": "8fbc91a0472e68b82ff1966662ce58e945f0d7b8651347fcb0fb9ca99cd6af7a",
+      "src/frontends/riscv/mod.zig": "8a15004e1fa005ca6cd6d68a99cd1bd29791411c1e3f27c6eb6fce6a57e5a3ca",
+      "src/frontends/riscv/prover/interaction_table_tasks.zig": "f53514c0c94f7e5099bbcb7048ff6ebddf04bd201af072b923dbd80b31f6fde5",
+      "src/frontends/riscv/prover/interaction_trace.zig": "25a6b3e1e5b46b1fa0e40fc42bc21ab123c54fee6e1fbcb784b85aea7396b837",
+      "src/frontends/riscv/prover/proof_finalize.zig": "d7f54a36f35cad68fec973681ac9644500418707b2a2f863818dc536830b2492",
+      "src/frontends/riscv/testing.zig": "b8e355576daba05ce85cfa2dc5e7f618b21308acabd3d6a0d840426d6f7ab710"
+    },
+    "modified_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/mod.zig",
+      "src/frontends/riscv/prover/interaction_trace.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig",
+      "src/frontends/riscv/testing.zig"
+    ],
+    "added_paths": [
+      "src/frontends/riscv/prover/interaction_table_tasks.zig"
+    ],
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/mod.zig",
+      "src/frontends/riscv/prover/interaction_table_tasks.zig",
+      "src/frontends/riscv/prover/interaction_trace.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig",
+      "src/frontends/riscv/testing.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "82a0bf6913ebbb6104428365904c6c91f714029b",
+    "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
+  },
+  "preregistration": {
+    "sha256": "80c9c62593b849884f21378315a35962bca0964fec7c64569378123812109f2b",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
+  },
+  "local_controls": {
+    "t0_input_binding_sha256": "04bd2028e5e71ef6e8c990456e0475ae379fae051aed2fdefc251cf2148d4a15",
+    "t0_packet_manifest_sha256": "41f7ee41510cd23acba7bab70c58e647924719451970c838665461691294f39f",
+    "t0_binding_audit_sha256": "0e986657de48a73a434bc75a3b29dd80169cbf3954bc68eb419c828fe3534243",
+    "t0_independent_audit_sha256": "fab81617f9db6c9526eee68d37b19fed1a6f10380ceb4ac1c2b885d57ecb6424",
+    "t0_artifact_archive_digest": "cfdd21cc3954c1d88f93a083d4383878560a66126568bfc32a6b13092527225d"
+  },
+  "prior_t1_failure": {
+    "run_id": "30598881008",
+    "run_attempt": "1",
+    "status": "audit-failed",
+    "independent_audit_sha256": "5528469f728abca0c2e56f202359a5bcdacc9d3f097b215c345c8763767e154c",
+    "artifact_archive_digest": "4f73bde37337090b5f8116bb617150171e62ec5e9ff84dff72cf9f610660d20a"
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "board": "riscv",
+    "class": "wide",
+    "workloads": [
+      "riscv_memcpy_loop",
+      "riscv_sieve_primes",
+      "riscv_bubble_sort",
+      "riscv_collatz",
+      "riscv_keccak_128b",
+      "riscv_sha2_128b",
+      "riscv_sha2_256b"
+    ],
+    "fast_boundary": false,
+    "boundary": "prove_ms",
+    "t1_cost_target_seconds": 300,
+    "promotion_threshold": 0.98,
+    "raw_abba_retention": "complete",
+    "canonical_manifest_sha256": "5029fe5df4d3f921d04e2846b3af047b629b91b3b8dbb8ca585dc88178d0ecf5",
+    "secure_default_source_sha256": "8b6a895e9bd2100f7d36a0daae1c8bc41cfc39865b272d1269fa2b9ce7d63347",
+    "proxy": {
+      "proxy_id": "riscv_fixed_tables_memcpy_proxy",
+      "args": "bench --elf vectors/riscv_elfs/memcpy_loop.elf --backend cpu {admission} --warmups {warmups} --samples {samples}",
+      "native_unit": "executed instructions",
+      "official_params": true,
+      "target_workload_ids": [
+        "riscv_memcpy_loop",
+        "riscv_sieve_primes",
+        "riscv_bubble_sort",
+        "riscv_collatz",
+        "riscv_keccak_128b",
+        "riscv_sha2_128b",
+        "riscv_sha2_256b"
+      ],
+      "note": "Controller-only T1 scheduling proxy reusing the riscv_memcpy_loop ELF and inheriting the official secure protocol default; no era validity receipt exists."
+    }
+  },
+  "t0_gate": {
+    "run_id": "30597644519",
+    "run_attempt": "1",
+    "run_url": "https://github.com/welttowelt/stwo-zig/actions/runs/30597644519",
+    "result_sha256": "eb7317c870b57926ebb201bce76cafe628ff3e272efbf5da63104106882d220b",
+    "pass": true,
+    "relative_move": 0.18339298597607964,
+    "min_phase_move": 0.02,
+    "correctness_smoke_pass": true,
+    "predecessor_proof_digest": "e59d5a59a4ebcee8ea91d7be33d4b1de0bf06530abb620f6e3284611074d21b2",
+    "candidate_proof_digest": "e59d5a59a4ebcee8ea91d7be33d4b1de0bf06530abb620f6e3284611074d21b2"
+  }
+}
