@@ -1,15 +1,15 @@
-name: autoresearch-hosted-t1-riscv-wide-c8c66437-v2
+name: autoresearch-hosted-t1-riscv-wide-c8c66437-v3
 
 on:
   push:
     branches:
-      - agent/hosted-t1-riscv-wide-c8c66437-v2
+      - agent/hosted-t1-riscv-wide-c8c66437-v3
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t1-riscv-wide-c8c66437-v2
+  group: autoresearch-hosted-t1-riscv-wide-c8c66437-v3
   cancel-in-progress: false
 
 jobs:
@@ -24,16 +24,17 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-wide-c8c66437-v2
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-wide-c8c66437-v3
         run: |
           set -euo pipefail
           mkdir -p hosted-t1
-          binding=".github/hosted-t1/riscv-wide-c8c66437-v2.json"
+          binding=".github/hosted-t1/riscv-wide-c8c66437-v3.json"
           test -f "$binding"
           jq -e '
-            .schema == "stwo-riscv-hosted-t1-run-binding/v2" and
-            .controller.branch == "agent/hosted-t1-riscv-wide-c8c66437-v2" and
+            .schema == "stwo-riscv-hosted-t1-run-binding/v3" and
+            .controller.branch == "agent/hosted-t1-riscv-wide-c8c66437-v3" and
             .controller.harness_git_automaintenance_disabled == true and
+            .controller.pythonpath_scope == "candidate_repository_root_only" and
             .controller.runner_sha256 == "2bede6274419338e71049995f2c5945cc7442814df060e30df55b6f3104d9ed6" and
             .candidate.branch == "agent/riscv-parallel-fixed-tables-successor-280a6df9" and
             .candidate.commit == "c8c66437f2b7dd1736f30a4b94bc3bc741f3aa7e" and
@@ -62,7 +63,7 @@ jobs:
             (.candidate.source_sha256 | keys) == .candidate.changed_paths and
             .frontier.commit == "82a0bf6913ebbb6104428365904c6c91f714029b" and
             .frontier.tree == "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2" and
-            .preregistration.sha256 == "80c9c62593b849884f21378315a35962bca0964fec7c64569378123812109f2b" and
+            .preregistration.sha256 == "3a971305f6dddf4abd7497ff16b908f5b254dfc5d409d5f8669da3a6a53ccfb3" and
             .preregistration.audit_sha256 == "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912" and
             .local_controls.t0_input_binding_sha256 == "04bd2028e5e71ef6e8c990456e0475ae379fae051aed2fdefc251cf2148d4a15" and
             .local_controls.t0_packet_manifest_sha256 == "41f7ee41510cd23acba7bab70c58e647924719451970c838665461691294f39f" and
@@ -74,6 +75,12 @@ jobs:
             .prior_t1_failure.status == "audit-failed" and
             .prior_t1_failure.independent_audit_sha256 == "5528469f728abca0c2e56f202359a5bcdacc9d3f097b215c345c8763767e154c" and
             .prior_t1_failure.artifact_archive_digest == "4f73bde37337090b5f8116bb617150171e62ec5e9ff84dff72cf9f610660d20a" and
+            .prior_t1_v2_failure.run_id == "30601204576" and
+            .prior_t1_v2_failure.run_attempt == "1" and
+            .prior_t1_v2_failure.status == "audit-failed" and
+            .prior_t1_v2_failure.terminal_sha256 == "bb055e974a2ef95b26d6e2dc0fbe72f5a75c6e9e3991d3e0c28cd553f1b9d734" and
+            .prior_t1_v2_failure.artifact_archive_digest == "48c73112651a9c0c733df08f855d512206a6dd505edee4175a3349fdd36a26a5" and
+            .prior_t1_v2_failure.performance_observed == false and
             .toolchain.zig == "0.15.2" and
             .experiment.board == "riscv" and
             .experiment.class == "wide" and
@@ -375,7 +382,7 @@ jobs:
         working-directory: ${{ runner.temp }}/candidate
         run: |
           set -o pipefail
-          timeout 1800s python3 \
+          PYTHONPATH="$RUNNER_TEMP/candidate" timeout 1800s python3 \
             "$GITHUB_WORKSPACE/.github/hosted-t1/run_wide_t1_v2.py" \
             --repo-root "$RUNNER_TEMP/candidate" \
             --predecessor-root "$RUNNER_TEMP/frontier" \
@@ -411,7 +418,7 @@ jobs:
             --arg runner_sha256 "$runner_sha256" \
             --arg job_status "${{ job.status }}" \
             '{
-              schema: "stwo-riscv-hosted-t1-environment/v2",
+              schema: "stwo-riscv-hosted-t1-environment/v3",
               completed_at_utc: $completed_at_utc,
               os: $os,
               runner_name: $runner_name,
