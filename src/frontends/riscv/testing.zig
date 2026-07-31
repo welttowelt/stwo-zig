@@ -12,6 +12,8 @@ pub const relation_export_test = @import("air/relation_export_test.zig");
 pub const semantic_component_test = @import("air/semantic_component_test.zig");
 pub const jalr_semantics = @import("air/semantics/jalr.zig");
 pub const prover_orchestration = @import("prover/orchestration.zig");
+pub const interaction_table_tasks_test =
+    @import("prover/interaction_table_tasks.zig");
 pub const witness_hook = @import("prover/test_witness_hook.zig");
 
 test {

@@ -34,7 +34,6 @@ const prover_pcs = @import("stwo_prover_engine").pcs;
 const stage_profile = @import("stwo_prover_api").stage_profile;
 const clock_update_interaction = @import("../air/clock_update_interaction.zig");
 const component_order = @import("../air/component_order.zig");
-const lookup_table_interaction = @import("../air/lookups/tables/interaction.zig");
 const lookup_table_schema = @import("../air/lookups/tables/schema.zig");
 const source_ingest = @import("../air/lookups/tables/source_ingest.zig");
 const opcode_interaction = @import("../air/lookups/opcode_interaction.zig");
@@ -46,6 +45,7 @@ const relation_challenges = @import("../air/relation_challenges.zig");
 const proof_transcript = @import("../proof_transcript.zig");
 const trace_mod = @import("../runner/trace.zig");
 const commitment_witness = @import("commitment_witness.zig");
+const interaction_table_tasks = @import("interaction_table_tasks.zig");
 const proof_workspace = @import("proof_workspace.zig");
 const statement_geometry = @import("statement_geometry.zig");
 const types = @import("types.zig");
@@ -119,13 +119,21 @@ pub fn generateAndCommit(
     var columns = try Columns.init(allocator, n_interaction);
     defer columns.deinit(allocator);
 
+    var table_tasks = interaction_table_tasks.Batch.init(
+        allocator,
+        &lookup_source.counters,
+        relations,
+    );
+    defer table_tasks.deinit();
+    table_tasks.start();
+
     try generateOpcode(allocator, workspace, &columns, relations, claim);
     try generateProgram(allocator, workspace, &columns, witness, geometry, relations, claim);
     try generateMemory(allocator, workspace, &columns, witness, relations, claim);
     try generateMerkle(allocator, workspace, &columns, witness, geometry, relations, claim);
     try generatePoseidon(allocator, workspace, &columns, witness, geometry, relations, claim);
     try generateClock(allocator, workspace, &columns, geometry, relations, claim);
-    try generateLookupTables(allocator, workspace, &columns, lookup_source, relations, claim);
+    try generateLookupTables(workspace, &columns, &table_tasks, claim);
     std.debug.assert(columns.filled == n_interaction);
 
     try proof_transcript.mixInteractionClaim(channel, statement, claim);
@@ -298,20 +306,14 @@ fn generateClock(
 /// The fixed lookup tables close the registry, so their infrastructure indices
 /// are the last `LOOKUP_TABLE_COUNT` slots in declaration order.
 fn generateLookupTables(
-    allocator: std.mem.Allocator,
     workspace: *ProofWorkspace,
     columns: *Columns,
-    lookup_source: *const source_ingest.Result,
-    relations: *const Relations,
+    table_tasks: *interaction_table_tasks.Batch,
     claim: *RiscVInteractionClaim,
 ) !void {
     const table_infra_start = workspace.statement.n_infra - component_order.LOOKUP_TABLE_COUNT;
     for (component_order.lookupTables(), 0..) |kind, table_index| {
-        workspace.table_results[workspace.n_table_results] = try lookup_table_interaction.generate(
-            allocator,
-            &lookup_source.counters.counters[@intFromEnum(kind)],
-            relations,
-        );
+        workspace.table_results[workspace.n_table_results] = try table_tasks.take(table_index);
         const generated = &workspace.table_results[workspace.n_table_results];
         workspace.n_table_results += 1;
         claim.lookup_claims[table_infra_start + table_index] = generated.claim;
