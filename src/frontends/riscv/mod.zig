@@ -50,6 +50,10 @@ test "api signature: RISC-V facade preserves runner and prover entry points" {
     }
 }
 
+test "parallel lookup table batch matches serial canonical order and preserves fallback errors" {
+    try testing.interaction_table_tasks_test.testParallelLookupTableBatch();
+}
+
 test {
     @import("std").testing.refAllDeclsRecursive(infra_trace);
     // Every test-bearing file in this package, named once. Without it the
