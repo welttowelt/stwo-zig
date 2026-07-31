@@ -1,10 +1,11 @@
 {
-  "schema": "stwo-riscv-hosted-t1-run-binding/v2",
+  "schema": "stwo-riscv-hosted-t1-run-binding/v3",
   "controller": {
-    "branch": "agent/hosted-t1-riscv-wide-c8c66437-v2",
-    "workflow_source_commit": "3d0fae6d4f0958e099c47d97124d8e5f24ca9977",
-    "workflow_sha256": "8f8b03231056bd8b03a9795b147214af32a5fcc2a2b908bbed9a8b068a23fd8b",
+    "branch": "agent/hosted-t1-riscv-wide-c8c66437-v3",
+    "workflow_source_commit": "d4d51e9ffac66557b98db92f4c0a169ca8dad8c3",
+    "workflow_sha256": "ab11d9fc636bfbef9e992250db4c2a90fc9f52aaeac64732db2c5dc3ad776d14",
     "runner_sha256": "2bede6274419338e71049995f2c5945cc7442814df060e30df55b6f3104d9ed6",
+    "pythonpath_scope": "candidate_repository_root_only",
     "harness_git_automaintenance_disabled": true
   },
   "candidate": {
@@ -47,7 +48,7 @@
     "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
   },
   "preregistration": {
-    "sha256": "80c9c62593b849884f21378315a35962bca0964fec7c64569378123812109f2b",
+    "sha256": "3a971305f6dddf4abd7497ff16b908f5b254dfc5d409d5f8669da3a6a53ccfb3",
     "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
   },
   "local_controls": {
@@ -63,6 +64,14 @@
     "status": "audit-failed",
     "independent_audit_sha256": "5528469f728abca0c2e56f202359a5bcdacc9d3f097b215c345c8763767e154c",
     "artifact_archive_digest": "4f73bde37337090b5f8116bb617150171e62ec5e9ff84dff72cf9f610660d20a"
+  },
+  "prior_t1_v2_failure": {
+    "run_id": "30601204576",
+    "run_attempt": "1",
+    "status": "audit-failed",
+    "terminal_sha256": "bb055e974a2ef95b26d6e2dc0fbe72f5a75c6e9e3991d3e0c28cd553f1b9d734",
+    "artifact_archive_digest": "48c73112651a9c0c733df08f855d512206a6dd505edee4175a3349fdd36a26a5",
+    "performance_observed": false
   },
   "toolchain": {
     "zig": "0.15.2"
