@@ -1,15 +1,15 @@
-name: autoresearch-hosted-t1-riscv-wide-c8c66437
+name: autoresearch-hosted-t1-riscv-wide-c8c66437-v2
 
 on:
   push:
     branches:
-      - agent/hosted-t1-riscv-wide-c8c66437
+      - agent/hosted-t1-riscv-wide-c8c66437-v2
 
 permissions:
   contents: read
 
 concurrency:
-  group: autoresearch-hosted-t1-riscv-wide-c8c66437
+  group: autoresearch-hosted-t1-riscv-wide-c8c66437-v2
   cancel-in-progress: false
 
 jobs:
@@ -24,15 +24,17 @@ jobs:
 
       - name: Bind controller, candidate, and preregistration
         env:
-          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-wide-c8c66437
+          EXPECTED_CONTROLLER_BRANCH: agent/hosted-t1-riscv-wide-c8c66437-v2
         run: |
           set -euo pipefail
-          binding=".github/hosted-t1/riscv-wide-c8c66437.json"
+          mkdir -p hosted-t1
+          binding=".github/hosted-t1/riscv-wide-c8c66437-v2.json"
           test -f "$binding"
           jq -e '
-            .schema == "stwo-riscv-hosted-t1-run-binding/v1" and
-            .controller.branch == "agent/hosted-t1-riscv-wide-c8c66437" and
+            .schema == "stwo-riscv-hosted-t1-run-binding/v2" and
+            .controller.branch == "agent/hosted-t1-riscv-wide-c8c66437-v2" and
             .controller.harness_git_automaintenance_disabled == true and
+            .controller.runner_sha256 == "2bede6274419338e71049995f2c5945cc7442814df060e30df55b6f3104d9ed6" and
             .candidate.branch == "agent/riscv-parallel-fixed-tables-successor-280a6df9" and
             .candidate.commit == "c8c66437f2b7dd1736f30a4b94bc3bc741f3aa7e" and
             .candidate.tree == "64716d0a05a58b6d692b2e2703cb9f2a93d5b978" and
@@ -60,13 +62,18 @@ jobs:
             (.candidate.source_sha256 | keys) == .candidate.changed_paths and
             .frontier.commit == "82a0bf6913ebbb6104428365904c6c91f714029b" and
             .frontier.tree == "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2" and
-            .preregistration.sha256 == "66784ffe013eac5d213a25307fad38cf06ef6203af29751c29db53715acb00e7" and
+            .preregistration.sha256 == "80c9c62593b849884f21378315a35962bca0964fec7c64569378123812109f2b" and
             .preregistration.audit_sha256 == "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912" and
             .local_controls.t0_input_binding_sha256 == "04bd2028e5e71ef6e8c990456e0475ae379fae051aed2fdefc251cf2148d4a15" and
             .local_controls.t0_packet_manifest_sha256 == "41f7ee41510cd23acba7bab70c58e647924719451970c838665461691294f39f" and
             .local_controls.t0_binding_audit_sha256 == "0e986657de48a73a434bc75a3b29dd80169cbf3954bc68eb419c828fe3534243" and
             .local_controls.t0_independent_audit_sha256 == "fab81617f9db6c9526eee68d37b19fed1a6f10380ceb4ac1c2b885d57ecb6424" and
             .local_controls.t0_artifact_archive_digest == "cfdd21cc3954c1d88f93a083d4383878560a66126568bfc32a6b13092527225d" and
+            .prior_t1_failure.run_id == "30598881008" and
+            .prior_t1_failure.run_attempt == "1" and
+            .prior_t1_failure.status == "audit-failed" and
+            .prior_t1_failure.independent_audit_sha256 == "5528469f728abca0c2e56f202359a5bcdacc9d3f097b215c345c8763767e154c" and
+            .prior_t1_failure.artifact_archive_digest == "4f73bde37337090b5f8116bb617150171e62ec5e9ff84dff72cf9f610660d20a" and
             .toolchain.zig == "0.15.2" and
             .experiment.board == "riscv" and
             .experiment.class == "wide" and
@@ -80,8 +87,28 @@ jobs:
               "riscv_sha2_256b"
             ] and
             .experiment.fast_boundary == false and
-            .experiment.boundary == "verified_request_ms" and
+            .experiment.boundary == "prove_ms" and
             .experiment.t1_cost_target_seconds == 300 and
+            .experiment.promotion_threshold == 0.98 and
+            .experiment.raw_abba_retention == "complete" and
+            .experiment.canonical_manifest_sha256 == "5029fe5df4d3f921d04e2846b3af047b629b91b3b8dbb8ca585dc88178d0ecf5" and
+            .experiment.secure_default_source_sha256 == "8b6a895e9bd2100f7d36a0daae1c8bc41cfc39865b272d1269fa2b9ce7d63347" and
+            .experiment.proxy == {
+              "proxy_id": "riscv_fixed_tables_memcpy_proxy",
+              "args": "bench --elf vectors/riscv_elfs/memcpy_loop.elf --backend cpu {admission} --warmups {warmups} --samples {samples}",
+              "native_unit": "executed instructions",
+              "official_params": true,
+              "target_workload_ids": [
+                "riscv_memcpy_loop",
+                "riscv_sieve_primes",
+                "riscv_bubble_sort",
+                "riscv_collatz",
+                "riscv_keccak_128b",
+                "riscv_sha2_128b",
+                "riscv_sha2_256b"
+              ],
+              "note": "Controller-only T1 scheduling proxy reusing the riscv_memcpy_loop ELF and inheriting the official secure protocol default; no era validity receipt exists."
+            } and
             .t0_gate.run_id == "30597644519" and
             .t0_gate.run_attempt == "1" and
             .t0_gate.result_sha256 == "eb7317c870b57926ebb201bce76cafe628ff3e272efbf5da63104106882d220b" and
@@ -94,6 +121,7 @@ jobs:
           controller_branch=$(jq -er '.controller.branch' "$binding")
           workflow_source_commit=$(jq -er '.controller.workflow_source_commit' "$binding")
           expected_workflow_sha256=$(jq -er '.controller.workflow_sha256' "$binding")
+          expected_runner_sha256=$(jq -er '.controller.runner_sha256' "$binding")
           candidate_branch=$(jq -er '.candidate.branch' "$binding")
           candidate_commit=$(jq -er '.candidate.commit' "$binding")
           candidate_tree=$(jq -er '.candidate.tree' "$binding")
@@ -120,7 +148,7 @@ jobs:
           for value in \
             "$expected_workflow_sha256" "$preregistration_sha256" \
             "$preregistration_audit_sha256" "$candidate_diff_sha256" \
-            "$t0_result_sha256"; do
+            "$t0_result_sha256" "$expected_runner_sha256"; do
             test "${#value}" -eq 64
             test -z "$(printf '%s' "$value" | tr -d '0-9a-f')"
           done
@@ -131,6 +159,10 @@ jobs:
             sha256sum .github/workflows/hosted-t1-riscv.yml | cut -d' ' -f1
           )
           test "$actual_workflow_sha256" = "$expected_workflow_sha256"
+          actual_runner_sha256=$(
+            sha256sum .github/hosted-t1/run_wide_t1_v2.py | cut -d' ' -f1
+          )
+          test "$actual_runner_sha256" = "$expected_runner_sha256"
 
           git fetch --no-tags origin \
             "+refs/heads/$candidate_branch:refs/remotes/origin/$candidate_branch"
@@ -194,7 +226,6 @@ jobs:
               [.key, .value] | @tsv' "$binding"
           )
 
-          mkdir -p hosted-t1
           cp "$binding" hosted-t1/run-binding.json
           jq \
             --arg controller_commit "$GITHUB_SHA" \
@@ -344,11 +375,16 @@ jobs:
         working-directory: ${{ runner.temp }}/candidate
         run: |
           set -o pipefail
-          timeout 1800s python3 autoresearch/cli/stwo-perf ladder t1 \
-            --board riscv \
-            --class wide \
-            --predecessor "$RUNNER_TEMP/frontier" \
-            --out "$GITHUB_WORKSPACE/hosted-t1/t1-result.json" \
+          timeout 1800s python3 \
+            "$GITHUB_WORKSPACE/.github/hosted-t1/run_wide_t1_v2.py" \
+            --repo-root "$RUNNER_TEMP/candidate" \
+            --predecessor-root "$RUNNER_TEMP/frontier" \
+            --out-dir "$GITHUB_WORKSPACE/hosted-t1/raw-abba" \
+            --result "$GITHUB_WORKSPACE/hosted-t1/t1-result.json" \
+            --raw-manifest \
+              "$GITHUB_WORKSPACE/hosted-t1/raw-abba-manifest.json" \
+            --proxy-contract \
+              "$GITHUB_WORKSPACE/hosted-t1/proxy-contract.json" \
             2>&1 | tee "$GITHUB_WORKSPACE/hosted-t1/t1.log"
 
       - name: Record terminal environment
@@ -357,6 +393,10 @@ jobs:
           set -euo pipefail
           workflow_sha256=$(
             sha256sum .github/workflows/hosted-t1-riscv.yml |
+              cut -d' ' -f1
+          )
+          runner_sha256=$(
+            sha256sum .github/hosted-t1/run_wide_t1_v2.py |
               cut -d' ' -f1
           )
           jq -n \
@@ -368,9 +408,10 @@ jobs:
             --arg controller_tree "$(git rev-parse HEAD^{tree})" \
             --arg workflow_ref "$GITHUB_WORKFLOW_REF" \
             --arg workflow_sha256 "$workflow_sha256" \
+            --arg runner_sha256 "$runner_sha256" \
             --arg job_status "${{ job.status }}" \
             '{
-              schema: "stwo-riscv-hosted-t1-environment/v1",
+              schema: "stwo-riscv-hosted-t1-environment/v2",
               completed_at_utc: $completed_at_utc,
               os: $os,
               runner_name: $runner_name,
@@ -379,6 +420,7 @@ jobs:
               controller_tree: $controller_tree,
               workflow_ref: $workflow_ref,
               workflow_sha256: $workflow_sha256,
+              runner_sha256: $runner_sha256,
               job_status: $job_status
             }' > hosted-t1/environment.json
 
