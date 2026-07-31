@@ -1,0 +1,60 @@
+{
+  "schema": "stwo-riscv-hosted-t0-run-binding/v2",
+  "controller": {
+    "branch": "agent/hosted-t0-riscv-wide-c8c66437-v2",
+    "workflow_source_commit": "07ab476294b74ba10bc8a110ff3e1cceefa77a8a",
+    "workflow_sha256": "fb815259ebc20057a507578748cb51cb648304c83e5061c62da92ab2d94e2a33"
+  },
+  "candidate": {
+    "branch": "agent/riscv-parallel-fixed-tables-successor-280a6df9",
+    "commit": "c8c66437f2b7dd1736f30a4b94bc3bc741f3aa7e",
+    "tree": "64716d0a05a58b6d692b2e2703cb9f2a93d5b978",
+    "diff_sha256": "ed162c0ec93ffbb4a031d00b77e37088317b9a5f7257cb60e8a40699c2169fd5",
+    "source_sha256": {
+      "src/frontends/riscv/air/lookups/tables/component.zig": "377115d8a9b839006c6e0a35128977cf76478ed33ecfe7c4dc5d49271487d667",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig": "8fbc91a0472e68b82ff1966662ce58e945f0d7b8651347fcb0fb9ca99cd6af7a",
+      "src/frontends/riscv/mod.zig": "8a15004e1fa005ca6cd6d68a99cd1bd29791411c1e3f27c6eb6fce6a57e5a3ca",
+      "src/frontends/riscv/prover/interaction_table_tasks.zig": "f53514c0c94f7e5099bbcb7048ff6ebddf04bd201af072b923dbd80b31f6fde5",
+      "src/frontends/riscv/prover/interaction_trace.zig": "25a6b3e1e5b46b1fa0e40fc42bc21ab123c54fee6e1fbcb784b85aea7396b837",
+      "src/frontends/riscv/prover/proof_finalize.zig": "d7f54a36f35cad68fec973681ac9644500418707b2a2f863818dc536830b2492",
+      "src/frontends/riscv/testing.zig": "b8e355576daba05ce85cfa2dc5e7f618b21308acabd3d6a0d840426d6f7ab710"
+    },
+    "modified_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/mod.zig",
+      "src/frontends/riscv/prover/interaction_trace.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig",
+      "src/frontends/riscv/testing.zig"
+    ],
+    "added_paths": [
+      "src/frontends/riscv/prover/interaction_table_tasks.zig"
+    ],
+    "changed_paths": [
+      "src/frontends/riscv/air/lookups/tables/component.zig",
+      "src/frontends/riscv/air/lookups/tables/interaction.zig",
+      "src/frontends/riscv/mod.zig",
+      "src/frontends/riscv/prover/interaction_table_tasks.zig",
+      "src/frontends/riscv/prover/interaction_trace.zig",
+      "src/frontends/riscv/prover/proof_finalize.zig",
+      "src/frontends/riscv/testing.zig"
+    ]
+  },
+  "frontier": {
+    "commit": "82a0bf6913ebbb6104428365904c6c91f714029b",
+    "tree": "11bceea1ac7e07061c6e1d23bdbee8a7a5fe7bb2"
+  },
+  "preregistration": {
+    "sha256": "e3ec80807e1fdab37cd87d5d4192f8100a6d89a08da3d9c61c3da49ae066ba2b",
+    "audit_sha256": "6409ce31804cd4da44eb5b1644ed5bf78fa0a26b1985116bf7a64e5fdef76912"
+  },
+  "toolchain": {
+    "zig": "0.15.2"
+  },
+  "experiment": {
+    "board": "riscv",
+    "class": "wide",
+    "phase": "prove",
+    "t0_relative_move_floor": 0.02
+  }
+}
